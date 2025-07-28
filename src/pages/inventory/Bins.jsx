@@ -257,6 +257,11 @@ const handleAddBin = () => {
           <Typography variant="body2" gutterBottom><strong>Capacity:</strong> {selectedBin.capacity}</Typography>
           <Typography variant="body2" gutterBottom><strong>Used:</strong> {selectedBin.used}</Typography>
           <Typography variant="body2" gutterBottom><strong>Description:</strong> {selectedBin.description || 'N/A'}</Typography>
+
+          <Typography variant="body2" gutterBottom><strong>Type:</strong> {selectedBin.type}</Typography>
+          <Typography variant="body2" gutterBottom><strong>Row:</strong> {selectedBin.row}</Typography>
+          <Typography variant="body2" gutterBottom><strong>Rack:</strong> {selectedBin.rack}</Typography>
+          <Typography variant="body2" gutterBottom><strong>Shelf:</strong> {selectedBin.shelf}</Typography>
         </>
       )}
     </Box>
