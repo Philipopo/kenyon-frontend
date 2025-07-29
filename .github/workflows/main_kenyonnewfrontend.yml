@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: build  # Updated to upload only the build folder
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,7 +47,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
-      
+          path: build  # Ensure the downloaded artifact is placed in the build folder
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -61,4 +62,4 @@ jobs:
         with:
           app-name: 'kenyonnewfrontend'
           slot-name: 'Production'
-          package: .
+          package: build  # Updated to deploy only the build folder
