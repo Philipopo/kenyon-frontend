@@ -74,7 +74,7 @@ export default function UserManagement() {
         password: 'Password10', // Default password
       };
 
-      const res = await api.post('auth/register/', payload);
+      await api.post('auth/register/', payload);
       setFormSuccess('✅ User created successfully');
       setFormError('');
       setForm({ name: '', email: '', role: 'staff' });

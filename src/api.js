@@ -2,78 +2,64 @@ import axios from 'axios';
 
 const BASE_URL = 'http://127.0.0.1:8000/api/';
 
-// Create instance
+// Create Axios instance
 const API = axios.create({
   baseURL: BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  withCredentials: true, // Enable for CSRF
+  headers: { 'Content-Type': 'application/json' },
+  withCredentials: true, // for CSRF
 });
 
-const handleLogout = async () => {
+// 🔑 Centralized Logout Function
+export const handleLogout = async () => {
   try {
-    // Optional: tell backend to blacklist the token
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     if (token) {
-      await axios.post('http://127.0.0.1:8000/api/auth/logout/', {}, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      await API.post('auth/logout/', {}); // API instance handles auth headers
     }
   } catch (error) {
     console.warn('Error blacklisting token:', error?.response?.data || error.message);
   }
 
-  // 🧨 Critical: Clear ALL local storage and session
-  localStorage.removeItem('token');
+  // Clear auth state
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
   sessionStorage.clear();
 
-  // 🧼 Optionally reload the app to clear any cached auth state
-  window.location.href = '/login'; // hard reload to flush in-memory state
+  // Redirect
+  window.location.href = '/login';
 };
 
-// Automatically attach access token and CSRF token to every request
+// 🔑 Request Interceptor
 API.interceptors.request.use((config) => {
-  // Attach access token
   const token = localStorage.getItem('accessToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
 
-  // Dynamically set Content-Type for multipart/form-data if FormData is used
   if (config.data instanceof FormData) {
     config.headers['Content-Type'] = 'multipart/form-data';
   }
 
-  // Attach CSRF token if available
   const csrfToken = document.cookie
     .split('; ')
     .find(row => row.startsWith('csrftoken'))
     ?.split('=')[1];
-  if (csrfToken) {
-    config.headers['X-CSRFToken'] = csrfToken;
-  }
+  if (csrfToken) config.headers['X-CSRFToken'] = csrfToken;
 
   return config;
 });
 
-// Automatically handle token expiration
+// 🔑 Response Interceptor (refresh token logic)
 API.interceptors.response.use(
-  response => response,
+  res => res,
   async error => {
     const originalRequest = error.config;
 
     if (
-      error.response &&
-      error.response.status === 401 &&
+      error.response?.status === 401 &&
       !originalRequest._retry &&
       localStorage.getItem('refreshToken')
     ) {
       originalRequest._retry = true;
-
       try {
         const refreshRes = await API.post('token/refresh/', {
           refresh: localStorage.getItem('refreshToken'),
@@ -83,11 +69,10 @@ API.interceptors.response.use(
         localStorage.setItem('accessToken', newAccessToken);
 
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-        return API(originalRequest); // Retry original request
+        return API(originalRequest);
       } catch (refreshError) {
         console.error('🔒 Token refresh failed:', refreshError);
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+        localStorage.clear();
         window.location.href = '/login';
       }
     }

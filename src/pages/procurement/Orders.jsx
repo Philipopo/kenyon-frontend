@@ -7,7 +7,6 @@ import {
   DialogContent, DialogActions, Box, Pagination, CircularProgress, Alert,
   Rating
 } from '@mui/material';
-import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';

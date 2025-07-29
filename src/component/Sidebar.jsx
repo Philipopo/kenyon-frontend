@@ -12,7 +12,6 @@ import {
   Divider,
   Collapse,
   Avatar,
-  IconButton
   
 } from '@mui/material';
 import { 
@@ -317,30 +316,7 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
   }, []);
 
 
-const handleLogout = async () => {
-  try {
-    const refresh = localStorage.getItem('refreshToken');
 
-    await axios.post('http://127.0.0.1:8000/api/auth/logout/', {
-      refresh: refresh,
-    }, {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-      },
-    });
-  } catch (err) {
-    console.error('Logout error:', err);
-  } finally {
-    // Clear tokens
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('userEmail');
-    localStorage.clear(); // optional
-
-    // Force full reload to clear React state
-    window.location.href = '/login';
-  }
-};
 
 
 

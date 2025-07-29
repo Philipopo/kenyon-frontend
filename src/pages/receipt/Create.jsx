@@ -43,7 +43,7 @@ export default function ReceiptCreate() {
     try {
       setLoading(true);
       setError('');
-      const res = await api.post('receipts/create/', form);
+      await api.post('receipts/create/', form);
       setSuccess(`✅ Receipt for "${form.item}" successfully created.`);
       setForm({
         item: '',
@@ -52,6 +52,7 @@ export default function ReceiptCreate() {
         date: '',
         notes: ''
       });
+
     } catch (err) {
       console.error('❌ Error creating receipt:', err);
       const errMsg =

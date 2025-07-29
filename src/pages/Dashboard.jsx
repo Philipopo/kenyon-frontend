@@ -57,7 +57,7 @@ export default function Dashboard() {
   }, []);
 
   const handlePasswordChange = async () => {
-    const { old_password, new_password } = passwordData;
+    const { new_password } = passwordData;
     const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
 
     if (!passwordRegex.test(new_password)) {
