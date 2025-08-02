@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const BASE_URL = 'http://127.0.0.1:8000/api/';
+// 🔑 Use env variable with a fallback (so dev works if env is missing)
+const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:8000/api/';
 
 // Create Axios instance
 const API = axios.create({
@@ -14,19 +15,17 @@ export const handleLogout = async () => {
   try {
     const token = localStorage.getItem('accessToken');
     if (token) {
-      await API.post('auth/logout/', {}); // API instance handles auth headers
+      await API.post('auth/logout/', {});
     }
   } catch (error) {
     console.warn('Error blacklisting token:', error?.response?.data || error.message);
   }
 
-  // Clear auth state
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
   sessionStorage.clear();
 
-  // Redirect
   window.location.href = '/login';
 };
 
