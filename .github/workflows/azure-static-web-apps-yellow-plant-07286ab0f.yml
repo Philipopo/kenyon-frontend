@@ -29,15 +29,13 @@ jobs:
         with:
           node-version: '20'
 
-      # Install dependencies inside kenyon-frontend
+      # Install dependencies (root folder, since package.json is at repo root)
       - name: Install dependencies
         run: npm install
-        working-directory: kenyon-frontend
 
       # Build React app
       - name: Build React app
         run: npm run build
-        working-directory: kenyon-frontend
 
       # Deploy to Azure Static Web Apps
       - name: Build And Deploy
@@ -46,8 +44,8 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_YELLOW_PLANT_07286AB0F }}
           action: "upload"
-          app_location: "kenyon-frontend"   # React folder
-          api_location: ""                  
+          app_location: "/"      # ✅ app is at root
+          api_location: ""       # no functions backend
           output_location: "build"
 
   close_pull_request_job:
