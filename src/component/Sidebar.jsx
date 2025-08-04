@@ -1,6 +1,6 @@
 import API from '../api'; // Make sure this is imported wherever you're using the handler
 import React, { useEffect, useState, useRef } from 'react';
-import logo from '../static images/kenyon_logo-removebg-preview (1).png';
+import logo from '../assets/kenyon_logo-removebg-preview.png';
 import {
   Box,
   Drawer,

@@ -5,7 +5,7 @@ import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import API from '../api';
-import logo from '../static images/kenyon_logo-removebg-preview (1).png';
+import logo from '../assets/kenyon_logo-removebg-preview.png';
 
 
 export default function Signin() {
