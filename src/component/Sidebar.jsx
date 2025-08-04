@@ -1,5 +1,6 @@
 import API from '../api'; // Make sure this is imported wherever you're using the handler
 import React, { useEffect, useState, useRef } from 'react';
+import logo from '../static images/kenyon_logo-removebg-preview (1).png';
 import {
   Box,
   Drawer,
@@ -370,7 +371,18 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
           backgroundColor: mode === 'dark' ? '#424242' : '#212121',
           color: 'common.white',
         }}
+        
       >
+        <img
+                      src={logo}
+                      alt="Kenyon Logo"
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        objectFit: 'contain',
+                        marginBottom: '16px'
+                      }}
+                    />
         <Box
           sx={{
             position: 'relative',

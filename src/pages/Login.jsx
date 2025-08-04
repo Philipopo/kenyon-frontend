@@ -5,6 +5,7 @@ import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import API from '../api';
+import logo from '../static images/kenyon_logo-removebg-preview (1).png';
 
 
 export default function Signin() {
@@ -152,11 +153,22 @@ const handleSubmit = async (e) => {
             gap: 3
           }}
         >
-          <Box textAlign="center" mb={2}>
-            <Typography 
-              variant="h4" 
-              component="h1" 
-              fontWeight="700" 
+          {/* Logo and Heading Section */}
+          <Box sx={{ textAlign: 'center', mb: 2 }}>
+            <img
+              src={logo}
+              alt="Kenyon Logo"
+              style={{
+                width: '80px',
+                height: '80px',
+                objectFit: 'contain',
+                marginBottom: '16px'
+              }}
+            />
+            <Typography
+              variant="h4"
+              component="h1"
+              fontWeight="700"
               color="primary"
               gutterBottom
             >
@@ -209,7 +221,9 @@ const handleSubmit = async (e) => {
                 value={formData.password}
                 onChange={handleChange}
                 error={errors.password}
-                helperText={errors.password ? 'Password must be at least 6 characters' : ''}
+                helperText={
+                  errors.password ? 'Password must be at least 6 characters' : ''
+                }
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -237,11 +251,13 @@ const handleSubmit = async (e) => {
                 }}
               />
 
-              <Box sx={{ 
-                display: 'flex', 
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+              >
                 <FormControlLabel
                   control={
                     <Checkbox
