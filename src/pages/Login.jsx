@@ -130,7 +130,7 @@ const handleSubmit = async (e) => {
       sx={{
         display: 'flex',
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+        background: 'linear-gradient(135deg, #060c15ff 0%, #c3cfe2 100%)',
         alignItems: 'center',
         justifyContent: 'center',
         p: 2
