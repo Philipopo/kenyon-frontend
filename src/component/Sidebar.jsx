@@ -523,10 +523,10 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('userEmail');
     localStorage.clear(); // optionally clear all
-    window.location.href = '/login'; // 🔁 force reload to clean state
+    window.location.href = '/'; // 🔁 force reload to clean state
 
     // 🔁 Force full reload to flush React state
-    window.location.href = '/login';
+    window.location.href = '/';
   }}
 >
   <ListItemIcon sx={{ color: 'inherit' }}>
