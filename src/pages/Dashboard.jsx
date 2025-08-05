@@ -18,11 +18,13 @@ import {
 import {
   Inventory as InventoryIcon,
   LocalShipping as LocalShippingIcon,
-  Warning as AlertIcon,
   Timeline as ActivityIcon,
   CalendarToday as CalendarIcon,
   Add as AddIcon,
   Lock as LockIcon,
+  PostAdd as PostAddIcon,
+  Assessment as AssessmentIcon,
+  ChecklistRtl as ChecklistRtlIcon
 } from '@mui/icons-material';
 import StockLevelWidget from '../widget/StockLevelWidget';
 import AlertsWidget from '../widget/AlertsWidget';
@@ -114,38 +116,107 @@ export default function Dashboard() {
       </Box>
 
       {/* Quick Actions */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      <Grid container spacing={3} sx={{ mb: 3, width: '100%' }}>
         <Grid item xs={12}>
-          <Paper elevation={3} sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-              <LocalShippingIcon sx={{ mr: 1, color: 'secondary.main' }} />
-              Quick Actions
-            </Typography>
+          <Paper elevation={0} sx={{ 
+            p: 3, 
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+            backgroundColor: 'background.paper'
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              mb: 3,
+              justifyContent: 'space-between'
+            }}>
+              <Typography variant="h6" sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                fontWeight: 600
+              }}>
+                <LocalShippingIcon sx={{ 
+                  mr: 1.5, 
+                  fontSize: '1.5rem',
+                  color: 'primary.main' 
+                }} />
+                Quick Actions
+              </Typography>
+              <Chip 
+                label={`${4} actions`} 
+                size="small" 
+                variant="outlined"
+                sx={{ 
+                  borderColor: 'primary.main',
+                  color: 'primary.main'
+                }} 
+              />
+            </Box>
+            
             <Grid container spacing={2}>
               {[
-                { label: 'Create Order', link: '/dashboard/procurement/orders' },
-                { label: 'Receive Stock', link: '/dashboard/inventory/stock' },
-                { label: 'Generate Report', link: '/dashboard/analytics/stock' },
-                { label: 'New Audit', link: '/dashboard/audit' },
+                { 
+                  label: 'Create Order', 
+                  link: '/dashboard/procurement/orders',
+                  icon: <PostAddIcon fontSize="small" />
+                },
+                { 
+                  label: 'Receive Stock', 
+                  link: '/dashboard/inventory/stock',
+                  icon: <InventoryIcon fontSize="small" />
+                },
+                { 
+                  label: 'Generate Report', 
+                  link: '/dashboard/analytics/stock',
+                  icon: <AssessmentIcon fontSize="small" />
+                },
+                { 
+                  label: 'New Audit', 
+                  link: '/dashboard/audit',
+                  icon: <ChecklistRtlIcon fontSize="small" />
+                },
               ].map((action) => (
-                <Grid item xs={6} md={3} key={action.label}>
+                <Grid item xs={12} sm={6} md={3} key={action.label}>
                   <Paper
-                    elevation={1}
+                    elevation={0}
                     sx={{
-                      p: 2,
-                      textAlign: 'center',
+                      p: 2.5,
+                      height: '100%',
+                      minWidth: '240px',
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       cursor: 'pointer',
                       borderRadius: 1,
-                      transition: 'all 0.2s',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      transition: 'all 0.25s ease',
                       '&:hover': {
-                        backgroundColor: 'primary.light',
-                        color: 'primary.contrastText',
-                        transform: 'scale(1.03)',
+                        borderColor: 'primary.main',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                        transform: 'translateY(-2px)'
                       },
                     }}
                     onClick={() => window.location.href = action.link}
                   >
-                    <Typography>{action.label}</Typography>
+                    <Box sx={{
+                      width: 48,
+                      height: 48,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mb: 1.5,
+                      borderRadius: '50%',
+                      border: '1px solid'
+                    }}>
+                      {action.icon}
+                    </Box>
+                    <Typography variant="subtitle1" fontWeight={500}>
+                      {action.label}
+                    </Typography>
                   </Paper>
                 </Grid>
               ))}
@@ -163,6 +234,8 @@ export default function Dashboard() {
               sx={{
                 p: 3,
                 height: '100%',
+                width: '100%',
+                minWidth: '250px',
                 borderRadius: 2,
                 transition: 'transform 0.2s',
                 '&:hover': {
@@ -174,7 +247,7 @@ export default function Dashboard() {
                 <Box sx={{
                   p: 1.5,
                   borderRadius: '50%',
-                  bgcolor: 'grey.200',
+                  border: '1px solid',
                   color: 'text.primary',
                   display: 'flex',
                 }}>
@@ -200,54 +273,16 @@ export default function Dashboard() {
       </Grid>
 
       {/* Main Content */}
-      <Grid container spacing={3}>
-        {/* Stock Levels */}
-        <Grid item xs={12} lg={8}>
-          <Paper elevation={3} sx={{
-            p: { xs: 1, sm: 3 },
-            height: '500px',
-            width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            borderRadius: 2,
-          }}>
-            <Typography variant="h6" gutterBottom sx={{
-              mb: 2,
-              display: 'flex',
-              alignItems: 'center',
-            }}>
-              <InventoryIcon sx={{ mr: 1, color: 'primary.main' }} />
-              Stock Levels
-            </Typography>
-            <Box sx={{ flex: 1, minHeight: 0 }}>
-              <StockLevelWidget />
-            </Box>
-          </Paper>
-        </Grid>
+      <Grid container spacing={3}> 
+        <Box sx={{ flex: 1, minHeight: 0 }}>
+          <StockLevelWidget />
+        </Box>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <AlertsWidget />
+        </Box>
+      </Grid>
 
-        {/* Alerts */}
-        <Grid item xs={12} lg={4}>
-          <Paper elevation={3} sx={{
-            p: 3,
-            height: '500px',
-            display: 'flex',
-            flexDirection: 'column',
-            borderRadius: 2,
-          }}>
-            <Typography variant="h6" gutterBottom sx={{
-              mb: 2,
-              display: 'flex',
-              alignItems: 'center',
-            }}>
-              <AlertIcon sx={{ mr: 1, color: 'error.main' }} />
-              Recent Alerts
-            </Typography>
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-              <AlertsWidget />
-            </Box>
-          </Paper>
-        </Grid>
-
+      <Grid container spacing={3} sx={{mt: 2}}> 
         {/* Activities */}
         <Grid item xs={12} md={6}>
           <Paper elevation={3} sx={{
