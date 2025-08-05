@@ -116,12 +116,12 @@ const menuItems = [
         description: 'Document attachments (PO receipts, test certificates)',
         icon: <StarBorder />
       },
-      {
-        text: 'Approval',
-        path: '/dashboard/procurement/approval',
-        description: 'Approve purchase orders(accessable to only super admin/C.E.O)',
-        icon: <StarBorder />
-      }
+      // {
+      //   text: 'Approval',
+      //   path: '/dashboard/procurement/approval',
+      //   description: 'Approve purchase orders(accessable to only super admin/C.E.O)',
+      //   icon: <StarBorder />
+      // }
     ]
   },
    // New Finance Management Section
