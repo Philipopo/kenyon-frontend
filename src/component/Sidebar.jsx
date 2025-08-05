@@ -8,7 +8,6 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Switch,
   Typography,
   Divider,
   Collapse,
@@ -19,7 +18,6 @@ import {
   Dashboard,
   Inventory,
   Settings,
-  DarkMode,
   Warehouse,
   Receipt,
   Timeline,
@@ -45,9 +43,6 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useThemeContext } from '../context/ThemeContext';
-
-
-
 
 
 import axios from 'axios';
@@ -276,7 +271,7 @@ const menuItems = [
 export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { mode, toggleTheme } = useThemeContext();
+  const { mode } = useThemeContext();
 
   const [openSubMenus, setOpenSubMenus] = useState({});
   const [user, setUser] = useState({
@@ -315,13 +310,6 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
   useEffect(() => {
     fetchUser();
   }, []);
-
-
-
-
-
-
-
 
   const handleImageChange = async (e) => {
     console.log('[Image Change Triggered]');
@@ -374,20 +362,20 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
         
       >
         <img
-                      src={logo}
-                      alt="Kenyon Logo"
-                      style={{
-                        width: '40px',
-                        height: '40px',
-                        objectFit: 'contain',
-                        marginBottom: '16px'
-                      }}
-                    />
+          src={logo}
+          alt="Kenyon Logo"
+          style={{
+            width: 50,
+            height: 50,
+            objectFit: 'contain',
+            marginBottom: '16px'
+          }}
+        />
         <Box
           sx={{
             position: 'relative',
-            width: 70,
-            height: 70,
+            width: 50,
+            height: 50,
             mb: 1.5,
             cursor: 'pointer',
           }}
@@ -404,8 +392,8 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
             src={previewImage || user.profile_image || DEFAULT_AVATAR}
             alt={user.full_name || 'User'}
             sx={{
-              width: 70,
-              height: 70,
+              width: 50,
+              height: 50,
               border: '2px solid #fff',
               objectFit: 'cover',
             }}
@@ -494,50 +482,47 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
 
       <Divider />
       <Box sx={{ p: 2 }}>
-  <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-    <Typography variant="body2" display="flex" alignItems="center" gap={1}>
-      <DarkMode fontSize="small" />
-      Dark Mode
-    </Typography>
-    <Switch checked={mode === 'dark'} onChange={toggleTheme} />
-  </Box>
+        {/* <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+          <Typography variant="body2" display="flex" alignItems="center" gap={1}>
+            <DarkMode fontSize="small" />
+            Dark Mode
+          </Typography>
+          <Switch checked={mode === 'dark'} onChange={toggleTheme} />
+        </Box> */}
 
-  <ListItemButton
-  onClick={async () => {
-    try {
-      const access = localStorage.getItem('accessToken');
-      const refresh = localStorage.getItem('refreshToken');
-      await axios.post('http://127.0.0.1:8000/api/auth/logout/', {
-        refresh: refresh,
-      }, {
-        headers: {
-          Authorization: `Bearer ${access}`,
-        },
-      });
-    } catch (error) {
-      console.warn('Logout request failed:', error.message);
-    }
+        <ListItemButton
+        onClick={async () => {
+          try {
+            const access = localStorage.getItem('accessToken');
+            const refresh = localStorage.getItem('refreshToken');
+            await axios.post('http://127.0.0.1:8000/api/auth/logout/', {
+              refresh: refresh,
+            }, {
+              headers: {
+                Authorization: `Bearer ${access}`,
+              },
+            });
+          } catch (error) {
+            console.warn('Logout request failed:', error.message);
+          }
 
-    // Remove everything auth-related
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('userEmail');
-    localStorage.clear(); // optionally clear all
-    window.location.href = '/'; // 🔁 force reload to clean state
+          // Remove everything auth-related
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('userEmail');
+          localStorage.clear(); // optionally clear all
+          window.location.href = '/'; // 🔁 force reload to clean state
 
-    // 🔁 Force full reload to flush React state
-    window.location.href = '/';
-  }}
->
-  <ListItemIcon sx={{ color: 'inherit' }}>
-    <ExitToApp />
-  </ListItemIcon>
-  <ListItemText primary="Logout" />
-</ListItemButton>
-
-
-</Box>
-
+          // 🔁 Force full reload to flush React state
+          window.location.href = '/';
+        }}
+      >
+        <ListItemIcon sx={{ color: 'inherit' }}>
+          <ExitToApp />
+        </ListItemIcon>
+        <ListItemText primary="Logout" />
+      </ListItemButton>
+      </Box>
     </Box>
   );
 
