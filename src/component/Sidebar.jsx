@@ -1,6 +1,5 @@
 import API from '../api'; // Make sure this is imported wherever you're using the handler
 import React, { useEffect, useState, useRef } from 'react';
-import logo from '../assets/kenyon_logo-removebg-preview.png';
 import {
   Box,
   Drawer,
@@ -361,16 +360,6 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
         }}
         
       >
-        <img
-          src={logo}
-          alt="Kenyon Logo"
-          style={{
-            width: 50,
-            height: 50,
-            objectFit: 'contain',
-            marginBottom: '16px'
-          }}
-        />
         <Box
           sx={{
             position: 'relative',

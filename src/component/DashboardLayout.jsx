@@ -12,6 +12,7 @@ import { Search, Menu as MenuIcon } from '@mui/icons-material';
 import Sidebar from './Sidebar';
 import { useThemeContext } from '../context/ThemeContext';
 import { Outlet } from 'react-router-dom';
+import logo from '../assets/kenyon_logo-removebg-preview.png';
 
 const drawerWidth = 280;
 
@@ -34,17 +35,36 @@ export default function DashboardLayout() {
           backgroundColor: mode === 'dark' ? '#424242' : '#212121',
         }}
       >
-        <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
-          {/* Left side: Menu button and Search box */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
-            <IconButton
-              color="inherit"
-              onClick={handleDrawerToggle}
-              sx={{ display: { sm: 'none' } }}
-            >
-              <MenuIcon />
-            </IconButton>
+        <Toolbar>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              width: '100%',
+            }}
+          >
+            {/* Left: Logo & Menu button (for mobile) */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <img
+                src={logo}
+                alt="Kenyon Logo"
+                style={{
+                  width: 40,
+                  height: 40,
+                  objectFit: 'contain',
+                }}
+              />
+              <IconButton
+                color="inherit"
+                onClick={handleDrawerToggle}
+                sx={{ display: { sm: 'none' } }}
+              >
+                <MenuIcon />
+              </IconButton>
+            </Box>
 
+            {/* Center: Search box */}
             <Box
               sx={{
                 display: 'flex',
@@ -68,19 +88,12 @@ export default function DashboardLayout() {
                 }}
               />
             </Box>
-          </Box>
 
-          {/* Right side: Dark Mode Toggle */}
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              ml: 2,
-            }}
-          >
-            <Typography variant="body2">Dark Mode</Typography>
-            <Switch checked={mode === 'dark'} onChange={toggleTheme} />
+            {/* Right: Dark Mode Toggle */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2">Dark Mode</Typography>
+              <Switch checked={mode === 'dark'} onChange={toggleTheme} />
+            </Box>
           </Box>
         </Toolbar>
       </AppBar>
