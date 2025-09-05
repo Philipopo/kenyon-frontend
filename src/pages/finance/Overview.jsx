@@ -1,100 +1,152 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Typography,
   Paper,
-  Grid,
   Box,
-  Divider,
+  Alert,
   CircularProgress,
+  Grid,
+  Card,
+  CardContent,
 } from '@mui/material';
-import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import API from '../../api';
 
-export default function FinanceOverview() {
-  const [overview, setOverview] = useState(null);
+export default function Overview() {
+  const [hasPageAccess, setHasPageAccess] = useState(false);
+  const [error, setError] = useState('');
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [overview, setOverview] = useState({
+    budget: 0,
+    expenditure: 0,
+    transactions: 0,
+  });
   const [loading, setLoading] = useState(true);
 
+  const fetchOverview = async () => {
+    try {
+      const res = await API.get('finance/overview/');
+      console.log('Overview response:', res.data);
+      setOverview(res.data || { budget: 0, expenditure: 0, transactions: 0 });
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching overview:', err.response?.data || err.message);
+      setError('❌ Failed to fetch overview: ' + (err.response?.data?.detail || err.message));
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchOverview = async () => {
+    const checkPermissions = async () => {
       try {
-        const response = await API.get('finance/overview/');
-        setOverview(response.data);
+        const token = localStorage.getItem('accessToken');
+        console.log('Access token:', token);
+        if (!token) {
+          setError('⚠️ No authentication token found. Please log in.');
+          setHasPageAccess(false);
+          setCheckingPermissions(false);
+          return;
+        }
+        const response = await API.get('/auth/permissions/page/finance_overview/');
+        console.log('Page permission response:', response.data);
+        if (response.data && typeof response.data.allowed === 'boolean') {
+          setHasPageAccess(response.data.allowed);
+          if (!response.data.allowed) {
+            setError(`⚠️ You do not have permission to view this page: ${response.data.reason || 'No reason provided'}`);
+          } else {
+            fetchOverview();
+          }
+        } else {
+          setError('⚠️ Invalid permission response from server.');
+          setHasPageAccess(false);
+        }
       } catch (err) {
-        console.error('Error loading overview:', err);
+        console.error('Error checking permissions:', err.response?.data || err.message);
+        if (err.response?.status === 401) {
+          setError('⚠️ Authentication failed. Please log in again.');
+        } else if (err.response?.status === 404) {
+          setError('⚠️ Permission endpoint not found. Contact support.');
+        } else {
+          setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+        }
+        setHasPageAccess(false);
       } finally {
-        setLoading(false);
+        setCheckingPermissions(false);
       }
     };
-
-    fetchOverview();
+    checkPermissions();
   }, []);
 
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Finance Overview
-        </Typography>
-        <Typography variant="body1" sx={{ mb: 4 }}>
-          Overview of your financial health across the inventory system.
-        </Typography>
+  if (checkingPermissions) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Typography variant="h6">Loading permissions...</Typography>
+      </Container>
+    );
+  }
 
+  if (!hasPageAccess) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Alert severity="error">{error || 'Access Denied: You do not have permission to view this page.'}</Alert>
+      </Container>
+    );
+  }
+
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Typography variant="h4" fontWeight="bold" gutterBottom>
+        Finance Overview
+      </Typography>
+      <Paper elevation={3} sx={{ p: 3 }}>
         {loading ? (
-          <Box display="flex" justifyContent="center" my={4}>
+          <Box display="flex" justifyContent="center" py={5}>
             <CircularProgress />
           </Box>
-        ) : overview ? (
-          <Grid container spacing={4}>
+        ) : error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        ) : (
+          <Grid container spacing={3}>
             <Grid item xs={12} md={4}>
-              <Box sx={{ p: 3, border: 1, borderRadius: 2, textAlign: 'center' }}>
-                <AccountBalanceIcon fontSize="large" color="primary" />
-                <Typography variant="h6" sx={{ mt: 1 }}>
-                  Total Budget
-                </Typography>
-                <Typography variant="subtitle1">₦{overview.budget.toLocaleString()}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Overall financial allocation
-                </Typography>
-              </Box>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" color="text.secondary">
+                    Total Budget
+                  </Typography>
+                  <Typography variant="h4">
+                    ₦{overview.budget.toLocaleString()}
+                  </Typography>
+                </CardContent>
+              </Card>
             </Grid>
-
             <Grid item xs={12} md={4}>
-              <Box sx={{ p: 3, border: 1, borderRadius: 2, textAlign: 'center' }}>
-                <TrendingUpIcon fontSize="large" color="error" />
-                <Typography variant="h6" sx={{ mt: 1 }}>
-                  Total Expenditure
-                </Typography>
-                <Typography variant="subtitle1">₦{overview.expenditure.toLocaleString()}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Spent on procurement, logistics, and ops
-                </Typography>
-              </Box>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" color="text.secondary">
+                    Total Expenditure
+                  </Typography>
+                  <Typography variant="h4">
+                    ₦{overview.expenditure.toLocaleString()}
+                  </Typography>
+                </CardContent>
+              </Card>
             </Grid>
-
             <Grid item xs={12} md={4}>
-              <Box sx={{ p: 3, border: 1, borderRadius: 2, textAlign: 'center' }}>
-                <ReceiptLongIcon fontSize="large" color="success" />
-                <Typography variant="h6" sx={{ mt: 1 }}>
-                  Transactions
-                </Typography>
-                <Typography variant="subtitle1">{overview.transactions} Orders</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Total approved purchase records
-                </Typography>
-              </Box>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" color="text.secondary">
+                    Total Transactions
+                  </Typography>
+                  <Typography variant="h4">
+                    {overview.transactions}
+                  </Typography>
+                </CardContent>
+              </Card>
             </Grid>
           </Grid>
-        ) : (
-          <Typography color="error">Could not load overview.</Typography>
         )}
-
-        <Divider sx={{ my: 4 }} />
-        <Typography variant="body2" color="text.secondary">
-          * This section provides a snapshot of your current financial operations within the inventory and procurement modules.
-        </Typography>
       </Paper>
     </Container>
   );

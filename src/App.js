@@ -1,3 +1,4 @@
+// src/App.js
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeContextProvider } from './context/ThemeContext';
@@ -10,6 +11,10 @@ import DashboardLayout from './component/DashboardLayout';
 
 // PrivateRoute
 import PrivateRoute from './PrivateRoute';
+
+// Forgot Password
+import ResetPassword from './pages/ResetPassword';
+import Profile from './pages/Profile';
 
 // Main Pages
 import Dashboard from './pages/Dashboard';
@@ -28,7 +33,7 @@ import ExpiryTracking from './pages/inventory/Expiry';
 import PurchaseOrders from './pages/procurement/Orders';
 import Requisitions from './pages/procurement/Requisitions';
 import Receiving from './pages/procurement/Receiving';
-import POApproval from './pages/procurement/Approvals'
+import POApproval from './pages/procurement/Approvals';
 
 // Analytics
 import StockAnalytics from './pages/analytics/Stock';
@@ -40,7 +45,7 @@ import ERPIntegration from './pages/settings/ERP';
 import CompanyBranding from './pages/settings/Branding';
 import TrackerSetup from './pages/settings/Trackers';
 
-// Finance 
+// Finance
 import FinanceOverview from './pages/finance/Overview';
 import FinanceCategories from './pages/finance/Categories';
 import FinanceTransactions from './pages/finance/Transactions';
@@ -55,6 +60,12 @@ import ActiveRentals from './pages/rentals/Active';
 import RentalPayments from './pages/rentals/Payments';
 import EquipmentCatalog from './pages/rentals/Catalog';
 
+// Product Documentation
+import ProductDocumentation from './pages/product-documentation/ProductDocumentation';
+import ProductInflow from './pages/product-documentation/ProductInflow';
+import ProductOutflow from './pages/product-documentation/ProductOutflow';
+
+
 function App() {
   return (
     <ThemeContextProvider>
@@ -62,6 +73,8 @@ function App() {
         <Routes>
           {/* Public route */}
           <Route path="/login" element={<SignIn />} />
+          <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
+          <Route path="/profile" element={<Profile />} />  
 
           {/* Redirect root to dashboard */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -70,6 +83,10 @@ function App() {
           <Route element={<PrivateRoute />}>
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
+
+              <Route path="/dashboard/product-documentation" element={<ProductDocumentation />} />
+             <Route path="/dashboard/product-documentation/inflow" element={<ProductInflow />} />
+              <Route path="/dashboard/product-documentation/outflow" element={<ProductOutflow />} />   
 
               <Route path="/dashboard/warehouse" element={<Warehouse />} />
               <Route path="/dashboard/audit" element={<AuditTrail />} />

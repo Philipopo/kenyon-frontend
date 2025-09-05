@@ -1,4 +1,4 @@
-// src/pages/inventory/BinLocations.jsx
+// src/pages/product-documentation/ProductInflow.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Paper, Grid, TextField, Button, Modal, Box, InputAdornment,
@@ -23,12 +23,10 @@ const modalStyle = {
   borderRadius: 2,
 };
 
-const generateBinId = (row, rack, shelf) => `A${row}-R${rack}-S${shelf}`;
-
-export default function BinLocations() {
-  const [bins, setBins] = useState([]);
+export default function ProductInflow() {
+  const [inflows, setInflows] = useState([]);
   const [formData, setFormData] = useState({
-    row: '', rack: '', shelf: '', type: '', capacity: '', used: '', description: '',
+    product_name: '', sku: '', production_date: '', quantity: '', cost: '', input_serial_numbers: '',
   });
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -42,55 +40,40 @@ export default function BinLocations() {
   const [hasPermission, setHasPermission] = useState(false);
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
-  const [selectedBin, setSelectedBin] = useState(null);
-  const binsPerPage = 10;
-
-  const fetchBins = async () => {
-    try {
-      const res = await API.get('inventory/bins/');
-      console.log('Bins response:', res.data);
-      setBins(res.data || []);
-    } catch (err) {
-      console.error('Error fetching bins:', err.response?.data || err.message);
-      setError('❌ Failed to fetch bins: ' + (err.response?.data?.detail || err.message));
-    }
-  };
+  const [selectedInflow, setSelectedInflow] = useState(null);
+  const inflowsPerPage = 10;
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
-        console.log('Access token:', token);
         if (!token) {
           setError('⚠️ No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/storage_bins/');
-        console.log('Page permission response:', pageResponse.data);
+        const pageResponse = await API.get('/auth/permissions/page/product_inflow/');
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
           setCheckingPermissions(false);
           return;
         }
-        const [updateResponse, deleteResponse] = await Promise.all([
-          API.get("/auth/permissions/action/update_storage_bin/"),
-          API.get("/auth/permissions/action/delete_storage_bin/"),
+        const [createResponse, updateResponse, deleteResponse] = await Promise.all([
+          API.get('/auth/permissions/action/create_product_inflow/'),
+          API.get('/auth/permissions/action/update_product_inflow/'),
+          API.get('/auth/permissions/action/delete_product_inflow/'),
         ]);
         setHasUpdatePermission(updateResponse.data.allowed || false);
         setHasDeletePermission(deleteResponse.data.allowed || false);
-        fetchBins();
-      } catch (err) {
-        console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else if (err.response?.status === 404) {
-          setError('⚠️ Permission endpoint not found. Contact support.');
+        if (createResponse.data.allowed) {
+          fetchInflows();
         } else {
-          setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+          setError('⚠️ You do not have permission to create product inflows.');
         }
+      } catch (err) {
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPermission(false);
       } finally {
         setCheckingPermissions(false);
@@ -99,39 +82,52 @@ export default function BinLocations() {
     checkPermissions();
   }, []);
 
-  const handleOpen = async (bin = null) => {
+  const fetchInflows = async () => {
+    try {
+      const res = await API.get('product-documentation/inflows/');
+      setInflows(res.data || []);
+    } catch (err) {
+      setError('❌ Failed to fetch inflows: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleOpen = async (inflow = null) => {
     if (!hasPermission) {
-      setError('⚠️ You do not have permission to view bin locations.');
+      setError('⚠️ You do not have permission to view product inflows.');
       return;
     }
     try {
-      const action = bin ? "update_storage_bin" : "create_storage_bin";
+      const action = inflow ? 'update_product_inflow' : 'create_product_inflow';
       const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
-      console.log(`${action} permission response:`, actionResponse.data);
       if (!actionResponse.data.allowed) {
-        setError(`⚠️ You do not have permission to ${bin ? "update" : "create"} storage bins: ${actionResponse.data.reason || 'No reason provided'}`);
+        setError(`⚠️ You do not have permission to ${inflow ? 'update' : 'create'} product inflows: ${actionResponse.data.reason || 'No reason provided'}`);
         return;
       }
-      if (bin) {
+      if (inflow) {
         setFormData({
-          row: bin.row, rack: bin.rack, shelf: bin.shelf, type: bin.type,
-          capacity: bin.capacity.toString(), used: bin.used.toString(), description: bin.description || '',
+          product_name: inflow.product_name,
+          sku: inflow.sku,
+          production_date: inflow.production_date,
+          quantity: inflow.quantity.toString(),
+          cost: inflow.cost.toString(),
+          input_serial_numbers: inflow.serial_numbers.map(s => s.serial_number).join(', '),
         });
-        setEditId(bin.id);
+        setEditId(inflow.id);
       } else {
-        setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', used: '', description: '' });
+        setFormData({
+          product_name: '', sku: '', production_date: '', quantity: '', cost: '', input_serial_numbers: '',
+        });
         setEditId(null);
       }
       setOpen(true);
     } catch (err) {
-      console.error(`Error checking ${bin ? "update" : "create"} permission:`, err.response?.data || err.message);
-      setError(`❌ Failed to check ${bin ? "update" : "create"} permission: ${err.response?.data?.detail || err.message}`);
+      setError(`❌ Failed to check ${inflow ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
 
   const handleClose = () => {
     setOpen(false);
-    setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', used: '', description: '' });
+    setFormData({ product_name: '', sku: '', production_date: '', quantity: '', cost: '', input_serial_numbers: '' });
     setEditId(null);
     setError('');
     setSuccess('');
@@ -139,7 +135,7 @@ export default function BinLocations() {
 
   const handleDeleteOpen = (id) => {
     if (!hasDeletePermission) {
-      setError("⚠️ You do not have permission to delete bins.");
+      setError('⚠️ You do not have permission to delete inflows.');
       return;
     }
     setDeleteId(id);
@@ -158,48 +154,49 @@ export default function BinLocations() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSaveBin = async () => {
-    const { row, rack, shelf, type, capacity, used, description } = formData;
-    if (!row || !rack || !shelf || !type || !capacity || !used) {
+  const handleSaveInflow = async () => {
+    const { product_name, sku, production_date, quantity, cost, input_serial_numbers } = formData;
+    if (!product_name || !sku || !production_date || !quantity || !cost) {
       setError('⚠️ Please fill in all required fields.');
       return;
     }
-    if (Number(capacity) <= 0 || Number(used) < 0) {
-      setError('⚠️ Capacity must be positive and used must be non-negative.');
+    if (Number(quantity) <= 0 || Number(cost) <= 0) {
+      setError('⚠️ Quantity and cost must be positive.');
       return;
     }
-    if (Number(used) > Number(capacity)) {
-      setError('⚠️ Used capacity cannot exceed total capacity.');
+    const serials = input_serial_numbers ? input_serial_numbers.split(',').map(s => s.trim()).filter(s => s) : [];
+    if (serials.length && serials.length !== Number(quantity)) {
+      setError('⚠️ Number of serial numbers must match quantity.');
       return;
     }
-    const bin_id = editId ? formData.bin_id || generateBinId(row, rack, shelf) : generateBinId(row, rack, shelf);
     const payload = {
-      bin_id, row, rack, shelf, type,
-      capacity: Number(capacity), used: Number(used), description,
+      product_name,
+      sku,
+      production_date,
+      quantity: Number(quantity),
+      cost: Number(cost),
+      input_serial_numbers: serials,
     };
     try {
       if (editId) {
-        await API.patch(`inventory/bins/${editId}/`, payload);
-        setSuccess('✅ Bin updated successfully');
+        await API.patch(`product-documentation/inflows/${editId}/`, payload);
+        setSuccess('✅ Inflow updated successfully');
       } else {
-        await API.post('inventory/bins/', payload);
-        setSuccess('✅ Bin created successfully');
+        await API.post('product-documentation/inflows/', payload);
+        setSuccess('✅ Inflow created successfully');
       }
-      fetchBins();
+      fetchInflows();
       handleClose();
     } catch (err) {
-      console.error(`${editId ? 'Updating' : 'Adding'} bin error:`, err.response?.data || err.message);
-      let errorMsg = `Failed to ${editId ? 'update' : 'add'} bin: Unable to process request.`;
+      let errorMsg = `Failed to ${editId ? 'update' : 'add'} inflow: Unable to process request.`;
       if (err.response?.status === 403) {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
       } else if (err.response?.status === 400 && err.response?.data) {
         errorMsg = Object.entries(err.response.data)
           .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
           .join('; ');
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
       } else {
-        errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} bin: Network error.`;
+        errorMsg = err.response?.data?.detail || err.message;
       }
       setError(`❌ ${errorMsg}`);
     }
@@ -207,30 +204,27 @@ export default function BinLocations() {
 
   const handleDelete = async () => {
     try {
-      await API.delete(`inventory/bins/${deleteId}/`);
-      setSuccess('✅ Bin deleted successfully');
+      await API.delete(`product-documentation/inflows/${deleteId}/`);
+      setSuccess('✅ Inflow deleted successfully');
       setDeleteOpen(false);
       setDeleteId(null);
-      fetchBins();
+      fetchInflows();
     } catch (err) {
-      console.error('Error deleting bin:', err.response?.data || err.message);
-      let errorMsg = 'Failed to delete bin: Unable to process request.';
+      let errorMsg = 'Failed to delete inflow: Unable to process request.';
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete bins.'}`;
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete inflows.'}`;
       } else {
-        errorMsg = err.message || 'Failed to delete bin: Network error.';
+        errorMsg = err.response?.data?.detail || err.message;
       }
       setError(`❌ ${errorMsg}`);
     }
   };
 
-  const filteredBins = bins.filter((bin) =>
-    Object.values(bin).some((val) => String(val).toLowerCase().includes(search.toLowerCase()))
+  const filteredInflows = inflows.filter((inflow) =>
+    Object.values(inflow).some((val) => String(val).toLowerCase().includes(search.toLowerCase()))
   );
 
-  const paginatedBins = filteredBins.slice((page - 1) * binsPerPage, page * binsPerPage);
+  const paginatedInflows = filteredInflows.slice((page - 1) * inflowsPerPage, page * inflowsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -265,7 +259,7 @@ export default function BinLocations() {
         </Alert>
       )}
       <Typography variant="h4" sx={{ mb: 3 }}>
-        Bin Locations
+        Product Inflow
       </Typography>
 
       <Grid container justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -273,7 +267,7 @@ export default function BinLocations() {
           <TextField
             fullWidth
             size="small"
-            placeholder="Search bins..."
+            placeholder="Search inflows..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -290,48 +284,48 @@ export default function BinLocations() {
         </Grid>
         <Grid item>
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpen()}>
-            Add New Bin
+            Add New Inflow
           </Button>
         </Grid>
       </Grid>
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
-          Warehouse Bin Map
+          Inflow Records
         </Typography>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell><strong>Bin ID</strong></TableCell>
-              <TableCell><strong>Row</strong></TableCell>
-              <TableCell><strong>Rack</strong></TableCell>
-              <TableCell><strong>Shelf</strong></TableCell>
-              <TableCell><strong>Type</strong></TableCell>
-              <TableCell><strong>Capacity</strong></TableCell>
-              <TableCell><strong>Used</strong></TableCell>
+              <TableCell><strong>Product Name</strong></TableCell>
+              <TableCell><strong>SKU</strong></TableCell>
+              <TableCell><strong>Serial Numbers</strong></TableCell>
+              <TableCell><strong>Production Date</strong></TableCell>
+              <TableCell><strong>Quantity</strong></TableCell>
+              <TableCell><strong>Cost</strong></TableCell>
               <TableCell><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {paginatedBins.length > 0 ? (
-              paginatedBins.map((bin) => (
+            {paginatedInflows.length > 0 ? (
+              paginatedInflows.map((inflow) => (
                 <TableRow
-                  key={bin.id}
+                  key={inflow.id}
                   hover
                   sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
                 >
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.bin_id}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.row}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.rack}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.shelf}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.type}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.capacity}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.used}</TableCell>
+                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.product_name}</TableCell>
+                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.sku}</TableCell>
+                  <TableCell onClick={() => setSelectedInflow(inflow)}>
+                    {inflow.serial_numbers.length ? inflow.serial_numbers.map(s => s.serial_number).join(', ') : 'N/A'}
+                  </TableCell>
+                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.production_date}</TableCell>
+                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.quantity}</TableCell>
+                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.cost}</TableCell>
                   <TableCell>
-                    <IconButton onClick={() => handleOpen(bin)} disabled={!hasUpdatePermission}>
+                    <IconButton onClick={() => handleOpen(inflow)} disabled={!hasUpdatePermission}>
                       <EditIcon />
                     </IconButton>
-                    <IconButton onClick={() => handleDeleteOpen(bin.id)} disabled={!hasDeletePermission}>
+                    <IconButton onClick={() => handleDeleteOpen(inflow.id)} disabled={!hasDeletePermission}>
                       <DeleteIcon />
                     </IconButton>
                   </TableCell>
@@ -339,16 +333,16 @@ export default function BinLocations() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={8}>No bins found.</TableCell>
+                <TableCell colSpan={7}>No inflows found.</TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
 
-        {filteredBins.length > binsPerPage && (
+        {filteredInflows.length > inflowsPerPage && (
           <Box mt={4} display="flex" justifyContent="center">
             <Pagination
-              count={Math.ceil(filteredBins.length / binsPerPage)}
+              count={Math.ceil(filteredInflows.length / inflowsPerPage)}
               page={page}
               onChange={(_, value) => setPage(value)}
               color="primary"
@@ -357,7 +351,7 @@ export default function BinLocations() {
         )}
       </Paper>
 
-      <Modal open={!!selectedBin} onClose={() => setSelectedBin(null)}>
+      <Modal open={!!selectedInflow} onClose={() => setSelectedInflow(null)}>
         <Box
           sx={{
             position: 'absolute',
@@ -372,34 +366,28 @@ export default function BinLocations() {
             outline: 'none',
           }}
         >
-          {selectedBin && (
+          {selectedInflow && (
             <>
               <Typography variant="h6" gutterBottom>
-                Bin Details: {selectedBin.bin_id}
+                Inflow Details: {selectedInflow.product_name}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Type:</strong> {selectedBin.type}
+                <strong>SKU:</strong> {selectedInflow.sku}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Row:</strong> {selectedBin.row}
+                <strong>Serial Numbers:</strong> {selectedInflow.serial_numbers.length ? selectedInflow.serial_numbers.map(s => s.serial_number).join(', ') : 'N/A'}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Rack:</strong> {selectedBin.rack}
+                <strong>Production Date:</strong> {selectedInflow.production_date}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Shelf:</strong> {selectedBin.shelf}
+                <strong>Quantity:</strong> {selectedInflow.quantity}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Capacity:</strong> {selectedBin.capacity}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Used:</strong> {selectedBin.used}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Description:</strong> {selectedBin.description || 'N/A'}
+                <strong>Cost:</strong> {selectedInflow.cost}
               </Typography>
               <Box sx={{ mt: 3, textAlign: 'right' }}>
-                <Button onClick={() => setSelectedBin(null)} variant="contained">
+                <Button onClick={() => setSelectedInflow(null)} variant="contained">
                   Close
                 </Button>
               </Box>
@@ -411,100 +399,92 @@ export default function BinLocations() {
       <Modal open={open} onClose={handleClose}>
         <Box sx={modalStyle}>
           <Typography variant="h6" gutterBottom>
-            {editId ? 'Update Bin Slot' : 'Add New Bin Slot'}
+            {editId ? 'Update Product Inflow' : 'Add New Product Inflow'}
           </Typography>
           <Grid container spacing={2}>
-            <Grid item xs={4}>
+            <Grid item xs={6}>
               <TextField
-                label="Row"
-                name="row"
-                value={formData.row}
+                label="Product Name"
+                name="product_name"
+                value={formData.product_name}
                 onChange={handleChange}
                 fullWidth
                 required
-                error={formData.row === '' && error.includes('required')}
-                helperText={formData.row === '' && error.includes('required') ? 'Row is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={4}>
-              <TextField
-                label="Rack"
-                name="rack"
-                value={formData.rack}
-                onChange={handleChange}
-                fullWidth
-                required
-                error={formData.rack === '' && error.includes('required')}
-                helperText={formData.rack === '' && error.includes('required') ? 'Rack is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={4}>
-              <TextField
-                label="Shelf"
-                name="shelf"
-                value={formData.shelf}
-                onChange={handleChange}
-                fullWidth
-                required
-                error={formData.shelf === '' && error.includes('required')}
-                helperText={formData.shelf === '' && error.includes('required') ? 'Shelf is required' : ''}
+                error={formData.product_name === '' && error.includes('required')}
+                helperText={formData.product_name === '' && error.includes('required') ? 'Product Name is required' : ''}
               />
             </Grid>
             <Grid item xs={6}>
               <TextField
-                label="Type"
-                name="type"
-                value={formData.type}
+                label="SKU"
+                name="sku"
+                value={formData.sku}
                 onChange={handleChange}
                 fullWidth
                 required
-                error={formData.type === '' && error.includes('required')}
-                helperText={formData.type === '' && error.includes('required') ? 'Type is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={3}>
-              <TextField
-                label="Capacity"
-                name="capacity"
-                type="number"
-                value={formData.capacity}
-                onChange={handleChange}
-                fullWidth
-                required
-                error={formData.capacity === '' && error.includes('required')}
-                helperText={formData.capacity === '' && error.includes('required') ? 'Capacity is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={3}>
-              <TextField
-                label="Used"
-                name="used"
-                type="number"
-                value={formData.used}
-                onChange={handleChange}
-                fullWidth
-                required
-                error={formData.used === '' && error.includes('required')}
-                helperText={formData.used === '' && error.includes('required') ? 'Used is required' : ''}
+                error={formData.sku === '' && error.includes('required')}
+                helperText={formData.sku === '' && error.includes('required') ? 'SKU is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
-                label="Description"
-                name="description"
-                value={formData.description}
+                label="Serial Numbers (comma-separated)"
+                name="input_serial_numbers"
+                value={formData.input_serial_numbers}
                 onChange={handleChange}
                 fullWidth
                 multiline
                 rows={3}
+                helperText="Enter serial numbers separated by commas (e.g., SN001, SN002). Must match quantity."
+                error={error.includes('serial numbers')}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                label="Production Date"
+                name="production_date"
+                type="date"
+                value={formData.production_date}
+                onChange={handleChange}
+                fullWidth
+                required
+                InputLabelProps={{ shrink: true }}
+                error={formData.production_date === '' && error.includes('required')}
+                helperText={formData.production_date === '' && error.includes('required') ? 'Production Date is required' : ''}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                label="Quantity"
+                name="quantity"
+                type="number"
+                value={formData.quantity}
+                onChange={handleChange}
+                fullWidth
+                required
+                error={formData.quantity === '' && error.includes('required')}
+                helperText={formData.quantity === '' && error.includes('required') ? 'Quantity is required' : ''}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                label="Cost"
+                name="cost"
+                type="number"
+                value={formData.cost}
+                onChange={handleChange}
+                fullWidth
+                required
+                error={formData.cost === '' && error.includes('required')}
+                helperText={formData.cost === '' && error.includes('required') ? 'Cost is required' : ''}
               />
             </Grid>
             <Grid item xs={12} textAlign="right">
               <Button onClick={handleClose} sx={{ mr: 1 }}>
                 Cancel
               </Button>
-              <Button variant="contained" onClick={handleSaveBin}>
-                {editId ? 'Update Bin' : 'Save Bin'}
+              <Button variant="contained" onClick={handleSaveInflow}>
+                {editId ? 'Update Inflow' : 'Save Inflow'}
               </Button>
             </Grid>
           </Grid>

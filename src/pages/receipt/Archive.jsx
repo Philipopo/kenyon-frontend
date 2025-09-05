@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+// src/pages/ReceiptArchive.jsx
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Typography,
@@ -7,14 +8,14 @@ import {
   TextField,
   InputAdornment,
   Table,
+  TableBody,
+  TableCell,
+  TableContainer,
   TableHead,
   TableRow,
-  TableCell,
-  TableBody,
-  TableContainer,
   Pagination,
-  CircularProgress,
   Alert,
+  CircularProgress,
   Button,
   Dialog,
   DialogTitle,
@@ -23,146 +24,168 @@ import {
   Grid,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
-import ReceiptIcon from '@mui/icons-material/ReceiptLong';
-import PrintIcon from '@mui/icons-material/Print';
-import DownloadIcon from '@mui/icons-material/Download';
 import AddIcon from '@mui/icons-material/Add';
 import api from '../../api';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import { Document, Packer, Paragraph, TextRun } from 'docx';
-import { saveAs } from 'file-saver';
 
 export default function ReceiptArchive() {
+  const [hasPageAccess, setHasPageAccess] = useState(false);
+  const [canCreateReceipt, setCanCreateReceipt] = useState(false);
+  const [error, setError] = useState('');
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [receipts, setReceipts] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [selectedReceipt, setSelectedReceipt] = useState(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
-  const [formLoading, setFormLoading] = useState(false);
-  const [formError, setFormError] = useState(null); // ✅ FIXED: added formError
   const [form, setForm] = useState({
-    reference: '',
+    item: '',
+    quantity: '',
     issued_by: '',
     date: '',
-    amount: '',
   });
-
-  const previewRef = useRef();
+  const [formError, setFormError] = useState(null);
+  const [formLoading, setFormLoading] = useState(false);
   const itemsPerPage = 10;
 
-  const fetchReceipts = async () => {
-    try {
-      const res = await api.get('receipts/archive/');
-      setReceipts(res.data);
-    } catch (err) {
-      console.error('❌ Error fetching receipts:', err);
-      setError(err.response?.data?.detail || 'Failed to load receipts.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchReceipts();
+    const checkPermissions = async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        console.log('Access token:', token ? 'Present' : 'Missing');
+        if (!token) {
+          setError('⚠️ No authentication token found. Please log in.');
+          setHasPageAccess(false);
+          setCanCreateReceipt(false);
+          setCheckingPermissions(false);
+          return;
+        }
+        console.log('Fetching page permission from /auth/permissions/page/receipt_archive/');
+        const pageResponse = await api.get('/auth/permissions/page/receipt_archive/');
+        console.log('Page permission response:', pageResponse.data);
+        setHasPageAccess(pageResponse.data.allowed || false);
+        if (!pageResponse.data.allowed) {
+          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+        }
+
+        console.log('Fetching action permission from /auth/permissions/action/create_receipt/');
+        const actionResponse = await api.get('/auth/permissions/action/create_receipt/');
+        console.log('Action permission response:', actionResponse.data);
+        setCanCreateReceipt(actionResponse.data.allowed || false);
+        if (!actionResponse.data.allowed && !error) {
+          setError(`⚠️ You do not have permission to create a receipt: ${actionResponse.data.reason || 'No reason provided'}`);
+        }
+
+        if (pageResponse.data.allowed) {
+          try {
+            const res = await api.get('/receipts/');
+            setReceipts(res.data);
+          } catch (err) {
+            console.error('❌ Error fetching receipts:', err);
+            setError(
+              err.response?.data?.detail ||
+              err.response?.data?.message ||
+              'Failed to load receipts.'
+            );
+          } finally {
+            setLoading(false);
+          }
+        }
+      } catch (err) {
+        console.error('Error checking permissions:', err.response?.data || err.message);
+        if (err.response?.status === 401) {
+          setError('⚠️ Authentication failed. Please log in again.');
+        } else if (err.response?.status === 404) {
+          setError('⚠️ Permission endpoint not found. Check backend routing.');
+        } else {
+          setError(`⚠️ Failed to check permissions: ${err.response?.data?.reason || err.message}`);
+        }
+        setHasPageAccess(false);
+        setCanCreateReceipt(false);
+      } finally {
+        setCheckingPermissions(false);
+      }
+    };
+
+    checkPermissions();
   }, []);
-
-  const handlePreview = (receipt) => {
-    setSelectedReceipt(receipt);
-    setPreviewOpen(true);
-  };
-
-  const handlePdfDownload = async () => {
-    const canvas = await html2canvas(previewRef.current);
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF();
-    pdf.addImage(imgData, 'PNG', 10, 10, 190, 0);
-    pdf.save(`${selectedReceipt.reference}.pdf`);
-  };
-
-  const handleDocxDownload = async () => {
-    const doc = new Document({
-      sections: [
-        {
-          properties: {},
-          children: [
-            new Paragraph({ children: [new TextRun({ text: 'Receipt', bold: true, size: 36 })] }),
-            new Paragraph({ children: [new TextRun(`Reference: ${selectedReceipt.reference}`)] }),
-            new Paragraph({ children: [new TextRun(`Issued By: ${selectedReceipt.issued_by}`)] }),
-            new Paragraph({ children: [new TextRun(`Date: ${new Date(selectedReceipt.date).toLocaleDateString()}`)] }),
-            new Paragraph({ children: [new TextRun(`Amount: ₦${parseFloat(selectedReceipt.amount).toLocaleString()}`)] }),
-          ],
-        },
-      ],
-    });
-    const blob = await Packer.toBlob(doc);
-    saveAs(blob, `${selectedReceipt.reference}.docx`);
-  };
 
   const handleFormChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   const handleCreateReceipt = async () => {
-    if (!form.reference || !form.issued_by || !form.date || !form.amount) {
-      setFormError('⚠ Please fill in all fields.');
+    if (!form.item || !form.quantity || !form.issued_by || !form.date) {
+      setFormError('⚠ Please fill all required fields.');
+      return;
+    }
+
+    if (!canCreateReceipt) {
+      setFormError('⚠ You do not have permission to create a receipt.');
       return;
     }
 
     try {
       setFormLoading(true);
+      setFormError(null);
       const payload = {
-        reference: form.reference.trim(),
+        item: form.item.trim(),
+        quantity: form.quantity,
         issued_by: form.issued_by.trim(),
         date: form.date,
-        amount: parseFloat(form.amount),
       };
-      const res = await api.post('receipts/archive/', payload);
+      const res = await api.post('/receipts/', payload);
       setReceipts([res.data, ...receipts]);
       setFormOpen(false);
-      setForm({ reference: '', issued_by: '', date: '', amount: '' });
-      setFormError(null);
+      setForm({ item: '', quantity: '', issued_by: '', date: '' });
     } catch (err) {
-      if (err.response?.data) {
-        const data = err.response.data;
-        const errorMessages = Object.entries(data)
-          .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
-          .join('\n');
-        setFormError(`❌ Submission Failed:\n${errorMessages}`);
-      } else {
-        setFormError('❌ Something went wrong. Please try again.');
-      }
+      console.error('❌ Error creating receipt:', err);
+      setFormError(
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        'Failed to create receipt.'
+      );
     } finally {
       setFormLoading(false);
     }
   };
 
-  const filtered = receipts.filter(
-    (receipt) =>
-      receipt.reference?.toLowerCase().includes(search.toLowerCase()) ||
-      receipt.issued_by?.toLowerCase().includes(search.toLowerCase())
+  const filteredReceipts = receipts.filter((receipt) =>
+    receipt.item?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  const paginatedReceipts = filteredReceipts.slice(
+    (page - 1) * itemsPerPage,
+    page * itemsPerPage
+  );
+
+  if (checkingPermissions) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Typography variant="h6">Loading permissions...</Typography>
+      </Container>
+    );
+  }
+
+  if (!hasPageAccess) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Alert severity="error">{error || 'Access Denied: You do not have permission to view this page.'}</Alert>
+      </Container>
+    );
+  }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Receipt Archive
-        </Typography>
-        <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          Centralized records of all issued receipts
-        </Typography>
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Typography variant="h4" fontWeight="bold" gutterBottom>
+        Receipt Archive
+      </Typography>
 
+      <Paper elevation={3} sx={{ p: 3 }}>
         <Box display="flex" justifyContent="space-between" mb={2}>
           <TextField
-            placeholder="Search receipts..."
             variant="outlined"
             size="small"
+            placeholder="Search by item..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -176,9 +199,11 @@ export default function ReceiptArchive() {
               ),
             }}
           />
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)}>
-            Add Receipt
-          </Button>
+          {canCreateReceipt && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)}>
+              Add Receipt
+            </Button>
+          )}
         </Box>
 
         {loading ? (
@@ -186,7 +211,9 @@ export default function ReceiptArchive() {
             <CircularProgress />
           </Box>
         ) : error ? (
-          <Alert severity="error">{error}</Alert>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
         ) : (
           <>
             <TableContainer>
@@ -194,40 +221,37 @@ export default function ReceiptArchive() {
                 <TableHead>
                   <TableRow>
                     <TableCell>S/N</TableCell>
-                    <TableCell>Reference</TableCell>
+                    <TableCell>Item</TableCell>
+                    <TableCell>Quantity</TableCell>
                     <TableCell>Issued By</TableCell>
                     <TableCell>Date</TableCell>
-                    <TableCell>Amount (₦)</TableCell>
-                    <TableCell>Action</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paginated.map((receipt, index) => (
-                    <TableRow key={receipt.id}>
-                      <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
-                      <TableCell>
-                        <Box display="flex" alignItems="center" gap={1}>
-                          <ReceiptIcon fontSize="small" color="primary" />
-                          {receipt.reference}
-                        </Box>
-                      </TableCell>
-                      <TableCell>{receipt.issued_by}</TableCell>
-                      <TableCell>{new Date(receipt.date).toLocaleDateString()}</TableCell>
-                      <TableCell>{parseFloat(receipt.amount).toLocaleString()}</TableCell>
-                      <TableCell>
-                        <Button size="small" variant="outlined" onClick={() => handlePreview(receipt)}>
-                          Preview
-                        </Button>
+                  {paginatedReceipts.length > 0 ? (
+                    paginatedReceipts.map((receipt, index) => (
+                      <TableRow key={receipt.id}>
+                        <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
+                        <TableCell>{receipt.item}</TableCell>
+                        <TableCell>{receipt.quantity}</TableCell>
+                        <TableCell>{receipt.issued_by}</TableCell>
+                        <TableCell>{new Date(receipt.date).toLocaleDateString()}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={5} align="center">
+                        No results found.
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )}
                 </TableBody>
               </Table>
             </TableContainer>
 
             <Box display="flex" justifyContent="center" mt={3}>
               <Pagination
-                count={Math.ceil(filtered.length / itemsPerPage)}
+                count={Math.ceil(filteredReceipts.length / itemsPerPage)}
                 page={page}
                 onChange={(_, value) => setPage(value)}
                 color="primary"
@@ -237,88 +261,65 @@ export default function ReceiptArchive() {
         )}
       </Paper>
 
-      {/* Preview Modal */}
-      <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Receipt Preview</DialogTitle>
-        <DialogContent>
-          {selectedReceipt && (
-            <Box ref={previewRef} p={4} sx={{ backgroundColor: '#f9f9f9', borderRadius: 2, boxShadow: 3 }}>
-              <Typography variant="h5" gutterBottom align="center">
-                🧾 Official Receipt
-              </Typography>
-              <Box mt={2}>
-                <Typography><strong>Reference:</strong> {selectedReceipt.reference}</Typography>
-                <Typography><strong>Issued By:</strong> {selectedReceipt.issued_by}</Typography>
-                <Typography><strong>Date:</strong> {new Date(selectedReceipt.date).toLocaleDateString()}</Typography>
-                <Typography><strong>Amount:</strong> ₦{parseFloat(selectedReceipt.amount).toLocaleString()}</Typography>
-              </Box>
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handlePdfDownload} startIcon={<PrintIcon />} variant="contained" color="primary">
-            Download PDF
-          </Button>
-          <Button onClick={handleDocxDownload} startIcon={<DownloadIcon />} variant="outlined">
-            Download DOCX
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Create Receipt Modal */}
-      <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Add New Receipt</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                label="Reference"
-                name="reference"
-                fullWidth
-                value={form.reference}
-                onChange={handleFormChange}
-              />
+      {canCreateReceipt && (
+        <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>Add Receipt</DialogTitle>
+          <DialogContent>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12}>
+                <TextField
+                  label="Item"
+                  name="item"
+                  fullWidth
+                  value={form.item}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Quantity"
+                  name="quantity"
+                  type="number"
+                  fullWidth
+                  value={form.quantity}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Issued By"
+                  name="issued_by"
+                  fullWidth
+                  value={form.issued_by}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Date"
+                  name="date"
+                  type="date"
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  value={form.date}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                label="Issued By"
-                name="issued_by"
-                fullWidth
-                value={form.issued_by}
-                onChange={handleFormChange}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField
-                label="Date"
-                name="date"
-                type="date"
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-                value={form.date}
-                onChange={handleFormChange}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField
-                label="Amount"
-                name="amount"
-                type="number"
-                fullWidth
-                value={form.amount}
-                onChange={handleFormChange}
-              />
-            </Grid>
-          </Grid>
-          {formError && <Alert severity="error" sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>{formError}</Alert>}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setFormOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateReceipt} disabled={formLoading}>
-            Submit
-          </Button>
-        </DialogActions>
-      </Dialog>
+            {formError && <Alert severity="error" sx={{ mt: 2 }}>{formError}</Alert>}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button variant="contained" onClick={handleCreateReceipt} disabled={formLoading}>
+              Submit
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </Container>
   );
 }

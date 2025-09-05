@@ -1,3 +1,4 @@
+// src/pages/rentals/Catalog.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
@@ -23,22 +24,65 @@ export default function EquipmentCatalog() {
   });
   const [formAlert, setFormAlert] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
+  const [hasPageAccess, setHasPageAccess] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [canCreateEquipment, setCanCreateEquipment] = useState(false);
   const itemsPerPage = 10;
 
-  const fetchCatalog = async () => {
-    try {
-      const res = await api.get('rentals/equipment/');
-      setCatalog(res.data);
-    } catch (err) {
-      console.error('❌ Error fetching catalog:', err);
-      setError(err.response?.data?.detail || 'Failed to load equipment catalog.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchCatalog();
+    const checkPermissions = async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        console.log('Access token:', token);
+        if (!token) {
+          setError('⚠️ No authentication token found. Please log in.');
+          setHasPageAccess(false);
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check page permission
+        const pageResponse = await api.get('/auth/permissions/page/rentals_equipment/');
+        console.log('Page permission response:', pageResponse.data);
+        if (pageResponse.data && typeof pageResponse.data.allowed === 'boolean') {
+          setHasPageAccess(pageResponse.data.allowed);
+          if (!pageResponse.data.allowed) {
+            setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+            setCheckingPermissions(false);
+            return;
+          }
+        } else {
+          setError('⚠️ Invalid permission response from server.');
+          setHasPageAccess(false);
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check action permission for creating equipment
+        const actionResponse = await api.get('/auth/permissions/action/create_equipment/');
+        console.log('Action permission response:', actionResponse.data);
+        setCanCreateEquipment(actionResponse.data.allowed || false);
+
+        // Fetch data if page access is granted
+        const res = await api.get('rentals/equipment/');
+        setCatalog(res.data);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error checking permissions or fetching data:', err.response?.data || err.message);
+        if (err.response?.status === 401) {
+          setError('⚠️ Authentication failed. Please log in again.');
+        } else if (err.response?.status === 404) {
+          setError('⚠️ Permission endpoint not found. Contact support.');
+        } else {
+          setError(`⚠️ Failed to check permissions or fetch data: ${err.response?.data?.detail || err.message}`);
+        }
+        setHasPageAccess(false);
+      } finally {
+        setCheckingPermissions(false);
+      }
+    };
+
+    checkPermissions();
   }, []);
 
   const handleChange = (e) =>
@@ -56,8 +100,8 @@ export default function EquipmentCatalog() {
       const res = await api.post('rentals/equipment/', form);
       setCatalog([res.data, ...catalog]);
       setOpen(false);
-      setForm({ name: '', category: '', condition: '', location: '' });
       setFormAlert(null);
+      setForm({ name: '', category: '', condition: '', location: '' });
     } catch (err) {
       console.error('❌ Error creating equipment:', err);
       setFormAlert(err.response?.data?.detail || '❌ Failed to create equipment.');
@@ -71,6 +115,22 @@ export default function EquipmentCatalog() {
   );
 
   const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
+  if (checkingPermissions) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Typography variant="h6">Loading permissions...</Typography>
+      </Container>
+    );
+  }
+
+  if (!hasPageAccess) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Alert severity="error">{error || 'Access Denied: You do not have permission to view this page.'}</Alert>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
@@ -101,7 +161,11 @@ export default function EquipmentCatalog() {
             }}
           />
 
-          <Button variant="contained" onClick={() => setOpen(true)}>
+          <Button
+            variant="contained"
+            onClick={() => setOpen(true)}
+            disabled={!canCreateEquipment}
+          >
             Add Equipment
           </Button>
         </Box>
@@ -210,7 +274,11 @@ export default function EquipmentCatalog() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateEquipment} disabled={formLoading}>
+          <Button
+            variant="contained"
+            onClick={handleCreateEquipment}
+            disabled={formLoading || !canCreateEquipment}
+          >
             {formLoading ? <CircularProgress size={24} color="inherit" /> : 'Create'}
           </Button>
         </DialogActions>

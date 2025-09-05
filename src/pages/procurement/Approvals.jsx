@@ -3,12 +3,12 @@ import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
   TableHead, TableRow, TableCell, TableBody, TableContainer, Pagination,
   Button, Dialog, DialogTitle, DialogContent, DialogActions, Collapse,
-  IconButton
+  IconButton, Alert, CircularProgress
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import API from '../../api'; // ✅ Use centralized API instance
+import API from '../../api';
 
 export default function POApproval() {
   const [search, setSearch] = useState('');
@@ -19,25 +19,77 @@ export default function POApproval() {
   const [reason, setReason] = useState('');
   const [expandedRows, setExpandedRows] = useState([]);
   const [poList, setPoList] = useState([]);
+  const [alert, setAlert] = useState(null);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [hasPermission, setHasPermission] = useState(false);
+  const [actionPermissions, setActionPermissions] = useState({
+    approve_purchase_order: false,
+    reject_purchase_order: false,
+    counter_purchase_order: false,
+  });
   const itemsPerPage = 10;
 
   const fetchPOs = useCallback(async () => {
     try {
       console.log('📦 Fetching POs for approval...');
       const res = await API.get('procurement/purchase-orders/');
-      setPoList(res.data);
+      setPoList(res.data.reverse() || []);
     } catch (err) {
-      console.error('❌ Error fetching purchase orders:', err);
+      console.error('Error fetching purchase orders:', err.response?.data || err.message);
+      setAlert(`❌ Failed to fetch purchase orders: ${err.response?.data?.detail || err.message}`);
     }
   }, []);
 
   useEffect(() => {
-    fetchPOs();
+    const checkPermissions = async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+          setAlert('⚠️ No authentication token found. Please log in.');
+          setHasPermission(false);
+          setCheckingPermissions(false);
+          return;
+        }
+
+        const pageResponse = await API.get('/auth/permissions/page/purchase_orders/');
+        setHasPermission(pageResponse.data.allowed || false);
+        if (!pageResponse.data.allowed) {
+          setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+          setCheckingPermissions(false);
+          return;
+        }
+
+        const actions = ['approve_purchase_order', 'reject_purchase_order', 'counter_purchase_order'];
+        const actionPerms = {};
+        for (const action of actions) {
+          try {
+            const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
+            actionPerms[action] = actionResponse.data.allowed || false;
+            if (!actionResponse.data.allowed) {
+              setAlert(`⚠️ You do not have permission to perform ${action.replace('_', ' ')}: ${actionResponse.data.reason || 'No reason provided'}`);
+            }
+          } catch (err) {
+            console.error(`Error checking ${action} permission:`, err.response?.data || err.message);
+            actionPerms[action] = false;
+          }
+        }
+        setActionPermissions(actionPerms);
+        fetchPOs();
+      } catch (err) {
+        console.error('Error checking permissions:', err.response?.data || err.message);
+        setAlert(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+        setHasPermission(false);
+      } finally {
+        setCheckingPermissions(false);
+      }
+    };
+
+    checkPermissions();
   }, [fetchPOs]);
 
   const filtered = poList
     .filter(po => po.status === 'Pending')
-    .filter(po => po.vendor.toLowerCase().includes(search.toLowerCase()));
+    .filter(po => po.vendor?.name.toLowerCase().includes(search.toLowerCase()));
 
   const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
@@ -48,6 +100,18 @@ export default function POApproval() {
   };
 
   const handleAction = (po, type) => {
+    const actionMap = {
+      approve: 'approve_purchase_order',
+      reject: 'reject_purchase_order',
+      counter: 'counter_purchase_order',
+    };
+    const action = actionMap[type];
+
+    if (!actionPermissions[action]) {
+      setAlert(`⚠️ You do not have permission to ${type} purchase orders.`);
+      return;
+    }
+
     setSelectedPO(po);
     setModalType(type);
     setReason('');
@@ -57,19 +121,71 @@ export default function POApproval() {
   const handleConfirm = async () => {
     if (!selectedPO) return;
 
+    const actionMap = {
+      approve: 'approve_purchase_order',
+      reject: 'reject_purchase_order',
+      counter: 'counter_purchase_order',
+    };
+    const action = actionMap[modalType];
+
+    if (!actionPermissions[action]) {
+      setAlert(`⚠️ You do not have permission to ${modalType} purchase orders.`);
+      setOpenModal(false);
+      return;
+    }
+
     const data = {
       status: modalType === 'reject' ? 'Rejected' : modalType === 'counter' ? 'Counter' : 'Approved',
-      ...(modalType !== 'approve' && { notes: reason })
+      ...(modalType !== 'approve' && { notes: reason }),
     };
 
     try {
       await API.patch(`procurement/purchase-orders/${selectedPO.id}/`, data);
+      setAlert(`✅ Purchase order ${modalType}d successfully.`);
       setOpenModal(false);
-      fetchPOs(); // Refresh list
+      setSelectedPO(null);
+      setReason('');
+      fetchPOs();
     } catch (err) {
-      console.error('❌ Error updating PO:', err);
+      console.error(`Error updating PO:`, err.response?.data || err.message);
+      let errorMsg = `❌ Failed to ${modalType} purchase order.`;
+      if (err.response?.data) {
+        if (typeof err.response.data === 'object' && !Array.isArray(err.response.data)) {
+          errorMsg = Object.entries(err.response.data)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
+        } else if (err.response.data.detail) {
+          errorMsg = err.response.data.detail;
+        } else {
+          errorMsg = JSON.stringify(err.response.data);
+        }
+      } else {
+        errorMsg = err.message || `❌ Failed to ${modalType} purchase order: Network error.`;
+      }
+      setAlert(errorMsg);
     }
   };
+
+  if (checkingPermissions) {
+    return (
+      <Container>
+        <Typography variant="h6" sx={{ mt: 4 }}>
+          Loading permissions...
+        </Typography>
+        <CircularProgress sx={{ mt: 2 }} />
+      </Container>
+    );
+  }
+
+  if (!hasPermission) {
+    return (
+      <Container>
+        <Alert severity="error" sx={{ mt: 4 }} onClose={() => setAlert(null)}>
+          {alert || '⚠️ You do not have permission to view this page.'}
+        </Alert>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
@@ -78,8 +194,18 @@ export default function POApproval() {
           Purchase Order Approvals
         </Typography>
         <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          Only visible to Super Admin or CEO
+          Review and approve pending purchase orders.
         </Typography>
+
+        {alert && (
+          <Alert
+            severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
+            sx={{ mb: 2 }}
+            onClose={() => setAlert(null)}
+          >
+            {alert}
+          </Alert>
+        )}
 
         <Box display="flex" justifyContent="flex-end" mb={2}>
           <TextField
@@ -106,7 +232,7 @@ export default function POApproval() {
             <TableHead>
               <TableRow>
                 <TableCell />
-                <TableCell>S/N</TableCell>
+                <TableCell>Code</TableCell>
                 <TableCell>Vendor</TableCell>
                 <TableCell>Amount</TableCell>
                 <TableCell>Date</TableCell>
@@ -124,19 +250,39 @@ export default function POApproval() {
                           {expandedRows.includes(po.id) ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                         </IconButton>
                       </TableCell>
-                      <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
-                      <TableCell>{po.vendor}</TableCell>
+                      <TableCell>{po.code}</TableCell>
+                      <TableCell>{po.vendor?.name || '—'}</TableCell>
                       <TableCell>₦{parseFloat(po.amount).toLocaleString()}</TableCell>
                       <TableCell>{new Date(po.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>{po.status}</TableCell>
                       <TableCell align="center">
-                        <Button variant="contained" size="small" color="success" sx={{ mr: 1 }} onClick={() => handleAction(po, 'approve')}>
+                        <Button
+                          variant="contained"
+                          size="small"
+                          color="success"
+                          sx={{ mr: 1 }}
+                          onClick={() => handleAction(po, 'approve')}
+                          disabled={!actionPermissions.approve_purchase_order}
+                        >
                           Approve
                         </Button>
-                        <Button variant="outlined" size="small" color="error" sx={{ mr: 1 }} onClick={() => handleAction(po, 'reject')}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          sx={{ mr: 1 }}
+                          onClick={() => handleAction(po, 'reject')}
+                          disabled={!actionPermissions.reject_purchase_order}
+                        >
                           Reject
                         </Button>
-                        <Button variant="outlined" size="small" color="warning" onClick={() => handleAction(po, 'counter')}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="warning"
+                          onClick={() => handleAction(po, 'counter')}
+                          disabled={!actionPermissions.counter_purchase_order}
+                        >
                           Counter
                         </Button>
                       </TableCell>
@@ -177,10 +323,10 @@ export default function POApproval() {
       <Dialog open={openModal} onClose={() => setOpenModal(false)} fullWidth maxWidth="sm">
         <DialogTitle>
           {modalType === 'reject' ? 'Reject Purchase Order' :
-            modalType === 'counter' ? 'Counter Purchase Order' : 'Approve Purchase Order'}
+           modalType === 'counter' ? 'Counter Purchase Order' : 'Approve Purchase Order'}
         </DialogTitle>
         <DialogContent>
-          <Typography mb={2}>PO ID: {selectedPO?.id}</Typography>
+          <Typography mb={2}>PO Code: {selectedPO?.code}</Typography>
           {(modalType !== 'approve') && (
             <TextField
               multiline
@@ -189,12 +335,17 @@ export default function POApproval() {
               fullWidth
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              disabled={!actionPermissions[`${modalType}_purchase_order`]}
             />
           )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenModal(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleConfirm}>
+          <Button
+            variant="contained"
+            onClick={handleConfirm}
+            disabled={!actionPermissions[`${modalType}_purchase_order`]}
+          >
             Submit
           </Button>
         </DialogActions>

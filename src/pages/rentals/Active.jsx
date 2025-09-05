@@ -1,3 +1,4 @@
+// src/pages/rentals/Active.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table, TableHead,
@@ -22,29 +23,71 @@ export default function ActiveRentals() {
     due_date: '',
     status: 'Active',
   });
-
   const [formLoading, setFormLoading] = useState(false);
   const [formAlert, setFormAlert] = useState(null);
+  const [hasPageAccess, setHasPageAccess] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [canCreateRental, setCanCreateRental] = useState(false);
   const itemsPerPage = 10;
 
   useEffect(() => {
-    const fetchData = async () => {
+    const checkPermissions = async () => {
       try {
+        const token = localStorage.getItem('accessToken');
+        console.log('Access token:', token);
+        if (!token) {
+          setError('⚠️ No authentication token found. Please log in.');
+          setHasPageAccess(false);
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check page permission
+        const pageResponse = await api.get('/auth/permissions/page/rentals_active/');
+        console.log('Page permission response:', pageResponse.data);
+        if (pageResponse.data && typeof pageResponse.data.allowed === 'boolean') {
+          setHasPageAccess(pageResponse.data.allowed);
+          if (!pageResponse.data.allowed) {
+            setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+            setCheckingPermissions(false);
+            return;
+          }
+        } else {
+          setError('⚠️ Invalid permission response from server.');
+          setHasPageAccess(false);
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check action permission for creating rentals
+        const actionResponse = await api.get('/auth/permissions/action/create_rental/');
+        console.log('Action permission response:', actionResponse.data);
+        setCanCreateRental(actionResponse.data.allowed || false);
+
+        // Fetch data if page access is granted
         const [rentalsRes, equipmentRes] = await Promise.all([
           api.get('rentals/rentals/'),
           api.get('rentals/equipment/')
         ]);
         setRentals(rentalsRes.data);
         setEquipmentList(equipmentRes.data);
-      } catch (err) {
-        console.error('❌ Error fetching data:', err);
-        setError('Failed to load rentals or equipment.');
-      } finally {
         setLoading(false);
+      } catch (err) {
+        console.error('Error checking permissions or fetching data:', err.response?.data || err.message);
+        if (err.response?.status === 401) {
+          setError('⚠️ Authentication failed. Please log in again.');
+        } else if (err.response?.status === 404) {
+          setError('⚠️ Permission endpoint not found. Contact support.');
+        } else {
+          setError(`⚠️ Failed to check permissions or fetch data: ${err.response?.data?.detail || err.message}`);
+        }
+        setHasPageAccess(false);
+      } finally {
+        setCheckingPermissions(false);
       }
     };
 
-    fetchData();
+    checkPermissions();
   }, []);
 
   const handleChange = (e) =>
@@ -80,6 +123,22 @@ export default function ActiveRentals() {
 
   const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
+  if (checkingPermissions) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Typography variant="h6">Loading permissions...</Typography>
+      </Container>
+    );
+  }
+
+  if (!hasPageAccess) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Alert severity="error">{error || 'Access Denied: You do not have permission to view this page.'}</Alert>
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
@@ -107,7 +166,11 @@ export default function ActiveRentals() {
             }}
           />
 
-          <Button variant="contained" onClick={() => setOpen(true)}>
+          <Button
+            variant="contained"
+            onClick={() => setOpen(true)}
+            disabled={!canCreateRental}
+          >
             Add Rental
           </Button>
         </Box>
@@ -237,7 +300,11 @@ export default function ActiveRentals() {
 
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateRental} disabled={formLoading}>
+          <Button
+            variant="contained"
+            onClick={handleCreateRental}
+            disabled={formLoading || !canCreateRental}
+          >
             {formLoading ? <CircularProgress size={24} color="inherit" /> : 'Create'}
           </Button>
         </DialogActions>

@@ -88,6 +88,7 @@ const menuItems = [
       }
     ]
   },
+  
   {
     icon: <Receipt />,
     text: 'Procurement',
@@ -110,14 +111,34 @@ const menuItems = [
         description: 'Document attachments (PO receipts, test certificates)',
         icon: <StarBorder />
       },
-      // {
-      //   text: 'Approval',
-      //   path: '/dashboard/procurement/approval',
-      //   description: 'Approve purchase orders(accessable to only super admin/C.E.O)',
-      //   icon: <StarBorder />
-      // }
+      {
+        text: 'Approval',
+        path: '/dashboard/procurement/approval',
+        description: 'Approve purchase orders(accessable to only super admin/C.E.O)',
+        icon: <StarBorder />
+      }
     ]
   },
+
+  {
+    icon: <Description />, // Changed from DescriptionIcon to Description
+    text: 'Product Documentation',
+    subItems: [
+      {
+        text: 'Product Inflow',
+        path: '/dashboard/product-documentation/inflow',
+        description: 'Track manufactured products with details like SKU, quantity, and cost',
+        icon: <StarBorder />
+      },
+      {
+        text: 'Product Outflow',
+        path: '/dashboard/product-documentation/outflow',
+        description: 'Monitor dispatched products with customer and sales order details',
+        icon: <StarBorder />
+      }
+    ]
+  },
+
    // New Finance Management Section
   {
     icon: <AttachMoney />, // Import from @mui/icons-material
