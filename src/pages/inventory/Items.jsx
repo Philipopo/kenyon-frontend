@@ -34,7 +34,9 @@ export default function ItemMaster() {
   const [page, setPage] = useState(1);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
-  const [hasCreatePermission, setHasCreatePermission] = useState(false);
+  const [
+  //hasCreatePermission, 
+  setHasCreatePermission] = useState(false);
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false); // Added
   const [hasDeletePermission, setHasDeletePermission] = useState(false); // Added
   const [editId, setEditId] = useState(null); // For update mode

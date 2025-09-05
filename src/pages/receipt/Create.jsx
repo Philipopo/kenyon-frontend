@@ -54,9 +54,13 @@ export default function ReceiptCreate() {
         const actionResponse = await api.get('/auth/permissions/action/create_stock_receipt/');
         console.log('Action permission response:', actionResponse.data);
         setCanCreateStockReceipt(actionResponse.data.allowed || false);
-        if (!actionResponse.data.allowed && !error) {
-          setError(`⚠️ You do not have permission to create a stock receipt: ${actionResponse.data.reason || 'No reason provided'}`);
-        }
+        if (!actionResponse.data.allowed) {
+  setError(
+    `⚠️ You do not have permission to create a receipt: ${
+      actionResponse.data.reason || 'No reason provided'
+    }`
+  );
+}
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
         if (err.response?.status === 401) {

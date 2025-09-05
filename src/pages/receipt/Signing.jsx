@@ -72,9 +72,13 @@ export default function ReceiptSigning() {
         const actionResponse = await api.get('/auth/permissions/action/create_signing_receipt/');
         console.log('Action permission response:', actionResponse.data);
         setCanCreateSigningReceipt(actionResponse.data.allowed || false);
-        if (!actionResponse.data.allowed && !error) {
-          setError(`⚠️ You do not have permission to create a signing receipt: ${actionResponse.data.reason || 'No reason provided'}`);
-        }
+        if (!actionResponse.data.allowed) {
+  setError(
+    `⚠️ You do not have permission to create a receipt: ${
+      actionResponse.data.reason || 'No reason provided'
+    }`
+  );
+}
 
         if (pageResponse.data.allowed) {
           try {

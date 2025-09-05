@@ -125,9 +125,9 @@ export default function Signin() {
         localStorage.removeItem('rememberedEmail');
       }
 
-      const userResponse = await API.get('auth/me/', {
-        headers: { Authorization: `Bearer ${access}` },
-      });
+      //const userResponse = await API.get('auth/me/', {
+        //headers: { Authorization: `Bearer ${access}` },
+      //});
 
       navigate('/dashboard');
     } catch (err) {
@@ -190,9 +190,9 @@ export default function Signin() {
         localStorage.removeItem('rememberedEmail');
       }
 
-      const userResponse = await API.get('auth/me/', {
-        headers: { Authorization: `Bearer ${access}` },
-      });
+      //const userResponse = await API.get('auth/me/', {
+        //headers: { Authorization: `Bearer ${access}` },
+      //});
 
       navigate('/dashboard');
     } catch (err) {

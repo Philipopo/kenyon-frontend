@@ -1,13 +1,13 @@
 // src/pages/Profile.jsx
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, TextField, Button, Paper, FormControlLabel, Checkbox, CircularProgress, Alert } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
-import { useNavigate } from 'react-router-dom';
+//import { useTheme } from '@mui/material/styles';
+//import { useNavigate } from 'react-router-dom';
 import API from '../api';
 
 export default function Profile() {
-  const theme = useTheme();
-  const navigate = useNavigate();
+  //const theme = useTheme();
+  //const navigate = useNavigate();
   const [profileData, setProfileData] = useState({
     email: '',
     name: '',
