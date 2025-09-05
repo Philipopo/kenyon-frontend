@@ -5,14 +5,15 @@ import {
   Box,
   IconButton,
   InputBase,
-  Switch, 
-  Typography
 } from '@mui/material';
 import { Search, Menu as MenuIcon } from '@mui/icons-material';
+import { Brightness4, Brightness7, LocationOn } from '@mui/icons-material';
 import Sidebar from './Sidebar';
 import { useThemeContext } from '../context/ThemeContext';
 import { Outlet } from 'react-router-dom';
 import logo from '../assets/kenyon_logo-removebg-preview.png';
+import ChatWidget from '../widget/ChatWidget';
+
 
 const drawerWidth = 280;
 
@@ -35,7 +36,7 @@ export default function DashboardLayout() {
           backgroundColor: mode === 'dark' ? '#424242' : '#212121',
         }}
       >
-        <Toolbar>
+       <Toolbar>
           <Box
             sx={{
               display: 'flex',
@@ -89,10 +90,31 @@ export default function DashboardLayout() {
               />
             </Box>
 
-            {/* Right: Dark Mode Toggle */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2">Dark Mode</Typography>
-              <Switch checked={mode === 'dark'} onChange={toggleTheme} />
+            {/* Right: Location Chip + Theme Toggle */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {/* Location Chip */}
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  px: 1.5,
+                  py: 0.5,
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                <LocationOn sx={{ fontSize: 18 }} />
+                Lagos
+              </Box>
+
+              {/* Dark Mode Toggle Icon */}
+              <IconButton onClick={toggleTheme} sx={{ color: '#fff' }}>
+                {mode === 'dark' ? <Brightness7 /> : <Brightness4 />}
+              </IconButton>
             </Box>
           </Box>
         </Toolbar>
@@ -113,6 +135,7 @@ export default function DashboardLayout() {
         }}
       >
         <Outlet />
+        <ChatWidget />
       </Box>
     </Box>
   );

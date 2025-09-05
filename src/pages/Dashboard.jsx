@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Box,
   Grid,
@@ -29,6 +30,29 @@ import {
 import StockLevelWidget from '../widget/StockLevelWidget';
 import AlertsWidget from '../widget/AlertsWidget';
 import api from '../api';
+
+const quickActions = [
+  {
+    label: 'Create Order',
+    link: '/dashboard/procurement/orders',
+    icon: <PostAddIcon fontSize="small" />,
+  },
+  {
+    label: 'Receive Stock',
+    link: '/dashboard/inventory/stock',
+    icon: <InventoryIcon fontSize="small" />,
+  },
+  {
+    label: 'Generate Report',
+    link: '/dashboard/analytics/stock',
+    icon: <AssessmentIcon fontSize="small" />,
+  },
+  {
+    label: 'New Audit',
+    link: '/dashboard/audit',
+    icon: <ChecklistRtlIcon fontSize="small" />,
+  },
+];
 
 export default function Dashboard() {
   const [metrics, setMetrics] = useState([]);
@@ -118,106 +142,86 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <Grid container spacing={3} sx={{ mb: 3, width: '100%' }}>
         <Grid item xs={12}>
-          <Paper elevation={0} sx={{ 
-            p: 3, 
+          <Paper elevation={0} sx={{
+            p: 3,
             borderRadius: 2,
             border: '1px solid',
             borderColor: 'divider',
             backgroundColor: 'background.paper'
           }}>
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
               mb: 3,
               justifyContent: 'space-between'
             }}>
-              <Typography variant="h6" sx={{ 
-                display: 'flex', 
+              <Typography variant="h6" sx={{
+                display: 'flex',
                 alignItems: 'center',
                 fontWeight: 600
               }}>
-                <LocalShippingIcon sx={{ 
-                  mr: 1.5, 
+                <LocalShippingIcon sx={{
+                  mr: 1.5,
                   fontSize: '1.5rem',
-                  color: 'primary.main' 
+                  color: 'primary.main'
                 }} />
                 Quick Actions
               </Typography>
-              <Chip 
-                label={`${4} actions`} 
-                size="small" 
+              <Chip
+                label={`${quickActions.length} actions`}
+                size="small"
                 variant="outlined"
-                sx={{ 
+                sx={{
                   borderColor: 'primary.main',
                   color: 'primary.main'
-                }} 
+                }}
               />
             </Box>
-            
+
             <Grid container spacing={2}>
-              {[
-                { 
-                  label: 'Create Order', 
-                  link: '/dashboard/procurement/orders',
-                  icon: <PostAddIcon fontSize="small" />
-                },
-                { 
-                  label: 'Receive Stock', 
-                  link: '/dashboard/inventory/stock',
-                  icon: <InventoryIcon fontSize="small" />
-                },
-                { 
-                  label: 'Generate Report', 
-                  link: '/dashboard/analytics/stock',
-                  icon: <AssessmentIcon fontSize="small" />
-                },
-                { 
-                  label: 'New Audit', 
-                  link: '/dashboard/audit',
-                  icon: <ChecklistRtlIcon fontSize="small" />
-                },
-              ].map((action) => (
+              {quickActions.map((action) => (
                 <Grid item xs={12} sm={6} md={3} key={action.label}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 2.5,
-                      height: '100%',
-                      minWidth: '240px',
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      borderRadius: 1,
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      transition: 'all 0.25s ease',
-                      '&:hover': {
-                        borderColor: 'primary.main',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
-                        transform: 'translateY(-2px)'
-                      },
-                    }}
-                    onClick={() => window.location.href = action.link}
-                  >
-                    <Box sx={{
-                      width: 48,
-                      height: 48,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      mb: 1.5,
-                      borderRadius: '50%',
-                      border: '1px solid'
-                    }}>
-                      {action.icon}
-                    </Box>
-                    <Typography variant="subtitle1" fontWeight={500}>
-                      {action.label}
-                    </Typography>
-                  </Paper>
+                  <Link to={action.link} style={{ textDecoration: 'none' }}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2.5,
+                        height: '100%',
+                        minWidth: '240px',
+                        width: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        borderRadius: 1,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        transition: 'all 0.25s ease',
+                        '&:hover': {
+                          borderColor: '#ccc',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                          transform: 'translateY(-2px)'
+                        },
+                      }}
+                    >
+                      <Box sx={{
+                        width: 48,
+                        height: 48,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mb: 1.5,
+                        borderRadius: '50%',
+                        border: '1px solid'
+                      }}>
+                        {action.icon}
+                      </Box>
+                      <Typography variant="subtitle1" fontWeight={500}>
+                        {action.label}
+                      </Typography>
+                    </Paper>
+                  </Link>
                 </Grid>
               ))}
             </Grid>
