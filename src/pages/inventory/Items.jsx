@@ -115,6 +115,7 @@ export default function ItemMaster() {
       }
     };
     checkPermissions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleOpen = async (item = null) => {
