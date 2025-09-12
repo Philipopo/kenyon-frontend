@@ -1,5 +1,5 @@
 // src/pages/inventory/ItemMaster.jsx
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   Container, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   Button, Box, Modal, Grid, Alert, Pagination, Divider, IconButton, Dialog,
@@ -51,7 +51,7 @@ export default function ItemMaster() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [openViewModal, setOpenViewModal] = useState(false);
 
-  const fetchItems = async () => {
+  const fetchItems = useCallback(async () => {
     try {
       const res = await API.get('inventory/items/', {
         params: { search: searchTerm, page: page, page_size: itemsPerPage },
@@ -67,9 +67,11 @@ export default function ItemMaster() {
       setItems([]);
       setTotalPages(1);
     }
-  };
+  }, [searchTerm, page, itemsPerPage]);
 
-  useEffect(() => {
+
+
+   useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
@@ -116,7 +118,11 @@ export default function ItemMaster() {
       }
     };
     checkPermissions();
-  }, []); // Removed fetchItems from dependencies
+  }, [fetchItems]); // Added fetchItems to dependencies
+
+
+
+
 
   useEffect(() => {
     if (hasPermission) {
@@ -127,7 +133,8 @@ export default function ItemMaster() {
       }
       fetchItems();
     }
-  }, [searchTerm, page, hasPermission]); // Removed fetchItems from dependencies
+  }, [searchTerm, page, hasPermission, fetchItems]); // Added fetchItems to dependencies
+
 
   const handleOpen = async (item = null) => {
     if (!hasPermission) {

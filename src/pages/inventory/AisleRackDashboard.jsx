@@ -4,6 +4,7 @@ import {
   Box, Alert, Pagination, TextField, InputAdornment,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+// import debounce from 'lodash.debounce'; // Commented out as unused
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
@@ -14,9 +15,17 @@ export default function AisleRackDashboard() {
   const [page, setPage] = useState(1);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
-  const { searchTerm, setSearchTerm } = useSearch(); // Move useSearch to top level
+  const { searchTerm, setSearchTerm } = useSearch();
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
+
+  const handleSearch = useCallback((value) => {
+    setSearchTerm(value);
+    setPage(1);
+  }, [setSearchTerm, setPage]);
+
+  // Debounced search handler (commented out as unused)
+  // const debouncedSetSearch = debounce(handleSearch, 500);
 
   const fetchBins = useCallback(async () => {
     try {
@@ -34,7 +43,7 @@ export default function AisleRackDashboard() {
       setBins([]);
       setTotalPages(1);
     }
-  }, [page, searchTerm]);
+  }, [page, searchTerm, itemsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -125,7 +134,7 @@ export default function AisleRackDashboard() {
           variant="outlined"
           size="small"
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)} // Use setSearchTerm directly
+          onChange={(e) => handleSearch(e.target.value)}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">

@@ -15,10 +15,10 @@ import {
   DialogActions,
   TextField,
   Alert,
-  MenuItem,
-  Select,
-  InputLabel,
-  FormControl,
+  // MenuItem,
+  // Select,
+  // InputLabel,
+  // FormControl,
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
@@ -37,13 +37,14 @@ import AlertsWidget from '../widget/AlertsWidget';
 import api from '../api';
 
 // Nigerian states to match accounts/models.py
-const NIGERIAN_STATES = [
-  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
-  'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT', 'Gombe',
-  'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
-  'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
-  'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara',
-];
+// Commented out since unused; uncomment if state selection is implemented
+// const NIGERIAN_STATES = [
+//   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
+//   'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT', 'Gombe',
+//   'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
+//   'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
+//   'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara',
+// ];
 
 const quickActions = [
   {

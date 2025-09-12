@@ -38,14 +38,17 @@ export default function ExpiryTracking() {
 
   // Debounced local search handler
   const debouncedSetLocalSearch = useCallback(
-    debounce((value) => {
-      setLocalSearch(value);
-      setPage(1);
-    }, 500),
+    (value) => {
+      const debounced = debounce(() => {
+        setLocalSearch(value);
+        setPage(1);
+      }, 500);
+      debounced();
+    },
     []
   );
 
-  const fetchItems = async () => {
+  const fetchItems = useCallback(async () => {
     try {
       const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
       const res = await API.get('inventory/expiries/', {
@@ -62,9 +65,11 @@ export default function ExpiryTracking() {
       setItems([]);
       setTotalPages(1);
     }
-  };
+  }, [searchTerm, localSearch, page, itemsPerPage]);
 
-  useEffect(() => {
+
+
+    useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
@@ -107,9 +112,12 @@ export default function ExpiryTracking() {
       }
     };
     checkPermissions();
-  }, []);
+  }, [fetchItems]); // Already includes fetchItems, so no change needed
 
-  useEffect(() => {
+
+
+
+   useEffect(() => {
     if (hasPermission) {
       if (searchTerm !== prevSearchTermRef.current || localSearch !== prevLocalSearchRef.current) {
         setPage(1);
@@ -118,7 +126,7 @@ export default function ExpiryTracking() {
       }
       fetchItems();
     }
-  }, [searchTerm, localSearch, page, hasPermission]);
+  }, [searchTerm, localSearch, page, hasPermission, fetchItems]); // Already includes fetchItems
 
   const handleRecall = async (batchId) => {
     try {

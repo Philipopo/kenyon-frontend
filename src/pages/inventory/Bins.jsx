@@ -1,4 +1,3 @@
-// src/pages/inventory/BinLocations.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Container, Typography, Paper, Grid, TextField, Button, Modal, Box, InputAdornment,
@@ -9,7 +8,7 @@ import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { debounce } from 'lodash'; // Add lodash for debouncing
+import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
@@ -46,12 +45,13 @@ export default function BinLocations() {
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
   const [selectedBin, setSelectedBin] = useState(null);
-  const { searchTerm } = useSearch(); // Use global searchTerm
+  const { searchTerm } = useSearch();
   const binsPerPage = 10;
-  const prevSearchTermRef = useRef(searchTerm); // Track previous searchTerm
-  const prevLocalSearchRef = useRef(localSearch); // Track previous localSearch
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevLocalSearchRef = useRef(localSearch);
 
   // Debounced local search handler
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetLocalSearch = useCallback(
     debounce((value) => {
       setLocalSearch(value);
@@ -60,9 +60,9 @@ export default function BinLocations() {
     []
   );
 
-  const fetchBins = async () => {
+  const fetchBins = useCallback(async () => {
     try {
-      const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
+      const search = localSearch || searchTerm;
       const res = await API.get('inventory/bins/', {
         params: { search, page, page_size: binsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
@@ -77,7 +77,7 @@ export default function BinLocations() {
       setBins([]);
       setTotalPages(1);
     }
-  };
+  }, [searchTerm, localSearch, page, binsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -122,11 +122,10 @@ export default function BinLocations() {
       }
     };
     checkPermissions();
-  }, []); // Empty dependencies to run once on mount
+  }, [fetchBins]); // Added fetchBins to dependency array
 
   useEffect(() => {
     if (hasPermission) {
-      // Reset page to 1 only when searchTerm or localSearch changes
       if (searchTerm !== prevSearchTermRef.current || localSearch !== prevLocalSearchRef.current) {
         setPage(1);
         prevSearchTermRef.current = searchTerm;
@@ -134,7 +133,7 @@ export default function BinLocations() {
       }
       fetchBins();
     }
-  }, [searchTerm, localSearch, page, hasPermission]); // Dependencies without fetchBins
+  }, [searchTerm, localSearch, page, hasPermission, fetchBins]); // Added fetchBins to dependency array
 
   const handleOpen = async (bin = null) => {
     if (!hasPermission) {

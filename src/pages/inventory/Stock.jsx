@@ -39,15 +39,22 @@ export default function Stocks() {
   const prevLocalSearchRef = useRef(localSearch);
 
   // Debounced local search handler
-  const debouncedSetLocalSearch = useCallback(
-    debounce((value) => {
-      setLocalSearch(value);
-      setPage(1);
-    }, 500),
+ const debouncedSetLocalSearch = useCallback(
+    (value) => {
+      const debounced = debounce(() => {
+        setLocalSearch(value);
+        setPage(1);
+      }, 500);
+      debounced();
+    },
     []
   );
 
-  const fetchStocks = async () => {
+
+
+
+
+    const fetchStocks = useCallback(async () => {
     try {
       setLoading(true);
       const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
@@ -67,7 +74,7 @@ export default function Stocks() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [localSearch, searchTerm, page, itemsPerPage]); // Added dependencies
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -112,7 +119,12 @@ export default function Stocks() {
       }
     };
     checkPermissions();
-  }, []);
+  }, [fetchStocks]); // Added fetchStocks to dependencies
+
+
+
+
+
 
   useEffect(() => {
     if (hasPermission) {
@@ -123,7 +135,10 @@ export default function Stocks() {
       }
       fetchStocks();
     }
-  }, [searchTerm, localSearch, page, hasPermission]);
+  }, [searchTerm, localSearch, page, hasPermission, fetchStocks]); // Added fetchStocks to dependencies
+
+
+
 
   const handleOpenDialog = async (stock = null) => {
     if (!hasPermission) {

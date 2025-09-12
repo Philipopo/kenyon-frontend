@@ -1,4 +1,3 @@
-// src/pages/finance/Transactions.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
@@ -39,6 +38,8 @@ export default function Transactions() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
+  // Debounced local search handler
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);
@@ -67,7 +68,7 @@ export default function Transactions() {
     } finally {
       setLoading(false);
     }
-  }, [search, searchTerm, page]);
+  }, [search, searchTerm, page, itemsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
