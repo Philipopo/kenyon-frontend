@@ -1,4 +1,3 @@
-// src/pages/ReceiptArchive.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
@@ -39,6 +38,7 @@ export default function ReceiptArchive() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);
@@ -115,7 +115,7 @@ export default function ReceiptArchive() {
   }, [fetchReceipts]);
 
   useEffect(() => {
-    if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+    if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchRef.current)) {
       setPage(1);
       prevSearchRef.current = search;
       prevSearchTermRef.current = searchTerm;

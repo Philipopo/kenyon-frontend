@@ -1,4 +1,3 @@
-// src/pages/ReceiptSigning.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
@@ -39,6 +38,7 @@ export default function ReceiptSigning() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);

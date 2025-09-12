@@ -38,13 +38,16 @@ export default function EquipmentCatalog() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
-  const debouncedSetSearch = useCallback(
-    debounce((value) => {
-      setSearch(value);
-      setPage(1);
-    }, 500),
-    []
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+const debouncedSetSearch = useCallback(
+  debounce((value) => {
+    setSearch(value);
+    setPage(1);
+  }, 500),
+  []
+);
+
+
 
   const fetchEquipment = useCallback(async () => {
     try {

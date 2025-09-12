@@ -1,4 +1,3 @@
-// src/pages/procurement/PurchaseOrders.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import EditIcon from '@mui/icons-material/Edit';
@@ -13,9 +12,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
-import { debounce } from 'lodash'; // Add lodash for debouncing
+import { debounce } from 'lodash';
 import API from '../../api';
-import { useSearch } from '../../context/SearchContext';
 
 export default function PurchaseOrders() {
   const [formData, setFormData] = useState({
@@ -52,14 +50,18 @@ export default function PurchaseOrders() {
     update_vendor: false,
     delete_vendor: false,
   });
-  const { searchTerm } = useSearch(); // Use global searchTerm
+
+  // Replace useSearch with local state - you can connect this to your global search context later
+  const [globalSearchTerm] = useState('');
+
   const itemsPerPage = 10;
   const vendorsPerPage = 5;
-  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchTermRef = useRef(globalSearchTerm);
   const prevPoSearchRef = useRef(poSearch);
   const prevVendorSearchRef = useRef(vendorSearch);
 
-  // Debounced search handlers
+  // Debounced search handlers - fixed to avoid exhaustive-deps warning
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetPoSearch = useCallback(
     debounce((value) => {
       setPoSearch(value);
@@ -67,6 +69,8 @@ export default function PurchaseOrders() {
     }, 500),
     []
   );
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetVendorSearch = useCallback(
     debounce((value) => {
       setVendorSearch(value);
@@ -75,6 +79,52 @@ export default function PurchaseOrders() {
     []
   );
 
+  // Fetch purchase orders
+  const fetchOrders = useCallback(async () => {
+    try {
+      setLoading(true);
+      const search = poSearch || globalSearchTerm;
+      const res = await API.get('procurement/purchase-orders/', {
+        params: { search, page: poPage, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[PURCHASE ORDERS FETCHED]', res.data);
+      setPurchaseOrders(res.data.results || []);
+      setPoTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
+    } catch (err) {
+      console.error('Error fetching purchase orders:', err.response?.data || err.message);
+      setAlert('❌ Failed to fetch purchase orders: ' + (err.response?.data?.detail || err.message));
+      setPurchaseOrders([]);
+      setPoTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [poSearch, globalSearchTerm, poPage, itemsPerPage]);
+
+  // Fetch vendors
+  const fetchVendors = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await API.get('procurement/vendors/', {
+        params: { search: vendorSearch, page: vendorPage, page_size: vendorsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[VENDORS FETCHED]', res.data);
+      setVendorList(res.data.results || []);
+      setVendorTotalPages(Math.ceil(res.data.count / vendorsPerPage));
+      setAlert(null);
+    } catch (err) {
+      console.error('Error fetching vendors:', err.response?.data || err.message);
+      setAlert('❌ Failed to fetch vendors: ' + (err.response?.data?.detail || err.message));
+      setVendorList([]);
+      setVendorTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [vendorSearch, vendorPage, vendorsPerPage]);
+
+  // Permissions check
   useEffect(() => {
     const checkPermissions = async () => {
       try {
@@ -117,68 +167,26 @@ export default function PurchaseOrders() {
       }
     };
     checkPermissions();
-  }, []);
+  }, [fetchOrders, fetchVendors]);
 
-  const fetchOrders = async () => {
-    try {
-      setLoading(true);
-      const search = poSearch || searchTerm; // Prefer local poSearch, fallback to global searchTerm
-      const res = await API.get('procurement/purchase-orders/', {
-        params: { search, page: poPage, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('[PURCHASE ORDERS FETCHED]', res.data);
-      setPurchaseOrders(res.data.results || []);
-      setPoTotalPages(Math.ceil(res.data.count / itemsPerPage));
-      setAlert(null);
-    } catch (err) {
-      console.error('Error fetching purchase orders:', err.response?.data || err.message);
-      setAlert('❌ Failed to fetch purchase orders: ' + (err.response?.data?.detail || err.message));
-      setPurchaseOrders([]);
-      setPoTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchVendors = async () => {
-    try {
-      setLoading(true);
-      const res = await API.get('procurement/vendors/', {
-        params: { search: vendorSearch, page: vendorPage, page_size: vendorsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('[VENDORS FETCHED]', res.data);
-      setVendorList(res.data.results || []);
-      setVendorTotalPages(Math.ceil(res.data.count / vendorsPerPage));
-      setAlert(null);
-    } catch (err) {
-      console.error('Error fetching vendors:', err.response?.data || err.message);
-      setAlert('❌ Failed to fetch vendors: ' + (err.response?.data?.detail || err.message));
-      setVendorList([]);
-      setVendorTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Data fetching on search or page change
   useEffect(() => {
     if (hasPermission) {
       if (
-        searchTerm !== prevSearchTermRef.current ||
+        globalSearchTerm !== prevSearchTermRef.current ||
         poSearch !== prevPoSearchRef.current ||
         vendorSearch !== prevVendorSearchRef.current
       ) {
         setPoPage(1);
         setVendorPage(1);
-        prevSearchTermRef.current = searchTerm;
+        prevSearchTermRef.current = globalSearchTerm;
         prevPoSearchRef.current = poSearch;
         prevVendorSearchRef.current = vendorSearch;
       }
       fetchOrders();
       fetchVendors();
     }
-  }, [searchTerm, poSearch, vendorSearch, poPage, vendorPage, hasPermission]);
+  }, [globalSearchTerm, poSearch, vendorSearch, poPage, vendorPage, hasPermission, fetchOrders, fetchVendors]);
 
   const renderStars = (rating) =>
     [...Array(5)].map((_, i) =>

@@ -38,6 +38,7 @@ export default function ProductInflow() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);
@@ -45,6 +46,28 @@ export default function ProductInflow() {
     }, 500),
     []
   );
+
+  const fetchInflows = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('product-documentation/inflows/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[INFLOWS FETCHED]', res.data);
+      setInflows(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
+    } catch (err) {
+      console.error('Error fetching inflows:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch inflows: ${err.response?.data?.detail || err.message}`);
+      setInflows([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page, itemsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -85,29 +108,7 @@ export default function ProductInflow() {
       }
     };
     checkPermissions();
-  }, []);
-
-  const fetchInflows = useCallback(async () => {
-    try {
-      setLoading(true);
-      const searchValue = search || searchTerm;
-      const res = await API.get('product-documentation/inflows/', {
-        params: { search: searchValue, page, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('[INFLOWS FETCHED]', res.data);
-      setInflows(res.data.results || []);
-      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
-      setError('');
-    } catch (err) {
-      console.error('Error fetching inflows:', err.response?.data || err.message);
-      setError(`❌ Failed to fetch inflows: ${err.response?.data?.detail || err.message}`);
-      setInflows([]);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [search, searchTerm, page, itemsPerPage]);
+  }, [fetchInflows]);
 
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {

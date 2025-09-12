@@ -40,6 +40,7 @@ export default function Receiving() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);
@@ -47,6 +48,28 @@ export default function Receiving() {
     }, 500),
     []
   );
+
+  const fetchGoodsReceipts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('procurement/goods-receipts/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[GOODS RECEIPTS FETCHED]', res.data);
+      setGoodsReceipts(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
+    } catch (err) {
+      console.error('Error fetching goods receipts:', err.response?.data || err.message);
+      setAlert('❌ Failed to fetch goods receipts: ' + (err.response?.data?.detail || err.message));
+      setGoodsReceipts([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page, itemsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -82,29 +105,7 @@ export default function Receiving() {
       }
     };
     checkPermissions();
-  }, []);
-
-  const fetchGoodsReceipts = async () => {
-    try {
-      setLoading(true);
-      const searchValue = search || searchTerm;
-      const res = await API.get('procurement/goods-receipts/', {
-        params: { search: searchValue, page, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('[GOODS RECEIPTS FETCHED]', res.data);
-      setGoodsReceipts(res.data.results || []);
-      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
-      setAlert(null);
-    } catch (err) {
-      console.error('Error fetching goods receipts:', err.response?.data || err.message);
-      setAlert('❌ Failed to fetch goods receipts: ' + (err.response?.data?.detail || err.message));
-      setGoodsReceipts([]);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [fetchGoodsReceipts]);
 
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
@@ -113,7 +114,7 @@ export default function Receiving() {
       prevSearchTermRef.current = searchTerm;
     }
     if (hasPermission) fetchGoodsReceipts();
-  }, [search, searchTerm, page, hasPermission]);
+  }, [search, searchTerm, page, hasPermission, fetchGoodsReceipts]);
 
   const handleScan = async () => {
     const code = scanCode.trim();

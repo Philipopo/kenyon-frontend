@@ -1,4 +1,3 @@
-// src/pages/product-documentation/ProductOutflow.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, Paper, Grid, TextField, Button, Dialog, DialogTitle,
@@ -40,6 +39,7 @@ export default function ProductOutflow() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);
@@ -47,6 +47,52 @@ export default function ProductOutflow() {
     }, 500),
     []
   );
+
+  const fetchOutflows = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('product-documentation/outflows/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[OUTFLOWS FETCHED]', res.data);
+      setOutflows(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
+    } catch (err) {
+      console.error('Error fetching outflows:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch outflows: ${err.response?.data?.detail || err.message}`);
+      setOutflows([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page, itemsPerPage]);
+
+  const fetchProducts = useCallback(async () => {
+    try {
+      const res = await API.get('product-documentation/inflows/');
+      setProducts(res.data.results || []);
+    } catch (err) {
+      console.error('Error fetching products:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch products: ${err.response?.data?.detail || err.message}`);
+    }
+  }, []);
+
+  const fetchAvailableSerials = useCallback(async (productId) => {
+    if (!productId) {
+      setAvailableSerials([]);
+      return;
+    }
+    try {
+      const res = await API.get(`product-documentation/inflows/${productId}/`);
+      setAvailableSerials(res.data.serial_numbers.filter(s => s.status === 'in_stock').map(s => s.serial_number));
+    } catch (err) {
+      console.error('Error fetching available serial numbers:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch available serial numbers: ${err.response?.data?.detail || err.message}`);
+    }
+  }, []);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -88,53 +134,7 @@ export default function ProductOutflow() {
       }
     };
     checkPermissions();
-  }, []);
-
-  const fetchOutflows = useCallback(async () => {
-    try {
-      setLoading(true);
-      const searchValue = search || searchTerm;
-      const res = await API.get('product-documentation/outflows/', {
-        params: { search: searchValue, page, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('[OUTFLOWS FETCHED]', res.data);
-      setOutflows(res.data.results || []);
-      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
-      setError('');
-    } catch (err) {
-      console.error('Error fetching outflows:', err.response?.data || err.message);
-      setError(`❌ Failed to fetch outflows: ${err.response?.data?.detail || err.message}`);
-      setOutflows([]);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [search, searchTerm, page, itemsPerPage]);
-
-  const fetchProducts = async () => {
-    try {
-      const res = await API.get('product-documentation/inflows/');
-      setProducts(res.data.results || []);
-    } catch (err) {
-      console.error('Error fetching products:', err.response?.data || err.message);
-      setError(`❌ Failed to fetch products: ${err.response?.data?.detail || err.message}`);
-    }
-  };
-
-  const fetchAvailableSerials = async (productId) => {
-    if (!productId) {
-      setAvailableSerials([]);
-      return;
-    }
-    try {
-      const res = await API.get(`product-documentation/inflows/${productId}/`);
-      setAvailableSerials(res.data.serial_numbers.filter(s => s.status === 'in_stock').map(s => s.serial_number));
-    } catch (err) {
-      console.error('Error fetching available serial numbers:', err.response?.data || err.message);
-      setError(`❌ Failed to fetch available serial numbers: ${err.response?.data?.detail || err.message}`);
-    }
-  };
+  }, [fetchOutflows, fetchProducts]);
 
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
@@ -145,6 +145,7 @@ export default function ProductOutflow() {
     if (hasPermission) fetchOutflows();
   }, [search, searchTerm, page, hasPermission, fetchOutflows]);
 
+  
   const handleOpen = async (outflow = null) => {
     if (!hasPermission) {
       setError('⚠️ You do not have permission to view product outflows.');

@@ -37,10 +37,13 @@ export default function POApproval() {
   const prevSearchRef = useRef(search);
 
   const debouncedSetSearch = useCallback(
-    debounce((value) => {
-      setSearch(value);
-      setPage(1);
-    }, 500),
+    (value) => {
+      const debounced = debounce(() => {
+        setSearch(value);
+        setPage(1);
+      }, 500);
+      debounced();
+    },
     []
   );
 

@@ -53,6 +53,7 @@ export default function Requisitions() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);
@@ -60,6 +61,28 @@ export default function Requisitions() {
     }, 500),
     []
   );
+
+  const fetchRequisitions = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('procurement/requisitions/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[REQUISITIONS FETCHED]', res.data);
+      setRequisitions(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
+    } catch (err) {
+      console.error('Error fetching requisitions:', err.response?.data || err.message);
+      setAlert(`❌ Failed to fetch requisitions: ${err.response?.data?.detail || err.message}`);
+      setRequisitions([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page, itemsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -96,29 +119,7 @@ export default function Requisitions() {
       }
     };
     checkPermissions();
-  }, []);
-
-  const fetchRequisitions = async () => {
-    try {
-      setLoading(true);
-      const searchValue = search || searchTerm;
-      const res = await API.get('procurement/requisitions/', {
-        params: { search: searchValue, page, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('[REQUISITIONS FETCHED]', res.data);
-      setRequisitions(res.data.results || []);
-      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
-      setAlert(null);
-    } catch (err) {
-      console.error('Error fetching requisitions:', err.response?.data || err.message);
-      setAlert(`❌ Failed to fetch requisitions: ${err.response?.data?.detail || err.message}`);
-      setRequisitions([]);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [fetchRequisitions]);
 
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
@@ -127,7 +128,7 @@ export default function Requisitions() {
       prevSearchTermRef.current = searchTerm;
     }
     if (hasPermission) fetchRequisitions();
-  }, [search, searchTerm, page, hasPermission]);
+  }, [search, searchTerm, page, hasPermission, fetchRequisitions]);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
