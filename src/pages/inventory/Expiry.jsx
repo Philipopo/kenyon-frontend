@@ -1,5 +1,5 @@
 // src/pages/inventory/ExpiryTracking.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Container, Typography, Paper, Table, TableHead, TableBody, TableRow, TableCell,
   Chip, Button, TextField, InputAdornment, Pagination, Box, Alert, Dialog, DialogTitle,
@@ -9,11 +9,14 @@ import SearchIcon from '@mui/icons-material/Search';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { format, differenceInDays } from 'date-fns';
+import { debounce } from 'lodash'; // Add lodash for debouncing
 import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function ExpiryTracking() {
   const [items, setItems] = useState([]);
-  const [search, setSearch] = useState('');
+  const [totalPages, setTotalPages] = useState(1);
+  const [localSearch, setLocalSearch] = useState('');
   const [page, setPage] = useState(1);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -28,16 +31,36 @@ export default function ExpiryTracking() {
   const [formData, setFormData] = useState({
     part_number: '', batch: '', quantity: '', expiry_date: '',
   });
+  const { searchTerm } = useSearch(); // Use global searchTerm
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevLocalSearchRef = useRef(localSearch);
+
+  // Debounced local search handler
+  const debouncedSetLocalSearch = useCallback(
+    debounce((value) => {
+      setLocalSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
 
   const fetchItems = async () => {
     try {
-      const res = await API.get('inventory/expiries/');
-      console.log('Expired items response:', res.data);
-      setItems(res.data || []);
+      const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
+      const res = await API.get('inventory/expiries/', {
+        params: { search, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[EXPIRY ITEMS FETCHED]', res.data);
+      setItems(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
     } catch (err) {
       console.error('Error fetching expired items:', err.response?.data || err.message);
       setError('❌ Failed to fetch expired items: ' + (err.response?.data?.detail || err.message));
+      setItems([]);
+      setTotalPages(1);
     }
   };
 
@@ -61,11 +84,13 @@ export default function ExpiryTracking() {
           return;
         }
         const [updateResponse, deleteResponse] = await Promise.all([
-          API.get("/auth/permissions/action/update_expiry_item/"),
-          API.get("/auth/permissions/action/delete_expiry_item/"),
+          API.get('/auth/permissions/action/update_expiry_item/'),
+          API.get('/auth/permissions/action/delete_expiry_item/'),
         ]);
         setHasUpdatePermission(updateResponse.data.allowed || false);
         setHasDeletePermission(deleteResponse.data.allowed || false);
+        console.log('Update permission:', updateResponse.data);
+        console.log('Delete permission:', deleteResponse.data);
         fetchItems();
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
@@ -84,12 +109,24 @@ export default function ExpiryTracking() {
     checkPermissions();
   }, []);
 
+  useEffect(() => {
+    if (hasPermission) {
+      if (searchTerm !== prevSearchTermRef.current || localSearch !== prevLocalSearchRef.current) {
+        setPage(1);
+        prevSearchTermRef.current = searchTerm;
+        prevLocalSearchRef.current = localSearch;
+      }
+      fetchItems();
+    }
+  }, [searchTerm, localSearch, page, hasPermission]);
+
   const handleRecall = async (batchId) => {
     try {
       await API.post(`/inventory/recall/${batchId}/`, {});
       setSuccess(`✅ Recall initiated for batch: ${batchId}`);
       fetchItems();
     } catch (err) {
+      console.error('Error initiating recall:', err.response?.data || err.message);
       setError(`❌ Failed to initiate recall: ${err.response?.data?.detail || err.message}`);
     }
   };
@@ -211,20 +248,6 @@ export default function ExpiryTracking() {
     };
   };
 
-  const filteredItems = [...items]
-    .filter((item) => {
-      const isExpired = differenceInDays(new Date(item.expiry_date), new Date()) < 0;
-      return (
-        isExpired &&
-        Object.values(item).some((val) =>
-          String(val).toLowerCase().includes(search.toLowerCase())
-        )
-      );
-    })
-    .sort((a, b) => new Date(a.expiry_date) - new Date(b.expiry_date));
-
-  const paginatedItems = filteredItems.slice((page - 1) * itemsPerPage, page * itemsPerPage);
-
   if (checkingPermissions) {
     return (
       <Container>
@@ -268,11 +291,8 @@ export default function ExpiryTracking() {
         <TextField
           size="small"
           placeholder="Search..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
+          value={localSearch}
+          onChange={(e) => debouncedSetLocalSearch(e.target.value)}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -296,8 +316,8 @@ export default function ExpiryTracking() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {paginatedItems.length > 0 ? (
-              paginatedItems.map((item) => {
+            {items.length > 0 ? (
+              items.map((item) => {
                 const status = getExpiryStatus(item.expiry_date);
                 return (
                   <TableRow key={item.id}>
@@ -336,16 +356,14 @@ export default function ExpiryTracking() {
           </TableBody>
         </Table>
 
-        {filteredItems.length > itemsPerPage && (
-          <Box mt={4} display="flex" justifyContent="center">
-            <Pagination
-              count={Math.ceil(filteredItems.length / itemsPerPage)}
-              page={page}
-              onChange={(_, value) => setPage(value)}
-              color="primary"
-            />
-          </Box>
-        )}
+        <Box mt={4} display="flex" justifyContent="center">
+          <Pagination
+            count={totalPages}
+            page={page}
+            onChange={(_, value) => setPage(value)}
+            color="primary"
+          />
+        </Box>
       </Paper>
 
       <Dialog open={openEditDialog} onClose={handleEditClose}>

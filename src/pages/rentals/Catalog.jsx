@@ -1,125 +1,224 @@
-// src/pages/rentals/Catalog.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Pagination,
   CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid
+  DialogActions, Grid, IconButton
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash';
 import api from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function EquipmentCatalog() {
   const [catalog, setCatalog] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    category: '',
-    condition: '',
-    location: ''
-  });
-  const [formAlert, setFormAlert] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [isUpdate, setIsUpdate] = useState(false);
+  const [selectedEquipment, setSelectedEquipment] = useState(null);
+  const [form, setForm] = useState({ name: '', category: '', condition: '', location: '' });
+  const [formError, setFormError] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
   const [hasPageAccess, setHasPageAccess] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [canCreateEquipment, setCanCreateEquipment] = useState(false);
+  const [canUpdateEquipment, setCanUpdateEquipment] = useState(false);
+  const [canDeleteEquipment, setCanDeleteEquipment] = useState(false);
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
+
+  const fetchEquipment = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await api.get('/rentals/equipment/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setCatalog(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
+    } catch (err) {
+      console.error('Error fetching equipment:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch equipment: ${err.response?.data?.detail || err.message}`);
+      setCatalog([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page]);
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
-        console.log('Access token:', token);
         if (!token) {
           setError('⚠️ No authentication token found. Please log in.');
           setHasPageAccess(false);
           setCheckingPermissions(false);
           return;
         }
-
-        // Check page permission
         const pageResponse = await api.get('/auth/permissions/page/rentals_equipment/');
-        console.log('Page permission response:', pageResponse.data);
-        if (pageResponse.data && typeof pageResponse.data.allowed === 'boolean') {
-          setHasPageAccess(pageResponse.data.allowed);
-          if (!pageResponse.data.allowed) {
-            setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-            setCheckingPermissions(false);
-            return;
-          }
-        } else {
-          setError('⚠️ Invalid permission response from server.');
-          setHasPageAccess(false);
+        setHasPageAccess(pageResponse.data.allowed || false);
+        if (!pageResponse.data.allowed) {
+          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
           setCheckingPermissions(false);
           return;
         }
-
-        // Check action permission for creating equipment
-        const actionResponse = await api.get('/auth/permissions/action/create_equipment/');
-        console.log('Action permission response:', actionResponse.data);
-        setCanCreateEquipment(actionResponse.data.allowed || false);
-
-        // Fetch data if page access is granted
-        const res = await api.get('rentals/equipment/');
-        setCatalog(res.data);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error checking permissions or fetching data:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else if (err.response?.status === 404) {
-          setError('⚠️ Permission endpoint not found. Contact support.');
-        } else {
-          setError(`⚠️ Failed to check permissions or fetch data: ${err.response?.data?.detail || err.message}`);
+        const [createResponse, updateResponse, deleteResponse] = await Promise.all([
+          api.get('/auth/permissions/action/create_equipment/'),
+          api.get('/auth/permissions/action/update_equipment/'),
+          api.get('/auth/permissions/action/delete_equipment/'),
+        ]);
+        setCanCreateEquipment(createResponse.data.allowed || false);
+        setCanUpdateEquipment(updateResponse.data.allowed || false);
+        setCanDeleteEquipment(deleteResponse.data.allowed || false);
+        if (pageResponse.data.allowed) {
+          fetchEquipment();
         }
+      } catch (err) {
+        console.error('Error checking permissions:', err.response?.data || err.message);
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPageAccess(false);
+        setCheckingPermissions(false);
       } finally {
         setCheckingPermissions(false);
       }
     };
-
     checkPermissions();
-  }, []);
+  }, [fetchEquipment]);
 
-  const handleChange = (e) =>
+  useEffect(() => {
+    if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPageAccess) fetchEquipment();
+  }, [search, searchTerm, page, hasPageAccess, fetchEquipment]);
+
+  const handleFormChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
 
-  const handleCreateEquipment = async () => {
-    const { name, category, condition, location } = form;
-    if (!name || !category || !condition || !location) {
-      setFormAlert('⚠ Please fill in all fields.');
+  const handleSubmit = async () => {
+    if (!form.name || !form.category || !form.condition || !form.location) {
+      setFormError('⚠ Please fill all required fields.');
       return;
     }
-
+    if (isUpdate && !canUpdateEquipment) {
+      setFormError('⚠ You do not have permission to update equipment.');
+      return;
+    }
+    if (!isUpdate && !canCreateEquipment) {
+      setFormError('⚠ You do not have permission to create equipment.');
+      return;
+    }
     try {
       setFormLoading(true);
-      const res = await api.post('rentals/equipment/', form);
-      setCatalog([res.data, ...catalog]);
-      setOpen(false);
-      setFormAlert(null);
+      setFormError(null);
+      const payload = { ...form };
+      if (isUpdate) {
+        const res = await api.put(`/rentals/equipment/${selectedEquipment.id}/`, payload);
+        setCatalog(catalog.map((item) => (item.id === res.data.id ? res.data : item)));
+        setFormError('✅ Equipment updated successfully.');
+      } else {
+        const res = await api.post('/rentals/equipment/', payload);
+        setCatalog([res.data, ...catalog]);
+        setFormError('✅ Equipment created successfully.');
+      }
+      setFormOpen(false);
       setForm({ name: '', category: '', condition: '', location: '' });
+      setIsUpdate(false);
+      setSelectedEquipment(null);
+      fetchEquipment();
     } catch (err) {
-      console.error('❌ Error creating equipment:', err);
-      setFormAlert(err.response?.data?.detail || '❌ Failed to create equipment.');
+      let errorMsg = `Failed to ${isUpdate ? 'update' : 'create'} equipment: Unable to process request.`;
+      if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setFormError(`❌ ${errorMsg}`);
     } finally {
       setFormLoading(false);
     }
   };
 
-  const filtered = catalog.filter((item) =>
-    item.name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleUpdate = (equipment) => {
+    if (!canUpdateEquipment) {
+      setError('⚠ You do not have permission to update equipment.');
+      return;
+    }
+    setForm({
+      name: equipment.name,
+      category: equipment.category,
+      condition: equipment.condition,
+      location: equipment.location,
+    });
+    setSelectedEquipment(equipment);
+    setIsUpdate(true);
+    setFormOpen(true);
+  };
 
-  const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  const handleDelete = async () => {
+    if (!canDeleteEquipment) {
+      setError('⚠ You do not have permission to delete equipment.');
+      return;
+    }
+    try {
+      await api.delete(`/rentals/equipment/${deleteId}/`);
+      setCatalog(catalog.filter((item) => item.id !== deleteId));
+      setError('✅ Equipment deleted successfully.');
+      setDeleteOpen(false);
+      setDeleteId(null);
+      fetchEquipment();
+    } catch (err) {
+      let errorMsg = 'Failed to delete equipment: Unable to process request.';
+      if (err.response?.status === 403) {
+        errorMsg = `⚠ Permission denied: ${err.response.data.detail || 'You lack permission to delete equipment.'}`;
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setError(`❌ ${errorMsg}`);
+    }
+  };
+
+  const openDeleteDialog = (id) => {
+    if (!canDeleteEquipment) {
+      setError('⚠ You do not have permission to delete equipment.');
+      return;
+    }
+    setDeleteId(id);
+    setDeleteOpen(true);
+  };
 
   if (checkingPermissions) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Typography variant="h6">Loading permissions...</Typography>
+        <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
   }
@@ -134,6 +233,11 @@ export default function EquipmentCatalog() {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
+      {error && (
+        <Alert severity={error.includes('❌') ? 'error' : 'success'} sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
       <Paper elevation={3} sx={{ p: 4 }}>
         <Typography variant="h4" gutterBottom>
           Equipment Catalog
@@ -144,14 +248,11 @@ export default function EquipmentCatalog() {
 
         <Box display="flex" justifyContent="space-between" mb={2}>
           <TextField
-            placeholder="Search equipment..."
+            placeholder="Search by name, category, or location..."
             variant="outlined"
             size="small"
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -160,21 +261,26 @@ export default function EquipmentCatalog() {
               ),
             }}
           />
-
-          <Button
-            variant="contained"
-            onClick={() => setOpen(true)}
-            disabled={!canCreateEquipment}
-          >
-            Add Equipment
-          </Button>
+          {canCreateEquipment && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                setForm({ name: '', category: '', condition: '', location: '' });
+                setIsUpdate(false);
+                setFormOpen(true);
+              }}
+            >
+              Add Equipment
+            </Button>
+          )}
         </Box>
 
         {loading ? (
           <Box display="flex" justifyContent="center" py={5}>
             <CircularProgress />
           </Box>
-        ) : error ? (
+        ) : error && error.includes('❌') ? (
           <Alert severity="error">{error}</Alert>
         ) : (
           <>
@@ -187,22 +293,39 @@ export default function EquipmentCatalog() {
                     <TableCell>Category</TableCell>
                     <TableCell>Condition</TableCell>
                     <TableCell>Location</TableCell>
+                    <TableCell>Created By</TableCell>
+                    {(canUpdateEquipment || canDeleteEquipment) && <TableCell>Actions</TableCell>}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paginated.length > 0 ? (
-                    paginated.map((item, index) => (
+                  {catalog.length > 0 ? (
+                    catalog.map((item, index) => (
                       <TableRow key={item.id}>
                         <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
                         <TableCell>{item.name}</TableCell>
                         <TableCell>{item.category}</TableCell>
                         <TableCell>{item.condition}</TableCell>
                         <TableCell>{item.location}</TableCell>
+                        <TableCell>{item.created_by_name || 'N/A'}</TableCell>
+                        {(canUpdateEquipment || canDeleteEquipment) && (
+                          <TableCell>
+                            {canUpdateEquipment && (
+                              <IconButton onClick={() => handleUpdate(item)}>
+                                <EditIcon />
+                              </IconButton>
+                            )}
+                            {canDeleteEquipment && (
+                              <IconButton onClick={() => openDeleteDialog(item.id)}>
+                                <DeleteIcon />
+                              </IconButton>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5} align="center">
+                      <TableCell colSpan={canUpdateEquipment || canDeleteEquipment ? 7 : 6} align="center">
                         No equipment found.
                       </TableCell>
                     </TableRow>
@@ -211,75 +334,96 @@ export default function EquipmentCatalog() {
               </Table>
             </TableContainer>
 
-            <Box display="flex" justifyContent="center" mt={3}>
-              <Pagination
-                count={Math.ceil(filtered.length / itemsPerPage)}
-                page={page}
-                onChange={(_, value) => setPage(value)}
-                color="primary"
-              />
-            </Box>
+            {totalPages > 1 && (
+              <Box display="flex" justifyContent="center" mt={3}>
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(_, value) => setPage(value)}
+                  color="primary"
+                />
+              </Box>
+            )}
           </>
         )}
       </Paper>
 
-      {/* Equipment Creation Modal */}
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Add Equipment</DialogTitle>
+      <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{isUpdate ? 'Update Equipment' : 'Add Equipment'}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <TextField
-                name="name"
                 label="Name"
+                name="name"
                 fullWidth
                 value={form.name}
-                onChange={handleChange}
+                onChange={handleFormChange}
+                required
+                error={form.name === '' && formError?.includes('required')}
+                helperText={form.name === '' && formError?.includes('required') ? 'Name is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
-                name="category"
                 label="Category"
+                name="category"
                 fullWidth
                 value={form.category}
-                onChange={handleChange}
+                onChange={handleFormChange}
+                required
+                error={form.category === '' && formError?.includes('required')}
+                helperText={form.category === '' && formError?.includes('required') ? 'Category is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
-                name="condition"
                 label="Condition"
+                name="condition"
                 fullWidth
                 value={form.condition}
-                onChange={handleChange}
+                onChange={handleFormChange}
+                required
+                error={form.condition === '' && formError?.includes('required')}
+                helperText={form.condition === '' && formError?.includes('required') ? 'Condition is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
-                name="location"
                 label="Location"
+                name="location"
                 fullWidth
                 value={form.location}
-                onChange={handleChange}
+                onChange={handleFormChange}
+                required
+                error={form.location === '' && formError?.includes('required')}
+                helperText={form.location === '' && formError?.includes('required') ? 'Location is required' : ''}
               />
             </Grid>
           </Grid>
-
-          {formAlert && (
-            <Alert sx={{ mt: 2 }} severity={formAlert.includes('❌') ? 'error' : 'warning'}>
-              {formAlert}
+          {formError && (
+            <Alert severity={formError.includes('❌') ? 'error' : 'success'} sx={{ mt: 2 }}>
+              {formError}
             </Alert>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleCreateEquipment}
-            disabled={formLoading || !canCreateEquipment}
-          >
-            {formLoading ? <CircularProgress size={24} color="inherit" /> : 'Create'}
+          <Button onClick={() => setFormOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSubmit} disabled={formLoading}>
+            {isUpdate ? 'Update' : 'Submit'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this equipment?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

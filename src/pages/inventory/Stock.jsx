@@ -1,85 +1,108 @@
 // src/pages/inventory/Stocks.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Container, Paper, Box, Typography, Button, TextField, InputAdornment, Table, TableHead,
   TableRow, TableCell, TableBody, TableContainer, Pagination, Dialog, DialogTitle,
   DialogContent, DialogContentText, DialogActions, Grid, Alert, FormControlLabel, Checkbox,
   IconButton,
-} from "@mui/material";
-import SearchIcon from "@mui/icons-material/Search";
-import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
-import API from "../../api";
+} from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash'; // Add lodash for debouncing
+import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function Stocks() {
   const [stocks, setStocks] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [totalPages, setTotalPages] = useState(1);
+  const [localSearch, setLocalSearch] = useState('');
   const [page, setPage] = useState(1);
   const [openDialog, setOpenDialog] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
   const [editId, setEditId] = useState(null);
   const [formData, setFormData] = useState({
-    item: "", category: "", quantity: "", location: "", critical: false,
+    item: '', category: '', quantity: '', location: '', critical: false,
   });
   const [loading, setLoading] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const { searchTerm } = useSearch(); // Use global searchTerm
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevLocalSearchRef = useRef(localSearch);
 
-  // Fetch stocks
+  // Debounced local search handler
+  const debouncedSetLocalSearch = useCallback(
+    debounce((value) => {
+      setLocalSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
+
   const fetchStocks = async () => {
     try {
       setLoading(true);
-      const response = await API.get("inventory/stocks/");
-      console.log("Stocks response:", response.data);
-      setStocks(response.data || []);
+      const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
+      const response = await API.get('inventory/stocks/', {
+        params: { search, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[STOCKS FETCHED]', response.data);
+      setStocks(response.data.results || []);
+      setTotalPages(Math.ceil(response.data.count / itemsPerPage));
+      setError('');
     } catch (err) {
-      console.error("Error fetching stocks:", err.response?.data || err.message);
-      setError("❌ Failed to fetch stocks: " + (err.response?.data?.detail || err.message));
+      console.error('Error fetching stocks:', err.response?.data || err.message);
+      setError('❌ Failed to fetch stocks: ' + (err.response?.data?.detail || err.message));
+      setStocks([]);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
   };
 
-  // Permission check
   useEffect(() => {
     const checkPermissions = async () => {
       try {
-        const token = localStorage.getItem("accessToken");
-        console.log("Access token:", token);
+        const token = localStorage.getItem('accessToken');
+        console.log('Access token:', token);
         if (!token) {
-          setError("⚠️ No authentication token found. Please log in.");
+          setError('⚠️ No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get("/auth/permissions/page/stock_records/");
-        console.log("Page permission response:", pageResponse.data);
+        const pageResponse = await API.get('/auth/permissions/page/stock_records/');
+        console.log('Page permission response:', pageResponse.data);
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
-          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || "No reason provided"}`);
+          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
           setCheckingPermissions(false);
           return;
         }
         const [updateResponse, deleteResponse] = await Promise.all([
-          API.get("/auth/permissions/action/update_stock_record/"),
-          API.get("/auth/permissions/action/delete_stock_record/"),
+          API.get('/auth/permissions/action/update_stock_record/'),
+          API.get('/auth/permissions/action/delete_stock_record/'),
         ]);
         setHasUpdatePermission(updateResponse.data.allowed || false);
         setHasDeletePermission(deleteResponse.data.allowed || false);
+        console.log('Update permission:', updateResponse.data);
+        console.log('Delete permission:', deleteResponse.data);
         fetchStocks();
       } catch (err) {
-        console.error("Error checking permissions:", err.response?.data || err.message);
+        console.error('Error checking permissions:', err.response?.data || err.message);
         if (err.response?.status === 401) {
-          setError("⚠️ Authentication failed. Please log in again.");
+          setError('⚠️ Authentication failed. Please log in again.');
         } else if (err.response?.status === 404) {
-          setError("⚠️ Permission endpoint not found. Contact support.");
+          setError('⚠️ Permission endpoint not found. Contact support.');
         } else {
           setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         }
@@ -91,57 +114,55 @@ export default function Stocks() {
     checkPermissions();
   }, []);
 
-  // Handle search input change
-  const handleSearchChange = (event) => {
-    const query = event.target.value;
-    setSearchQuery(query);
-    setPage(1);
-  };
+  useEffect(() => {
+    if (hasPermission) {
+      if (searchTerm !== prevSearchTermRef.current || localSearch !== prevLocalSearchRef.current) {
+        setPage(1);
+        prevSearchTermRef.current = searchTerm;
+        prevLocalSearchRef.current = localSearch;
+      }
+      fetchStocks();
+    }
+  }, [searchTerm, localSearch, page, hasPermission]);
 
-  // Handle page change
-  const handlePageChange = (event, value) => {
-    setPage(value);
-  };
-
-  // Handle dialog open/close
   const handleOpenDialog = async (stock = null) => {
     if (!hasPermission) {
-      setError("⚠️ You do not have permission to view stock records.");
+      setError('⚠️ You do not have permission to view stock records.');
       return;
     }
     try {
-      const action = stock ? "update_stock_record" : "create_stock_record";
+      const action = stock ? 'update_stock_record' : 'create_stock_record';
       const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
       console.log(`${action} permission response:`, actionResponse.data);
       if (!actionResponse.data.allowed) {
-        setError(`⚠️ You do not have permission to ${stock ? "update" : "create"} stock records: ${actionResponse.data.reason || "No reason provided"}`);
+        setError(`⚠️ You do not have permission to ${stock ? 'update' : 'create'} stock records: ${actionResponse.data.reason || 'No reason provided'}`);
         return;
       }
       if (stock) {
         setFormData({ ...stock, quantity: stock.quantity.toString() });
         setEditId(stock.id);
       } else {
-        setFormData({ item: "", category: "", quantity: "", location: "", critical: false });
+        setFormData({ item: '', category: '', quantity: '', location: '', critical: false });
         setEditId(null);
       }
       setOpenDialog(true);
     } catch (err) {
-      console.error(`Error checking ${stock ? "update" : "create"} permission:`, err.response?.data || err.message);
-      setError(`❌ Failed to check ${stock ? "update" : "create"} permission: ${err.response?.data?.detail || err.message}`);
+      console.error(`Error checking ${stock ? 'update' : 'create'} permission:`, err.response?.data || err.message);
+      setError(`❌ Failed to check ${stock ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setFormData({ item: "", category: "", quantity: "", location: "", critical: false });
+    setFormData({ item: '', category: '', quantity: '', location: '', critical: false });
     setEditId(null);
-    setError("");
-    setSuccess("");
+    setError('');
+    setSuccess('');
   };
 
   const handleDeleteOpen = (id) => {
     if (!hasDeletePermission) {
-      setError("⚠️ You do not have permission to delete stock records.");
+      setError('⚠️ You do not have permission to delete stock records.');
       return;
     }
     setDeleteId(id);
@@ -151,25 +172,23 @@ export default function Stocks() {
   const handleDeleteClose = () => {
     setDeleteOpen(false);
     setDeleteId(null);
-    setError("");
-    setSuccess("");
+    setError('');
+    setSuccess('');
   };
 
-  // Handle form input change
   const handleFormChange = (event) => {
     const { name, value, type, checked } = event.target;
-    setFormData({ ...formData, [name]: type === "checkbox" ? checked : value });
+    setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
   };
 
-  // Handle form submission
   const handleFormSubmit = async () => {
     const { item, category, quantity, location } = formData;
     if (!item || !category || !quantity || !location) {
-      setError("⚠️ Please fill in all required fields.");
+      setError('⚠️ Please fill in all required fields.');
       return;
     }
     if (Number(quantity) <= 0) {
-      setError("⚠️ Quantity must be a positive number.");
+      setError('⚠️ Quantity must be a positive number.');
       return;
     }
     try {
@@ -182,63 +201,52 @@ export default function Stocks() {
       };
       if (editId) {
         await API.patch(`inventory/stocks/${editId}/`, payload);
-        setSuccess("✅ Stock record updated successfully");
+        setSuccess('✅ Stock record updated successfully');
       } else {
-        await API.post("/inventory/stocks/", payload);
-        setSuccess("✅ Stock record created successfully");
+        await API.post('/inventory/stocks/', payload);
+        setSuccess('✅ Stock record created successfully');
       }
       fetchStocks();
       handleCloseDialog();
     } catch (err) {
-      console.error(`${editId ? "Updating" : "Adding"} stock error:`, err.response?.data || err.message);
-      let errorMsg = `Failed to ${editId ? "update" : "add"} stock: Unable to process request.`;
+      console.error(`${editId ? 'Updating' : 'Adding'} stock error:`, err.response?.data || err.message);
+      let errorMsg = `Failed to ${editId ? 'update' : 'add'} stock: Unable to process request.`;
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || "You lack permission to perform this action."}`;
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
       } else if (err.response?.status === 400 && err.response?.data) {
         errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(", ") : msg}`)
-          .join("; ");
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
       } else if (err.response?.data?.detail) {
         errorMsg = err.response.data.detail;
       } else {
-        errorMsg = err.message || `Failed to ${editId ? "update" : "add"} stock: Network error.`;
+        errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} stock: Network error.`;
       }
       setError(`❌ ${errorMsg}`);
     }
   };
 
-  // Handle delete
   const handleDelete = async () => {
     try {
       await API.delete(`inventory/stocks/${deleteId}/`);
-      setSuccess("✅ Stock record deleted successfully");
+      setSuccess('✅ Stock record deleted successfully');
       setDeleteOpen(false);
       setDeleteId(null);
       fetchStocks();
     } catch (err) {
-      console.error("Error deleting stock:", err.response?.data || err.message);
-      let errorMsg = "Failed to delete stock: Unable to process request.";
+      console.error('Error deleting stock:', err.response?.data || err.message);
+      let errorMsg = 'Failed to delete stock: Unable to process request.';
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || "You lack permission to delete stock records."}`;
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete stock records.'}`;
       } else if (err.response?.data?.detail) {
         errorMsg = err.response.data.detail;
       } else {
-        errorMsg = err.message || "Failed to delete stock: Network error.";
+        errorMsg = err.message || 'Failed to delete stock: Network error.';
       }
       setError(`❌ ${errorMsg}`);
     }
   };
 
-  // Filter and paginate stocks
-  const filteredStocks = stocks.filter((stock) =>
-    Object.values(stock).some(
-      (val) => typeof val === "string" && val.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
-  const paginatedStocks = filteredStocks.slice((page - 1) * itemsPerPage, page * itemsPerPage);
-  const totalPages = Math.ceil(filteredStocks.length / itemsPerPage);
-
-  // Render loading state
   if (checkingPermissions) {
     return (
       <Container>
@@ -249,27 +257,25 @@ export default function Stocks() {
     );
   }
 
-  // Render no permission state
   if (!hasPermission) {
     return (
       <Container>
-        <Alert severity="error" sx={{ mt: 4 }} onClose={() => setError("")}>
-          {error || "⚠️ You do not have permission to view this page."}
+        <Alert severity="error" sx={{ mt: 4 }} onClose={() => setError('')}>
+          {error || '⚠️ You do not have permission to view this page.'}
         </Alert>
       </Container>
     );
   }
 
-  // Main render
   return (
     <Container sx={{ mt: 4 }}>
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
       {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess("")}>
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
           {success}
         </Alert>
       )}
@@ -283,8 +289,8 @@ export default function Stocks() {
 
         <TextField
           placeholder="Search..."
-          value={searchQuery}
-          onChange={handleSearchChange}
+          value={localSearch}
+          onChange={(e) => debouncedSetLocalSearch(e.target.value)}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -292,7 +298,7 @@ export default function Stocks() {
               </InputAdornment>
             ),
           }}
-          sx={{ mb: 2, width: "300px" }}
+          sx={{ mb: 2, width: '300px' }}
         />
 
         <TableContainer>
@@ -314,14 +320,14 @@ export default function Stocks() {
                     Loading...
                   </TableCell>
                 </TableRow>
-              ) : paginatedStocks.length > 0 ? (
-                paginatedStocks.map((stock) => (
+              ) : stocks.length > 0 ? (
+                stocks.map((stock) => (
                   <TableRow key={stock.id}>
                     <TableCell>{stock.item}</TableCell>
                     <TableCell>{stock.category}</TableCell>
                     <TableCell>{stock.quantity}</TableCell>
                     <TableCell>{stock.location}</TableCell>
-                    <TableCell>{stock.critical ? "Yes" : "No"}</TableCell>
+                    <TableCell>{stock.critical ? 'Yes' : 'No'}</TableCell>
                     <TableCell>
                       <IconButton onClick={() => handleOpenDialog(stock)} disabled={!hasUpdatePermission}>
                         <EditIcon />
@@ -347,17 +353,17 @@ export default function Stocks() {
           <Pagination
             count={totalPages}
             page={page}
-            onChange={handlePageChange}
+            onChange={(_, value) => setPage(value)}
             color="primary"
           />
         </Box>
       </Paper>
 
       <Dialog open={openDialog} onClose={handleCloseDialog}>
-        <DialogTitle>{editId ? "Update Stock" : "Add Stock"}</DialogTitle>
+        <DialogTitle>{editId ? 'Update Stock' : 'Add Stock'}</DialogTitle>
         <DialogContent>
           {error && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
               {error}
             </Alert>
           )}
@@ -370,8 +376,8 @@ export default function Stocks() {
                 value={formData.item}
                 onChange={handleFormChange}
                 required
-                error={formData.item === "" && error.includes("required")}
-                helperText={formData.item === "" && error.includes("required") ? "Item name is required" : ""}
+                error={formData.item === '' && error.includes('required')}
+                helperText={formData.item === '' && error.includes('required') ? 'Item name is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
@@ -382,8 +388,8 @@ export default function Stocks() {
                 value={formData.category}
                 onChange={handleFormChange}
                 required
-                error={formData.category === "" && error.includes("required")}
-                helperText={formData.category === "" && error.includes("required") ? "Category is required" : ""}
+                error={formData.category === '' && error.includes('required')}
+                helperText={formData.category === '' && error.includes('required') ? 'Category is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
@@ -395,8 +401,8 @@ export default function Stocks() {
                 value={formData.quantity}
                 onChange={handleFormChange}
                 required
-                error={formData.quantity === "" && error.includes("required")}
-                helperText={formData.quantity === "" && error.includes("required") ? "Quantity is required" : ""}
+                error={formData.quantity === '' && error.includes('required')}
+                helperText={formData.quantity === '' && error.includes('required') ? 'Quantity is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
@@ -407,8 +413,8 @@ export default function Stocks() {
                 value={formData.location}
                 onChange={handleFormChange}
                 required
-                error={formData.location === "" && error.includes("required")}
-                helperText={formData.location === "" && error.includes("required") ? "Location is required" : ""}
+                error={formData.location === '' && error.includes('required')}
+                helperText={formData.location === '' && error.includes('required') ? 'Location is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
@@ -428,7 +434,7 @@ export default function Stocks() {
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
           <Button variant="contained" onClick={handleFormSubmit}>
-            {editId ? "Update" : "Save"}
+            {editId ? 'Update' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,25 +1,51 @@
-import React, { useState } from 'react';
+// frontend/src/pages/DashboardLayout.jsx
+import React, { useState, useEffect } from 'react';
 import {
   AppBar,
   Toolbar,
   Box,
   IconButton,
   InputBase,
+  Typography,
 } from '@mui/material';
-import { Search, Menu as MenuIcon } from '@mui/icons-material';
-import { Brightness4, Brightness7, LocationOn } from '@mui/icons-material';
+import { Search, Menu as MenuIcon, LocationOn } from '@mui/icons-material';
+import { Brightness4, Brightness7 } from '@mui/icons-material';
 import Sidebar from './Sidebar';
 import { useThemeContext } from '../context/ThemeContext';
+import { useSearch } from '../context/SearchContext'; // Add SearchContext
 import { Outlet } from 'react-router-dom';
+import API from '../api';
 import logo from '../assets/kenyon_logo-removebg-preview.png';
 import ChatWidget from '../widget/ChatWidget';
-
 
 const drawerWidth = 280;
 
 export default function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { mode, toggleTheme } = useThemeContext();
+  const { searchTerm, setSearchTerm } = useSearch(); // Use SearchContext
+  const [userProfile, setUserProfile] = useState({ full_name: '', state: 'Lagos' });
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await API.get('/auth/profile/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      setUserProfile({
+        full_name: response.data.full_name || response.data.name || response.data.email.split('@')[0],
+        state: response.data.state || 'Lagos',
+      });
+    } catch (error) {
+      console.error('Error fetching user profile:', error.response || error);
+      setUserProfile({ full_name: 'User', state: 'Lagos' });
+    }
+  };
+
+  useEffect(() => {
+    fetchUserProfile();
+    window.addEventListener('profileUpdated', fetchUserProfile);
+    return () => window.removeEventListener('profileUpdated', fetchUserProfile);
+  }, []);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -27,7 +53,6 @@ export default function DashboardLayout() {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      {/* AppBar */}
       <AppBar
         position="fixed"
         sx={{
@@ -36,7 +61,7 @@ export default function DashboardLayout() {
           backgroundColor: mode === 'dark' ? '#424242' : '#212121',
         }}
       >
-       <Toolbar>
+        <Toolbar>
           <Box
             sx={{
               display: 'flex',
@@ -45,7 +70,6 @@ export default function DashboardLayout() {
               width: '100%',
             }}
           >
-            {/* Left: Logo & Menu button (for mobile) */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <img
                 src={logo}
@@ -64,8 +88,6 @@ export default function DashboardLayout() {
                 <MenuIcon />
               </IconButton>
             </Box>
-
-            {/* Center: Search box */}
             <Box
               sx={{
                 display: 'flex',
@@ -80,6 +102,8 @@ export default function DashboardLayout() {
               <Search sx={{ mr: 1 }} />
               <InputBase
                 placeholder="Search…"
+                value={searchTerm} // Bind to searchTerm
+                onChange={(e) => setSearchTerm(e.target.value)} // Update searchTerm
                 sx={{
                   color: '#fff',
                   width: '100%',
@@ -89,10 +113,7 @@ export default function DashboardLayout() {
                 }}
               />
             </Box>
-
-            {/* Right: Location Chip + Theme Toggle */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              {/* Location Chip */}
               <Box
                 sx={{
                   display: 'flex',
@@ -108,10 +129,10 @@ export default function DashboardLayout() {
                 }}
               >
                 <LocationOn sx={{ fontSize: 18 }} />
-                Lagos
+                <Typography variant="body2">
+                  {userProfile.state}
+                </Typography>
               </Box>
-
-              {/* Dark Mode Toggle Icon */}
               <IconButton onClick={toggleTheme} sx={{ color: '#fff' }}>
                 {mode === 'dark' ? <Brightness7 /> : <Brightness4 />}
               </IconButton>
@@ -119,9 +140,6 @@ export default function DashboardLayout() {
           </Box>
         </Toolbar>
       </AppBar>
-
-
-      {/* Sidebar */}
       <Sidebar mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} />
       <Box
         component="main"
@@ -131,7 +149,7 @@ export default function DashboardLayout() {
           width: { sm: `calc(100% - ${drawerWidth}px)` },
           mt: 8,
           height: 'calc(100vh - 64px)',
-          overflow: 'auto'
+          overflow: 'auto',
         }}
       >
         <Outlet />

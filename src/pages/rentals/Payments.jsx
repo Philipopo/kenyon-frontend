@@ -1,130 +1,236 @@
-// src/pages/rentals/Payments.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Pagination,
   CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, MenuItem, Select, FormControl, InputLabel
+  DialogActions, Grid, MenuItem, Select, FormControl, InputLabel, IconButton
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash';
 import api from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function RentalPayments() {
   const [payments, setPayments] = useState([]);
   const [rentals, setRentals] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    rental: '',
-    amount_paid: '',
-    status: 'Paid',
-  });
-  const [formAlert, setFormAlert] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [isUpdate, setIsUpdate] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [form, setForm] = useState({ rental: '', amount_paid: '', status: 'Paid' });
+  const [formError, setFormError] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
   const [hasPageAccess, setHasPageAccess] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [canCreatePayment, setCanCreatePayment] = useState(false);
+  const [canUpdatePayment, setCanUpdatePayment] = useState(false);
+  const [canDeletePayment, setCanDeletePayment] = useState(false);
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
+
+  const fetchPayments = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await api.get('/rentals/payments/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setPayments(Array.isArray(res.data.results) ? res.data.results : Array.isArray(res.data) ? res.data : []);
+      setTotalPages(Math.ceil((res.data.count || 0) / itemsPerPage));
+      setError('');
+    } catch (err) {
+      console.error('Error fetching payments:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch payments: ${err.response?.data?.detail || err.message}`);
+      setPayments([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page]);
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
-        console.log('Access token:', token);
         if (!token) {
           setError('⚠️ No authentication token found. Please log in.');
           setHasPageAccess(false);
           setCheckingPermissions(false);
           return;
         }
-
-        // Check page permission
         const pageResponse = await api.get('/auth/permissions/page/rentals_payments/');
         console.log('Page permission response:', pageResponse.data);
-        if (pageResponse.data && typeof pageResponse.data.allowed === 'boolean') {
-          setHasPageAccess(pageResponse.data.allowed);
-          if (!pageResponse.data.allowed) {
-            setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-            setCheckingPermissions(false);
-            return;
-          }
-        } else {
-          setError('⚠️ Invalid permission response from server.');
-          setHasPageAccess(false);
+        setHasPageAccess(pageResponse.data.allowed || false);
+        if (!pageResponse.data.allowed) {
+          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
           setCheckingPermissions(false);
           return;
         }
-
-        // Check action permission for creating payments
-        const actionResponse = await api.get('/auth/permissions/action/create_payment/');
-        console.log('Action permission response:', actionResponse.data);
-        setCanCreatePayment(actionResponse.data.allowed || false);
-
-        // Fetch data if page access is granted
-        const [paymentsRes, rentalsRes] = await Promise.all([
-          api.get('rentals/payments/'),
-          api.get('rentals/rentals/')
+        const [createResponse, updateResponse, deleteResponse, rentalsResponse] = await Promise.all([
+          api.get('/auth/permissions/action/create_payment/'),
+          api.get('/auth/permissions/action/update_payment/'),
+          api.get('/auth/permissions/action/delete_payment/'),
+          api.get('/rentals/rentals/', { params: { page_size: 100 } }),
         ]);
-        setPayments(paymentsRes.data);
-        setRentals(rentalsRes.data);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error checking permissions or fetching data:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else if (err.response?.status === 404) {
-          setError('⚠️ Permission endpoint not found. Contact support.');
-        } else {
-          setError(`⚠️ Failed to check permissions or fetch data: ${err.response?.data?.detail || err.message}`);
+        console.log('Rentals API response:', rentalsResponse.data);
+        setCanCreatePayment(createResponse.data.allowed || false);
+        setCanUpdatePayment(updateResponse.data.allowed || false);
+        setCanDeletePayment(deleteResponse.data.allowed || false);
+        setRentals(Array.isArray(rentalsResponse.data.results) ? rentalsResponse.data.results : Array.isArray(rentalsResponse.data) ? rentalsResponse.data : []);
+        if (pageResponse.data.allowed) {
+          fetchPayments();
         }
+      } catch (err) {
+        console.error('Error checking permissions or fetching rentals:', err.response?.data || err.message);
+        setError(`⚠️ Failed to check permissions or fetch rentals: ${err.response?.data?.detail || err.message}`);
         setHasPageAccess(false);
+        setRentals([]);
       } finally {
         setCheckingPermissions(false);
       }
     };
-
     checkPermissions();
-  }, []);
+  }, [fetchPayments]);
 
-  const handleChange = (e) =>
+  useEffect(() => {
+    if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPageAccess) fetchPayments();
+  }, [search, searchTerm, page, hasPageAccess, fetchPayments]);
+
+  const handleFormChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
 
-  const handleCreatePayment = async () => {
-    const { rental, amount_paid, status } = form;
-    if (!rental || !amount_paid || !status) {
-      setFormAlert('⚠ Please fill in all fields.');
+  const handleSubmit = async () => {
+    if (!form.rental || !form.amount_paid) {
+      setFormError('⚠ Please fill all required fields.');
       return;
     }
-
+    if (parseFloat(form.amount_paid) <= 0) {
+      setFormError('⚠ Amount paid must be positive.');
+      return;
+    }
+    if (isUpdate && !canUpdatePayment) {
+      setFormError('⚠ You do not have permission to update a payment.');
+      return;
+    }
+    if (!isUpdate && !canCreatePayment) {
+      setFormError('⚠ You do not have permission to create a payment.');
+      return;
+    }
     try {
       setFormLoading(true);
-      const payload = { ...form };
-      const res = await api.post('rentals/payments/', payload);
-      setPayments([res.data, ...payments]);
-      setOpen(false);
-      setFormAlert(null);
+      setFormError(null);
+      const payload = {
+        rental: form.rental,
+        amount_paid: parseFloat(form.amount_paid),
+        status: form.status,
+      };
+      if (isUpdate) {
+        const res = await api.put(`/rentals/payments/${selectedPayment.id}/`, payload);
+        setPayments(payments.map((p) => (p.id === res.data.id ? res.data : p)));
+        setFormError('✅ Payment updated successfully.');
+      } else {
+        const res = await api.post('/rentals/payments/', payload);
+        setPayments([res.data, ...payments]);
+        setFormError('✅ Payment created successfully.');
+      }
+      setFormOpen(false);
       setForm({ rental: '', amount_paid: '', status: 'Paid' });
+      setIsUpdate(false);
+      setSelectedPayment(null);
+      fetchPayments();
     } catch (err) {
-      console.error('❌ Error creating payment:', err);
-      setFormAlert(err.response?.data?.detail || '❌ Failed to create payment.');
+      let errorMsg = `Failed to ${isUpdate ? 'update' : 'create'} payment: Unable to process request.`;
+      if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setFormError(`❌ ${errorMsg}`);
     } finally {
       setFormLoading(false);
     }
   };
 
-  const filtered = payments.filter((p) =>
-    p.renter_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleUpdate = (payment) => {
+    if (!canUpdatePayment) {
+      setError('⚠ You do not have permission to update a payment.');
+      return;
+    }
+    setForm({
+      rental: payment.rental,
+      amount_paid: payment.amount_paid.toString(),
+      status: payment.status,
+    });
+    setSelectedPayment(payment);
+    setIsUpdate(true);
+    setFormOpen(true);
+  };
 
-  const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  const handleDelete = async () => {
+    if (!canDeletePayment) {
+      setError('⚠ You do not have permission to delete a payment.');
+      return;
+    }
+    try {
+      await api.delete(`/rentals/payments/${deleteId}/`);
+      setPayments(payments.filter((p) => p.id !== deleteId));
+      setError('✅ Payment deleted successfully.');
+      setDeleteOpen(false);
+      setDeleteId(null);
+      fetchPayments();
+    } catch (err) {
+      let errorMsg = 'Failed to delete payment: Unable to process request.';
+      if (err.response?.status === 403) {
+        errorMsg = `⚠ Permission denied: ${err.response.data.detail || 'You lack permission to delete payments.'}`;
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setError(`❌ ${errorMsg}`);
+    }
+  };
+
+  const openDeleteDialog = (id) => {
+    if (!canDeletePayment) {
+      setError('⚠ You do not have permission to delete a payment.');
+      return;
+    }
+    setDeleteId(id);
+    setDeleteOpen(true);
+  };
 
   if (checkingPermissions) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Typography variant="h6">Loading permissions...</Typography>
+        <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
   }
@@ -139,6 +245,11 @@ export default function RentalPayments() {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
+      {error && (
+        <Alert severity={error.includes('❌') ? 'error' : 'success'} sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
       <Paper elevation={3} sx={{ p: 4 }}>
         <Typography variant="h4" gutterBottom>
           Rental Payments
@@ -149,14 +260,11 @@ export default function RentalPayments() {
 
         <Box display="flex" justifyContent="space-between" mb={2}>
           <TextField
-            placeholder="Search by renter..."
+            placeholder="Search by renter or equipment..."
             variant="outlined"
             size="small"
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -165,20 +273,26 @@ export default function RentalPayments() {
               ),
             }}
           />
-          <Button
-            variant="contained"
-            onClick={() => setOpen(true)}
-            disabled={!canCreatePayment}
-          >
-            Add Payment
-          </Button>
+          {canCreatePayment && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                setForm({ rental: '', amount_paid: '', status: 'Paid' });
+                setIsUpdate(false);
+                setFormOpen(true);
+              }}
+            >
+              Add Payment
+            </Button>
+          )}
         </Box>
 
         {loading ? (
           <Box display="flex" justifyContent="center" py={5}>
             <CircularProgress />
           </Box>
-        ) : error ? (
+        ) : error && error.includes('❌') ? (
           <Alert severity="error">{error}</Alert>
         ) : (
           <>
@@ -192,24 +306,41 @@ export default function RentalPayments() {
                     <TableCell>Amount Paid</TableCell>
                     <TableCell>Payment Date</TableCell>
                     <TableCell>Status</TableCell>
+                    <TableCell>Created By</TableCell>
+                    {(canUpdatePayment || canDeletePayment) && <TableCell>Actions</TableCell>}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paginated.length > 0 ? (
-                    paginated.map((payment, index) => (
+                  {payments.length > 0 ? (
+                    payments.map((payment, index) => (
                       <TableRow key={payment.id}>
                         <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
                         <TableCell>{payment.renter_name}</TableCell>
                         <TableCell>{payment.equipment_name}</TableCell>
-                        <TableCell>{`₦${parseFloat(payment.amount_paid).toLocaleString()}`}</TableCell>
+                        <TableCell>₦{parseFloat(payment.amount_paid).toLocaleString()}</TableCell>
                         <TableCell>{new Date(payment.payment_date).toLocaleDateString()}</TableCell>
                         <TableCell>{payment.status}</TableCell>
+                        <TableCell>{payment.created_by_name || 'N/A'}</TableCell>
+                        {(canUpdatePayment || canDeletePayment) && (
+                          <TableCell>
+                            {canUpdatePayment && (
+                              <IconButton onClick={() => handleUpdate(payment)}>
+                                <EditIcon />
+                              </IconButton>
+                            )}
+                            {canDeletePayment && (
+                              <IconButton onClick={() => openDeleteDialog(payment.id)}>
+                                <DeleteIcon />
+                              </IconButton>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6} align="center">
-                        No rental payments found.
+                      <TableCell colSpan={canUpdatePayment || canDeletePayment ? 8 : 7} align="center">
+                        No payments found.
                       </TableCell>
                     </TableRow>
                   )}
@@ -217,21 +348,22 @@ export default function RentalPayments() {
               </Table>
             </TableContainer>
 
-            <Box display="flex" justifyContent="center" mt={3}>
-              <Pagination
-                count={Math.ceil(filtered.length / itemsPerPage)}
-                page={page}
-                onChange={(_, value) => setPage(value)}
-                color="primary"
-              />
-            </Box>
+            {totalPages > 1 && (
+              <Box display="flex" justifyContent="center" mt={3}>
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(_, value) => setPage(value)}
+                  color="primary"
+                />
+              </Box>
+            )}
           </>
         )}
       </Paper>
 
-      {/* Payment Creation Modal */}
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Add Payment</DialogTitle>
+      <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{isUpdate ? 'Update Payment' : 'Add Payment'}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
@@ -239,61 +371,71 @@ export default function RentalPayments() {
                 <InputLabel id="rental-label">Rental</InputLabel>
                 <Select
                   labelId="rental-label"
-                  id="rental-select"
                   name="rental"
                   value={form.rental}
                   label="Rental"
-                  onChange={handleChange}
+                  onChange={handleFormChange}
                 >
                   <MenuItem value="" disabled>-- Select Rental --</MenuItem>
-                  {rentals.map((rental) => (
-                    <MenuItem key={rental.id} value={rental.id}>
-                      {`${rental.renter_name} - ${rental.equipment_name}`}
-                    </MenuItem>
-                  ))}
+                  {Array.isArray(rentals) && rentals.length > 0 ? (
+                    rentals.map((rental) => (
+                      <MenuItem key={rental.id} value={rental.id}>
+                        {`${rental.code} - ${rental.renter_name} - ${rental.equipment_name}`}
+                      </MenuItem>
+                    ))
+                  ) : (
+                    <MenuItem value="" disabled>No rentals available</MenuItem>
+                  )}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12}>
               <TextField
-                name="amount_paid"
                 label="Amount Paid (₦)"
+                name="amount_paid"
                 type="number"
                 fullWidth
                 value={form.amount_paid}
-                onChange={handleChange}
+                onChange={handleFormChange}
                 inputProps={{ step: "0.01" }}
+                required
+                error={(form.amount_paid === '' || parseFloat(form.amount_paid) <= 0) && formError?.includes('Amount')}
+                helperText={(form.amount_paid === '' || parseFloat(form.amount_paid) <= 0) && formError?.includes('Amount') ? 'Amount must be positive' : ''}
               />
             </Grid>
             <Grid item xs={12}>
               <FormControl fullWidth required>
                 <InputLabel>Status</InputLabel>
-                <Select
-                  name="status"
-                  value={form.status}
-                  onChange={handleChange}
-                >
+                <Select name="status" value={form.status} onChange={handleFormChange}>
                   <MenuItem value="Paid">Paid</MenuItem>
                   <MenuItem value="Pending">Pending</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
           </Grid>
-
-          {formAlert && (
-            <Alert sx={{ mt: 2 }} severity={formAlert.includes('❌') ? 'error' : 'warning'}>
-              {formAlert}
+          {formError && (
+            <Alert severity={formError.includes('❌') ? 'error' : 'success'} sx={{ mt: 2 }}>
+              {formError}
             </Alert>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleCreatePayment}
-            disabled={formLoading || !canCreatePayment}
-          >
-            {formLoading ? <CircularProgress size={24} color="inherit" /> : 'Create'}
+          <Button onClick={() => setFormOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSubmit} disabled={formLoading}>
+            {isUpdate ? 'Update' : 'Submit'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this payment?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

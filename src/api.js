@@ -1,13 +1,13 @@
 import axios from 'axios';
 
-// 🔑 Use env variable with a fallback (so dev works if env is missing)
+// 🔑 Use env variable with a fallback
 const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:8000/api/';
 
 // Create Axios instance
 const API = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  withCredentials: true, // for CSRF
+  withCredentials: false, // Disable for JWT endpoints
 });
 
 // 🔑 Centralized Logout Function
@@ -38,16 +38,20 @@ API.interceptors.request.use((config) => {
     config.headers['Content-Type'] = 'multipart/form-data';
   }
 
-  const csrfToken = document.cookie
-    .split('; ')
-    .find(row => row.startsWith('csrftoken'))
-    ?.split('=')[1];
-  if (csrfToken) config.headers['X-CSRFToken'] = csrfToken;
+  // Skip CSRF for JWT endpoints
+  const jwtEndpoints = ['auth/login/', 'auth/api-keys/', 'auth/verify-otp/', 'token/refresh/'];
+  if (!jwtEndpoints.some(endpoint => config.url.includes(endpoint))) {
+    const csrfToken = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('csrftoken'))
+      ?.split('=')[1];
+    if (csrfToken) config.headers['X-CSRFToken'] = csrfToken;
+  }
 
   return config;
 });
 
-// 🔑 Response Interceptor (refresh token logic)
+// 🔑 Response Interceptor
 API.interceptors.response.use(
   res => res,
   async error => {

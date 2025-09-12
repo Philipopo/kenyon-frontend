@@ -1,34 +1,18 @@
 // src/pages/finance/Categories.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Container,
-  Typography,
-  Paper,
-  Box,
-  TextField,
-  InputAdornment,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Pagination,
-  Alert,
-  CircularProgress,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  IconButton,
+  Container, Typography, Paper, Box, TextField, InputAdornment, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, Pagination,
+  Alert, CircularProgress, Button, Dialog, DialogTitle, DialogContent,
+  DialogActions, Grid, IconButton,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash';
 import api from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function Categories() {
   const [hasPageAccess, setHasPageAccess] = useState(false);
@@ -40,6 +24,7 @@ export default function Categories() {
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [isUpdate, setIsUpdate] = useState(false);
@@ -49,7 +34,40 @@ export default function Categories() {
   const [formLoading, setFormLoading] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await api.get('/finance/categories/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[CATEGORIES FETCHED]', res.data);
+      setCategories(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
+    } catch (err) {
+      console.error('Error fetching categories:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch categories: ${err.response?.data?.detail || err.message}`);
+      setCategories([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -68,36 +86,23 @@ export default function Categories() {
         setHasPageAccess(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+          setCheckingPermissions(false);
+          return;
         }
-
-        const createResponse = await api.get('/auth/permissions/action/create_finance_category/');
+        const [createResponse, updateResponse, deleteResponse] = await Promise.all([
+          api.get('/auth/permissions/action/create_finance_category/'),
+          api.get('/auth/permissions/action/update_finance_category/'),
+          api.get('/auth/permissions/action/delete_finance_category/'),
+        ]);
         setCanCreateCategory(createResponse.data.allowed || false);
-        const updateResponse = await api.get('/auth/permissions/action/update_finance_category/');
         setCanUpdateCategory(updateResponse.data.allowed || false);
-        const deleteResponse = await api.get('/auth/permissions/action/delete_finance_category/');
         setCanDeleteCategory(deleteResponse.data.allowed || false);
-
         if (pageResponse.data.allowed) {
-          try {
-            const res = await api.get('/finance/categories/');
-            setCategories(res.data);
-          } catch (err) {
-            setError(
-              err.response?.data?.detail ||
-              err.response?.data?.message ||
-              'Failed to load categories.'
-            );
-          } finally {
-            setLoading(false);
-          }
+          fetchCategories();
         }
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else {
-          setError(`⚠️ Failed to check permissions: ${err.response?.data?.reason || err.message}`);
-        }
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPageAccess(false);
         setCanCreateCategory(false);
         setCanUpdateCategory(false);
@@ -106,9 +111,17 @@ export default function Categories() {
         setCheckingPermissions(false);
       }
     };
-
     checkPermissions();
-  }, []);
+  }, [fetchCategories]);
+
+  useEffect(() => {
+    if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPageAccess) fetchCategories();
+  }, [search, searchTerm, page, hasPageAccess, fetchCategories]);
 
   const handleFormChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -119,7 +132,6 @@ export default function Categories() {
       setFormError('⚠ Please fill all required fields.');
       return;
     }
-
     if (isUpdate && !canUpdateCategory) {
       setFormError('⚠ You do not have permission to update a category.');
       return;
@@ -128,7 +140,6 @@ export default function Categories() {
       setFormError('⚠ You do not have permission to create a category.');
       return;
     }
-
     try {
       setFormLoading(true);
       setFormError(null);
@@ -147,12 +158,17 @@ export default function Categories() {
       setForm({ name: '', description: '' });
       setIsUpdate(false);
       setSelectedCategory(null);
+      fetchCategories();
     } catch (err) {
-      setFormError(
-        err.response?.data?.detail ||
-        err.response?.data?.message ||
-        `Failed to ${isUpdate ? 'update' : 'create'} category.`
-      );
+      let errorMsg = `Failed to ${isUpdate ? 'update' : 'create'} category: Unable to process request.`;
+      if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setFormError(`❌ ${errorMsg}`);
     } finally {
       setFormLoading(false);
     }
@@ -175,12 +191,15 @@ export default function Categories() {
       setCategories(categories.filter((cat) => cat.id !== deleteId));
       setDeleteOpen(false);
       setDeleteId(null);
+      fetchCategories();
     } catch (err) {
-      setFormError(
-        err.response?.data?.detail ||
-        err.response?.data?.message ||
-        'Failed to delete category.'
-      );
+      let errorMsg = 'Failed to delete category: Unable to process request.';
+      if (err.response?.status === 403) {
+        errorMsg = `⚠ Permission denied: ${err.response.data.detail || 'You lack permission to delete categories.'}`;
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setFormError(`❌ ${errorMsg}`);
     }
   };
 
@@ -189,19 +208,11 @@ export default function Categories() {
     setDeleteOpen(true);
   };
 
-  const filteredCategories = categories.filter((category) =>
-    category.name?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const paginatedCategories = filteredCategories.slice(
-    (page - 1) * itemsPerPage,
-    page * itemsPerPage
-  );
-
   if (checkingPermissions) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Typography variant="h6">Loading permissions...</Typography>
+        <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
   }
@@ -216,6 +227,11 @@ export default function Categories() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
       <Typography variant="h4" fontWeight="bold" gutterBottom>
         Finance Categories
       </Typography>
@@ -227,10 +243,7 @@ export default function Categories() {
             size="small"
             placeholder="Search by category name..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -273,8 +286,8 @@ export default function Categories() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paginatedCategories.length > 0 ? (
-                    paginatedCategories.map((category, index) => (
+                  {categories.length > 0 ? (
+                    categories.map((category, index) => (
                       <TableRow key={category.id}>
                         <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
                         <TableCell>{category.name}</TableCell>
@@ -300,7 +313,7 @@ export default function Categories() {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={canUpdateCategory || canDeleteCategory ? 6 : 5} align="center">
-                        No results found.
+                        No categories found.
                       </TableCell>
                     </TableRow>
                   )}
@@ -308,14 +321,16 @@ export default function Categories() {
               </Table>
             </TableContainer>
 
-            <Box display="flex" justifyContent="center" mt={3}>
-              <Pagination
-                count={Math.ceil(filteredCategories.length / itemsPerPage)}
-                page={page}
-                onChange={(_, value) => setPage(value)}
-                color="primary"
-              />
-            </Box>
+            {totalPages > 1 && (
+              <Box display="flex" justifyContent="center" mt={3}>
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(_, value) => setPage(value)}
+                  color="primary"
+                />
+              </Box>
+            )}
           </>
         )}
       </Paper>

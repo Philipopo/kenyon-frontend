@@ -1,5 +1,5 @@
 // src/pages/inventory/BinLocations.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Container, Typography, Paper, Grid, TextField, Button, Modal, Box, InputAdornment,
   Pagination, Alert, Table, TableHead, TableRow, TableCell, TableBody, Dialog,
@@ -9,7 +9,9 @@ import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash'; // Add lodash for debouncing
 import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 const modalStyle = {
   position: 'absolute',
@@ -27,6 +29,7 @@ const generateBinId = (row, rack, shelf) => `A${row}-R${rack}-S${shelf}`;
 
 export default function BinLocations() {
   const [bins, setBins] = useState([]);
+  const [totalPages, setTotalPages] = useState(1);
   const [formData, setFormData] = useState({
     row: '', rack: '', shelf: '', type: '', capacity: '', used: '', description: '',
   });
@@ -34,7 +37,7 @@ export default function BinLocations() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
   const [editId, setEditId] = useState(null);
-  const [search, setSearch] = useState('');
+  const [localSearch, setLocalSearch] = useState('');
   const [page, setPage] = useState(1);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -43,16 +46,36 @@ export default function BinLocations() {
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
   const [selectedBin, setSelectedBin] = useState(null);
+  const { searchTerm } = useSearch(); // Use global searchTerm
   const binsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm); // Track previous searchTerm
+  const prevLocalSearchRef = useRef(localSearch); // Track previous localSearch
+
+  // Debounced local search handler
+  const debouncedSetLocalSearch = useCallback(
+    debounce((value) => {
+      setLocalSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
 
   const fetchBins = async () => {
     try {
-      const res = await API.get('inventory/bins/');
-      console.log('Bins response:', res.data);
-      setBins(res.data || []);
+      const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
+      const res = await API.get('inventory/bins/', {
+        params: { search, page, page_size: binsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[BINS FETCHED]', res.data);
+      setBins(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / binsPerPage));
+      setError('');
     } catch (err) {
       console.error('Error fetching bins:', err.response?.data || err.message);
       setError('❌ Failed to fetch bins: ' + (err.response?.data?.detail || err.message));
+      setBins([]);
+      setTotalPages(1);
     }
   };
 
@@ -76,11 +99,13 @@ export default function BinLocations() {
           return;
         }
         const [updateResponse, deleteResponse] = await Promise.all([
-          API.get("/auth/permissions/action/update_storage_bin/"),
-          API.get("/auth/permissions/action/delete_storage_bin/"),
+          API.get('/auth/permissions/action/update_storage_bin/'),
+          API.get('/auth/permissions/action/delete_storage_bin/'),
         ]);
         setHasUpdatePermission(updateResponse.data.allowed || false);
         setHasDeletePermission(deleteResponse.data.allowed || false);
+        console.log('Update permission:', updateResponse.data);
+        console.log('Delete permission:', deleteResponse.data);
         fetchBins();
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
@@ -97,7 +122,19 @@ export default function BinLocations() {
       }
     };
     checkPermissions();
-  }, []);
+  }, []); // Empty dependencies to run once on mount
+
+  useEffect(() => {
+    if (hasPermission) {
+      // Reset page to 1 only when searchTerm or localSearch changes
+      if (searchTerm !== prevSearchTermRef.current || localSearch !== prevLocalSearchRef.current) {
+        setPage(1);
+        prevSearchTermRef.current = searchTerm;
+        prevLocalSearchRef.current = localSearch;
+      }
+      fetchBins();
+    }
+  }, [searchTerm, localSearch, page, hasPermission]); // Dependencies without fetchBins
 
   const handleOpen = async (bin = null) => {
     if (!hasPermission) {
@@ -105,11 +142,11 @@ export default function BinLocations() {
       return;
     }
     try {
-      const action = bin ? "update_storage_bin" : "create_storage_bin";
+      const action = bin ? 'update_storage_bin' : 'create_storage_bin';
       const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
       console.log(`${action} permission response:`, actionResponse.data);
       if (!actionResponse.data.allowed) {
-        setError(`⚠️ You do not have permission to ${bin ? "update" : "create"} storage bins: ${actionResponse.data.reason || 'No reason provided'}`);
+        setError(`⚠️ You do not have permission to ${bin ? 'update' : 'create'} storage bins: ${actionResponse.data.reason || 'No reason provided'}`);
         return;
       }
       if (bin) {
@@ -124,8 +161,8 @@ export default function BinLocations() {
       }
       setOpen(true);
     } catch (err) {
-      console.error(`Error checking ${bin ? "update" : "create"} permission:`, err.response?.data || err.message);
-      setError(`❌ Failed to check ${bin ? "update" : "create"} permission: ${err.response?.data?.detail || err.message}`);
+      console.error(`Error checking ${bin ? 'update' : 'create'} permission:`, err.response?.data || err.message);
+      setError(`❌ Failed to check ${bin ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
 
@@ -139,7 +176,7 @@ export default function BinLocations() {
 
   const handleDeleteOpen = (id) => {
     if (!hasDeletePermission) {
-      setError("⚠️ You do not have permission to delete bins.");
+      setError('⚠️ You do not have permission to delete bins.');
       return;
     }
     setDeleteId(id);
@@ -226,12 +263,6 @@ export default function BinLocations() {
     }
   };
 
-  const filteredBins = bins.filter((bin) =>
-    Object.values(bin).some((val) => String(val).toLowerCase().includes(search.toLowerCase()))
-  );
-
-  const paginatedBins = filteredBins.slice((page - 1) * binsPerPage, page * binsPerPage);
-
   if (checkingPermissions) {
     return (
       <Container>
@@ -274,11 +305,8 @@ export default function BinLocations() {
             fullWidth
             size="small"
             placeholder="Search bins..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            value={localSearch}
+            onChange={(e) => debouncedSetLocalSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -313,8 +341,8 @@ export default function BinLocations() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {paginatedBins.length > 0 ? (
-              paginatedBins.map((bin) => (
+            {bins.length > 0 ? (
+              bins.map((bin) => (
                 <TableRow
                   key={bin.id}
                   hover
@@ -345,16 +373,14 @@ export default function BinLocations() {
           </TableBody>
         </Table>
 
-        {filteredBins.length > binsPerPage && (
-          <Box mt={4} display="flex" justifyContent="center">
-            <Pagination
-              count={Math.ceil(filteredBins.length / binsPerPage)}
-              page={page}
-              onChange={(_, value) => setPage(value)}
-              color="primary"
-            />
-          </Box>
-        )}
+        <Box mt={4} display="flex" justifyContent="center">
+          <Pagination
+            count={totalPages}
+            page={page}
+            onChange={(_, value) => setPage(value)}
+            color="primary"
+          />
+        </Box>
       </Paper>
 
       <Modal open={!!selectedBin} onClose={() => setSelectedBin(null)}>

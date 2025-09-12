@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeContextProvider } from './context/ThemeContext';
+import { SearchProvider } from './context/SearchContext';
 
 // Authentication
 import SignIn from './pages/Login';
@@ -28,6 +29,8 @@ import StockTracking from './pages/inventory/Stock';
 import ItemMaster from './pages/inventory/Items';
 import BinLocations from './pages/inventory/Bins';
 import ExpiryTracking from './pages/inventory/Expiry';
+import AisleRackDashboard from './pages/inventory/AisleRackDashboard';
+import ApiKeyManagement from './pages/accounts/ApiKeyManagement'; // Fixed path
 
 // Procurement
 import PurchaseOrders from './pages/procurement/Orders';
@@ -65,77 +68,80 @@ import ProductDocumentation from './pages/product-documentation/ProductDocumenta
 import ProductInflow from './pages/product-documentation/ProductInflow';
 import ProductOutflow from './pages/product-documentation/ProductOutflow';
 
-
 function App() {
   return (
     <ThemeContextProvider>
-      <Router>
-        <Routes>
-          {/* Public route */}
-          <Route path="/login" element={<SignIn />} />
-          <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
-          <Route path="/profile" element={<Profile />} />  
+      <SearchProvider>
+        <Router>
+          <Routes>
+            {/* Public route */}
+            <Route path="/login" element={<SignIn />} />
+            <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
+            <Route path="/profile" element={<Profile />} />  
 
-          {/* Redirect root to dashboard */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            {/* Redirect root to dashboard */}
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-          {/* ✅ Protected routes */}
-          <Route element={<PrivateRoute />}>
-            <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
+            {/* ✅ Protected routes */}
+            <Route element={<PrivateRoute />}>
+              <Route element={<DashboardLayout />}>
+                <Route path="/dashboard" element={<Dashboard />} />
 
-              <Route path="/dashboard/product-documentation" element={<ProductDocumentation />} />
-             <Route path="/dashboard/product-documentation/inflow" element={<ProductInflow />} />
-              <Route path="/dashboard/product-documentation/outflow" element={<ProductOutflow />} />   
+                <Route path="/dashboard/product-documentation" element={<ProductDocumentation />} />
+                <Route path="/dashboard/product-documentation/inflow" element={<ProductInflow />} />
+                <Route path="/dashboard/product-documentation/outflow" element={<ProductOutflow />} />   
 
-              <Route path="/dashboard/warehouse" element={<Warehouse />} />
-              <Route path="/dashboard/audit" element={<AuditTrail />} />
-              <Route path="/dashboard/alerts" element={<Alerts />} />
-              <Route path="/dashboard/users" element={<UserManagement />} />
+                <Route path="/dashboard/warehouse" element={<Warehouse />} />
+                <Route path="/dashboard/audit" element={<AuditTrail />} />
+                <Route path="/dashboard/alerts" element={<Alerts />} />
+                <Route path="/dashboard/users" element={<UserManagement />} />
 
-              {/* Inventory */}
-              <Route path="/dashboard/inventory/stock" element={<StockTracking />} />
-              <Route path="/dashboard/inventory/items" element={<ItemMaster />} />
-              <Route path="/dashboard/inventory/bins" element={<BinLocations />} />
-              <Route path="/dashboard/inventory/expiry" element={<ExpiryTracking />} />
+                {/* Inventory */}
+                <Route path="/dashboard/inventory/stock" element={<StockTracking />} />
+                <Route path="/dashboard/inventory/items" element={<ItemMaster />} />
+                <Route path="/dashboard/inventory/bins" element={<BinLocations />} />
+                <Route path="/dashboard/inventory/expiry" element={<ExpiryTracking />} />
+                <Route path="/dashboard/inventory/aisle-rack" element={<AisleRackDashboard />} />
+                <Route path="/dashboard/accounts/api-keys" element={<ApiKeyManagement />} />
 
-              {/* Procurement */}
-              <Route path="/dashboard/procurement/orders" element={<PurchaseOrders />} />
-              <Route path="/dashboard/procurement/requisitions" element={<Requisitions />} />
-              <Route path="/dashboard/procurement/receiving" element={<Receiving />} />
-              <Route path="/dashboard/procurement/approval" element={<POApproval />} />
+                {/* Procurement */}
+                <Route path="/dashboard/procurement/orders" element={<PurchaseOrders />} />
+                <Route path="/dashboard/procurement/requisitions" element={<Requisitions />} />
+                <Route path="/dashboard/procurement/receiving" element={<Receiving />} />
+                <Route path="/dashboard/procurement/approval" element={<POApproval />} />
 
-              {/* Finance */}
-              <Route path="/dashboard/finance/overview" element={<FinanceOverview />} />
-              <Route path="/dashboard/finance/categories" element={<FinanceCategories />} />
-              <Route path="/dashboard/finance/transactions" element={<FinanceTransactions />} />
+                {/* Finance */}
+                <Route path="/dashboard/finance/overview" element={<FinanceOverview />} />
+                <Route path="/dashboard/finance/categories" element={<FinanceCategories />} />
+                <Route path="/dashboard/finance/transactions" element={<FinanceTransactions />} />
 
-              {/* Receipt */}
-              <Route path="/dashboard/receipts/create" element={<ReceiptCreate />} />
-              <Route path="/dashboard/receipts/signing" element={<ReceiptSigning />} />
-              <Route path="/dashboard/receipts/archive" element={<ReceiptArchive />} />
+                {/* Receipt */}
+                <Route path="/dashboard/receipts/create" element={<ReceiptCreate />} />
+                <Route path="/dashboard/receipts/signing" element={<ReceiptSigning />} />
+                <Route path="/dashboard/receipts/archive" element={<ReceiptArchive />} />
 
-              {/* Rentals */}
-              <Route path="/dashboard/rentals/active" element={<ActiveRentals />} />
-              <Route path="/dashboard/rentals/payments" element={<RentalPayments />} />
-              <Route path="/dashboard/rentals/catalog" element={<EquipmentCatalog />} />
+                {/* Rentals */}
+                <Route path="/dashboard/rentals/active" element={<ActiveRentals />} />
+                <Route path="/dashboard/rentals/payments" element={<RentalPayments />} />
+                <Route path="/dashboard/rentals/catalog" element={<EquipmentCatalog />} />
 
-              {/* Analytics */}
-              <Route path="/dashboard/analytics/stock" element={<StockAnalytics />} />
-              <Route path="/dashboard/analytics/dwell" element={<DwellTime />} />
-              <Route path="/dashboard/analytics/eoq" element={<EOQReports />} />
+                {/* Analytics */}
+                <Route path="/dashboard/analytics/stock" element={<StockAnalytics />} />
+                <Route path="/dashboard/analytics/dwell" element={<DwellTime />} />
+                <Route path="/dashboard/analytics/eoq" element={<EOQReports />} />
 
-              {/* Settings */}
-              <Route path="/dashboard/settings/erp" element={<ERPIntegration />} />
-              <Route path="/dashboard/settings/branding" element={<CompanyBranding />} />
-              <Route path="/dashboard/settings/trackers" element={<TrackerSetup />} />
+                {/* Settings */}
+                <Route path="/dashboard/settings/erp" element={<ERPIntegration />} />
+                <Route path="/dashboard/settings/branding" element={<CompanyBranding />} />
+                <Route path="/dashboard/settings/trackers" element={<TrackerSetup />} />
+              </Route>
             </Route>
-          </Route>
 
-          {/* Catch-all route */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </Router>
+            {/* Catch-all route */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </Router>
+      </SearchProvider>
     </ThemeContextProvider>
   );
 }

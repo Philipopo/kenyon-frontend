@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/procurement/PurchaseOrders.jsx
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -6,19 +7,28 @@ import {
   Container, Typography, Paper, Grid, Button, TextField, Select, MenuItem,
   FormControl, InputLabel, Table, TableHead, TableRow, TableCell, TableBody,
   IconButton, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
-  Box, Pagination, CircularProgress, Alert, Rating
+  Box, Pagination, CircularProgress, Alert, Rating, InputAdornment,
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
+import { debounce } from 'lodash'; // Add lodash for debouncing
 import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function PurchaseOrders() {
   const [formData, setFormData] = useState({
-    itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending'
+    itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending',
   });
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [vendorList, setVendorList] = useState([]);
+  const [poTotalPages, setPoTotalPages] = useState(1);
+  const [vendorTotalPages, setVendorTotalPages] = useState(1);
+  const [poPage, setPoPage] = useState(1);
+  const [vendorPage, setVendorPage] = useState(1);
+  const [poSearch, setPoSearch] = useState('');
+  const [vendorSearch, setVendorSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -28,14 +38,10 @@ export default function PurchaseOrders() {
   const [deleteVendorOpen, setDeleteVendorOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [newVendor, setNewVendor] = useState({
-    name: '', details: '', lead_time: '', ratings: 3, document: null
+    name: '', details: '', lead_time: '', ratings: 3, document: null,
   });
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
-  const [page, setPage] = useState(1);
-  const [vendorPage, setVendorPage] = useState(1);
-  const itemsPerPage = 10;
-  const vendorsPerPage = 5;
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [permissions, setPermissions] = useState({
@@ -44,8 +50,30 @@ export default function PurchaseOrders() {
     delete_purchase_order: false,
     add_vendor: false,
     update_vendor: false,
-    delete_vendor: false
+    delete_vendor: false,
   });
+  const { searchTerm } = useSearch(); // Use global searchTerm
+  const itemsPerPage = 10;
+  const vendorsPerPage = 5;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevPoSearchRef = useRef(poSearch);
+  const prevVendorSearchRef = useRef(vendorSearch);
+
+  // Debounced search handlers
+  const debouncedSetPoSearch = useCallback(
+    debounce((value) => {
+      setPoSearch(value);
+      setPoPage(1);
+    }, 500),
+    []
+  );
+  const debouncedSetVendorSearch = useCallback(
+    debounce((value) => {
+      setVendorSearch(value);
+      setVendorPage(1);
+    }, 500),
+    []
+  );
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -58,11 +86,19 @@ export default function PurchaseOrders() {
           return;
         }
         const pageResponse = await API.get('/auth/permissions/page/purchase_orders/');
+        console.log('Page permission response:', pageResponse.data);
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
         } else {
-          const actions = ['create_purchase_order', 'update_purchase_order', 'delete_purchase_order', 'add_vendor', 'update_vendor', 'delete_vendor'];
+          const actions = [
+            'create_purchase_order',
+            'update_purchase_order',
+            'delete_purchase_order',
+            'add_vendor',
+            'update_vendor',
+            'delete_vendor',
+          ];
           const actionPerms = {};
           for (const action of actions) {
             const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
@@ -85,23 +121,64 @@ export default function PurchaseOrders() {
 
   const fetchOrders = async () => {
     try {
-      const res = await API.get('procurement/purchase-orders/');
-      setPurchaseOrders(res.data.reverse() || []);
+      setLoading(true);
+      const search = poSearch || searchTerm; // Prefer local poSearch, fallback to global searchTerm
+      const res = await API.get('procurement/purchase-orders/', {
+        params: { search, page: poPage, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[PURCHASE ORDERS FETCHED]', res.data);
+      setPurchaseOrders(res.data.results || []);
+      setPoTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
     } catch (err) {
       console.error('Error fetching purchase orders:', err.response?.data || err.message);
       setAlert('❌ Failed to fetch purchase orders: ' + (err.response?.data?.detail || err.message));
+      setPurchaseOrders([]);
+      setPoTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   };
 
   const fetchVendors = async () => {
     try {
-      const res = await API.get('procurement/vendors/');
-      setVendorList(res.data || []);
+      setLoading(true);
+      const res = await API.get('procurement/vendors/', {
+        params: { search: vendorSearch, page: vendorPage, page_size: vendorsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[VENDORS FETCHED]', res.data);
+      setVendorList(res.data.results || []);
+      setVendorTotalPages(Math.ceil(res.data.count / vendorsPerPage));
+      setAlert(null);
     } catch (err) {
       console.error('Error fetching vendors:', err.response?.data || err.message);
       setAlert('❌ Failed to fetch vendors: ' + (err.response?.data?.detail || err.message));
+      setVendorList([]);
+      setVendorTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (hasPermission) {
+      if (
+        searchTerm !== prevSearchTermRef.current ||
+        poSearch !== prevPoSearchRef.current ||
+        vendorSearch !== prevVendorSearchRef.current
+      ) {
+        setPoPage(1);
+        setVendorPage(1);
+        prevSearchTermRef.current = searchTerm;
+        prevPoSearchRef.current = poSearch;
+        prevVendorSearchRef.current = vendorSearch;
+      }
+      fetchOrders();
+      fetchVendors();
+    }
+  }, [searchTerm, poSearch, vendorSearch, poPage, vendorPage, hasPermission]);
 
   const renderStars = (rating) =>
     [...Array(5)].map((_, i) =>
@@ -117,6 +194,7 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to create purchase orders.');
       return;
     }
+    setFormData({ itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending' });
     setOpen(true);
   };
 
@@ -132,7 +210,7 @@ export default function PurchaseOrders() {
       vendor: po.vendor?.id || '',
       amount: po.amount,
       notes: po.notes || '',
-      status: po.status
+      status: po.status,
     });
     setEditOpen(true);
   };
@@ -142,17 +220,14 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to update purchase orders.');
       return;
     }
-
     if (!formData.itemName || !formData.eoq || !formData.vendor || !formData.amount) {
       setAlert('⚠️ Please fill all required fields.');
       return;
     }
-
     if (parseInt(formData.eoq) <= 0 || parseFloat(formData.amount) <= 0) {
       setAlert('⚠️ EOQ and Amount must be positive numbers.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -162,9 +237,9 @@ export default function PurchaseOrders() {
         vendor_id: parseInt(formData.vendor),
         amount: parseFloat(formData.amount),
         notes: formData.notes,
-        status: formData.status
+        status: formData.status,
       });
-      setPurchaseOrders(purchaseOrders.map(po => po.id === selectedPO.id ? res.data : po));
+      setPurchaseOrders(purchaseOrders.map((po) => (po.id === selectedPO.id ? res.data : po)));
       setAlert('✅ Purchase Order updated successfully.');
       setEditOpen(false);
       setFormData({ itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending' });
@@ -198,7 +273,6 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to delete purchase orders.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -224,6 +298,7 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to add vendors.');
       return;
     }
+    setNewVendor({ name: '', details: '', lead_time: '', ratings: 3, document: null });
     setVendorOpen(true);
   };
 
@@ -238,7 +313,7 @@ export default function PurchaseOrders() {
       details: vendor.details || '',
       lead_time: vendor.lead_time,
       ratings: vendor.ratings,
-      document: null
+      document: null,
     });
     setEditVendorOpen(true);
   };
@@ -248,17 +323,14 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to update vendors.');
       return;
     }
-
     if (!newVendor.name || !newVendor.lead_time) {
       setAlert('⚠️ Please fill all required fields.');
       return;
     }
-
     if (parseInt(newVendor.lead_time) <= 0) {
       setAlert('⚠️ Lead time must be a positive number.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -268,11 +340,10 @@ export default function PurchaseOrders() {
       form.append('lead_time', parseInt(newVendor.lead_time));
       form.append('ratings', newVendor.ratings);
       if (newVendor.document) form.append('document', newVendor.document);
-
       const res = await API.patch(`procurement/vendors/${selectedVendor.id}/`, form, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setVendorList(vendorList.map(v => v.id === selectedVendor.id ? res.data : v));
+      setVendorList(vendorList.map((v) => (v.id === selectedVendor.id ? res.data : v)));
       setAlert('✅ Vendor updated successfully.');
       setEditVendorOpen(false);
       setNewVendor({ name: '', details: '', lead_time: '', ratings: 3, document: null });
@@ -306,7 +377,6 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to delete vendors.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -336,17 +406,14 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to create purchase orders.');
       return;
     }
-
     if (!formData.itemName || !formData.eoq || !formData.vendor || !formData.amount) {
       setAlert('⚠️ Please fill all required fields.');
       return;
     }
-
     if (parseInt(formData.eoq) <= 0 || parseFloat(formData.amount) <= 0) {
       setAlert('⚠️ EOQ and Amount must be positive numbers.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -356,7 +423,7 @@ export default function PurchaseOrders() {
         vendor_id: parseInt(formData.vendor),
         amount: parseFloat(formData.amount),
         notes: formData.notes,
-        status: formData.status
+        status: formData.status,
       });
       setPurchaseOrders([res.data, ...purchaseOrders]);
       setAlert('✅ Purchase Order created successfully.');
@@ -396,17 +463,14 @@ export default function PurchaseOrders() {
       setAlert('⚠️ You do not have permission to add vendors.');
       return;
     }
-
     if (!newVendor.name || !newVendor.lead_time) {
       setAlert('⚠️ Please fill all required fields.');
       return;
     }
-
     if (parseInt(newVendor.lead_time) <= 0) {
       setAlert('⚠️ Lead time must be a positive number.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -416,9 +480,8 @@ export default function PurchaseOrders() {
       form.append('lead_time', parseInt(newVendor.lead_time));
       form.append('ratings', newVendor.ratings);
       if (newVendor.document) form.append('document', newVendor.document);
-
       const res = await API.post('procurement/vendors/', form, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       setVendorList([...vendorList, res.data]);
       setAlert('✅ Vendor created successfully.');
@@ -439,9 +502,6 @@ export default function PurchaseOrders() {
       setLoading(false);
     }
   };
-
-  const paginatedPOs = purchaseOrders.slice((page - 1) * itemsPerPage, page * itemsPerPage);
-  const paginatedVendors = vendorList.slice((vendorPage - 1) * vendorsPerPage, vendorPage * vendorsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -483,9 +543,29 @@ export default function PurchaseOrders() {
           Automate your procurement workflow with EOQ-based replenishment and smart vendor tools.
         </Typography>
 
-        <Button variant="contained" color="primary" onClick={handleOpenPO} sx={{ mb: 3 }} disabled={!permissions.create_purchase_order}>
-          Generate New PO
-        </Button>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleOpenPO}
+            disabled={!permissions.create_purchase_order}
+          >
+            Generate New PO
+          </Button>
+          <TextField
+            size="small"
+            placeholder="Search Purchase Orders..."
+            value={poSearch}
+            onChange={(e) => debouncedSetPoSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
 
         <Dialog open={open || editOpen} onClose={() => { setOpen(false); setEditOpen(false); }} fullWidth maxWidth="sm">
           <DialogTitle>{editOpen ? 'Edit Purchase Order' : 'Generate New Purchase Order'}</DialogTitle>
@@ -565,7 +645,11 @@ export default function PurchaseOrders() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => { setOpen(false); setEditOpen(false); }}>Cancel</Button>
-            <Button variant="contained" onClick={editOpen ? handleUpdatePO : handleGeneratePO} disabled={loading}>
+            <Button
+              variant="contained"
+              onClick={editOpen ? handleUpdatePO : handleGeneratePO}
+              disabled={loading}
+            >
               {loading ? <CircularProgress size={24} color="inherit" /> : editOpen ? 'Update' : 'Generate'}
             </Button>
           </DialogActions>
@@ -590,6 +674,86 @@ export default function PurchaseOrders() {
             </Button>
           </DialogActions>
         </Dialog>
+
+        <Typography variant="h6" gutterBottom>
+          Vendor Comparison <IconButton><CompareArrowsIcon /></IconButton>
+        </Typography>
+        <Box display="flex" justifyContent="flex-end" mb={2}>
+          <TextField
+            size="small"
+            placeholder="Search Vendors..."
+            value={vendorSearch}
+            onChange={(e) => debouncedSetVendorSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
+        <Table size="small" sx={{ mb: 4 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Vendor</TableCell>
+              <TableCell>Lead Time</TableCell>
+              <TableCell>Rating</TableCell>
+              <TableCell>Document</TableCell>
+              <TableCell>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {vendorList.length > 0 ? (
+              vendorList.map((vendor) => (
+                <TableRow key={vendor.id}>
+                  <TableCell>{vendor.name}</TableCell>
+                  <TableCell>{vendor.lead_time} days</TableCell>
+                  <TableCell>{renderStars(vendor.ratings)}</TableCell>
+                  <TableCell>
+                    {vendor.document ? (
+                      <a href={vendor.document} target="_blank" rel="noopener noreferrer">
+                        <PictureAsPdfIcon color="error" />
+                      </a>
+                    ) : (
+                      <Typography variant="body2" color="textSecondary">
+                        No PDF
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <IconButton
+                      onClick={() => handleEditVendor(vendor)}
+                      disabled={!permissions.update_vendor}
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      onClick={() => handleDeleteVendor(vendor)}
+                      disabled={!permissions.delete_vendor}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={5}>No vendors found.</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        {vendorTotalPages > 1 && (
+          <Box mt={3} display="flex" justifyContent="center">
+            <Pagination
+              count={vendorTotalPages}
+              page={vendorPage}
+              onChange={(_, value) => setVendorPage(value)}
+              color="primary"
+            />
+          </Box>
+        )}
 
         <Dialog open={vendorOpen || editVendorOpen} onClose={() => { setVendorOpen(false); setEditVendorOpen(false); }} fullWidth maxWidth="sm">
           <DialogTitle>{editVendorOpen ? 'Edit Vendor' : 'Create New Vendor'}</DialogTitle>
@@ -639,7 +803,11 @@ export default function PurchaseOrders() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => { setVendorOpen(false); setEditVendorOpen(false); }}>Cancel</Button>
-            <Button onClick={editVendorOpen ? handleUpdateVendor : handleCreateVendor} variant="contained" disabled={loading}>
+            <Button
+              onClick={editVendorOpen ? handleUpdateVendor : handleCreateVendor}
+              variant="contained"
+              disabled={loading}
+            >
               {editVendorOpen ? 'Update' : 'Save'}
             </Button>
           </DialogActions>
@@ -665,65 +833,6 @@ export default function PurchaseOrders() {
           </DialogActions>
         </Dialog>
 
-        <Typography variant="h6" gutterBottom>
-          Vendor Comparison <IconButton><CompareArrowsIcon /></IconButton>
-        </Typography>
-        <Table size="small" sx={{ mb: 4 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Vendor</TableCell>
-              <TableCell>Lead Time</TableCell>
-              <TableCell>Rating</TableCell>
-              <TableCell>Document</TableCell>
-              <TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {paginatedVendors.map((vendor) => (
-              <TableRow key={vendor.id}>
-                <TableCell>{vendor.name}</TableCell>
-                <TableCell>{vendor.lead_time} days</TableCell>
-                <TableCell>{renderStars(vendor.ratings)}</TableCell>
-                <TableCell>
-                  {vendor.document ? (
-                    <a href={vendor.document} target="_blank" rel="noopener noreferrer">
-                      <PictureAsPdfIcon color="error" />
-                    </a>
-                  ) : (
-                    <Typography variant="body2" color="textSecondary">
-                      No PDF
-                    </Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <IconButton
-                    onClick={() => handleEditVendor(vendor)}
-                    disabled={!permissions.update_vendor}
-                  >
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton
-                    onClick={() => handleDeleteVendor(vendor)}
-                    disabled={!permissions.delete_vendor}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        {vendorList.length > vendorsPerPage && (
-          <Box mt={3} display="flex" justifyContent="center">
-            <Pagination
-              count={Math.ceil(vendorList.length / vendorsPerPage)}
-              page={vendorPage}
-              onChange={(_, value) => setVendorPage(value)}
-              color="primary"
-            />
-          </Box>
-        )}
-
         <Divider sx={{ my: 3 }} />
         <Typography variant="h6" gutterBottom>Generated Purchase Orders</Typography>
         {purchaseOrders.length > 0 ? (
@@ -742,7 +851,7 @@ export default function PurchaseOrders() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {paginatedPOs.map((po) => (
+                {purchaseOrders.map((po) => (
                   <TableRow key={po.id}>
                     <TableCell>{po.code}</TableCell>
                     <TableCell>{po.item_name}</TableCell>
@@ -769,19 +878,19 @@ export default function PurchaseOrders() {
                 ))}
               </TableBody>
             </Table>
-            {purchaseOrders.length > itemsPerPage && (
+            {poTotalPages > 1 && (
               <Box mt={3} display="flex" justifyContent="center">
                 <Pagination
-                  count={Math.ceil(purchaseOrders.length / itemsPerPage)}
-                  page={page}
-                  onChange={(_, value) => setPage(value)}
+                  count={poTotalPages}
+                  page={poPage}
+                  onChange={(_, value) => setPoPage(value)}
                   color="primary"
                 />
               </Box>
             )}
           </>
         ) : (
-          <Typography>No purchase orders generated yet.</Typography>
+          <Typography>No purchase orders found.</Typography>
         )}
       </Paper>
     </Container>

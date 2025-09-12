@@ -1,13 +1,18 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/procurement/Receiving.jsx
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Paper, Typography, TextField, Button, Box, Grid, Divider, Alert,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer, Pagination,
-  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress
+  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress,
+  InputAdornment,
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SearchIcon from '@mui/icons-material/Search';
+import { debounce } from 'lodash';
 import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function Receiving() {
   const [scanCode, setScanCode] = useState('');
@@ -22,13 +27,26 @@ export default function Receiving() {
   const [permissions, setPermissions] = useState({
     create_goods_receipt: false,
     update_goods_receipt: false,
-    delete_goods_receipt: false
+    delete_goods_receipt: false,
   });
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState('');
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -40,7 +58,8 @@ export default function Receiving() {
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/receiving/');
+        const pageResponse = await API.get('/auth/permissions/page/goods_receipts/');
+        console.log('Page permission response:', pageResponse.data);
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
@@ -67,13 +86,34 @@ export default function Receiving() {
 
   const fetchGoodsReceipts = async () => {
     try {
-      const res = await API.get('procurement/goods-receipts/');
-      setGoodsReceipts(res.data.reverse() || []);
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('procurement/goods-receipts/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[GOODS RECEIPTS FETCHED]', res.data);
+      setGoodsReceipts(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
     } catch (err) {
       console.error('Error fetching goods receipts:', err.response?.data || err.message);
       setAlert('❌ Failed to fetch goods receipts: ' + (err.response?.data?.detail || err.message));
+      setGoodsReceipts([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPermission) fetchGoodsReceipts();
+  }, [search, searchTerm, page, hasPermission]);
 
   const handleScan = async () => {
     const code = scanCode.trim();
@@ -85,23 +125,20 @@ export default function Receiving() {
       setAlert('⚠️ PO code must be in format PO-<number>.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
       const res = await API.get(`procurement/purchase-orders/?code=${code}`);
-      const match = res.data?.length > 0 ? res.data[0] : null;
-
+      const match = res.data.results?.length > 0 ? res.data.results[0] : null;
       if (match) {
         const poCode = match.code;
         const grn = `GRN-${Math.floor(Math.random() * 1000000)}`;
         const invoice = `INV-${Math.floor(Math.random() * 1000000)}`;
-
         setMatchResult({
           po_code: poCode,
           grn_code: grn,
           invoice_code: invoice,
-          match_success: true
+          match_success: true,
         });
       } else {
         setMatchResult({ match_success: false });
@@ -128,12 +165,10 @@ export default function Receiving() {
       setAlert('⚠️ No valid match to submit.');
       return;
     }
-
     if (!permissions.create_goods_receipt) {
       setAlert('⚠️ You do not have permission to create goods receipts.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -143,9 +178,8 @@ export default function Receiving() {
       formData.append('invoice_code', matchResult.invoice_code);
       formData.append('match_success', true);
       if (file) formData.append('attachment', file);
-
       const res = await API.post('procurement/goods-receipts/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       setSubmitSuccess('✅ Goods receipt successfully saved.');
       setGoodsReceipts([res.data, ...goodsReceipts]);
@@ -178,7 +212,7 @@ export default function Receiving() {
       po_code: receipt.po_code,
       grn_code: receipt.grn_code,
       invoice_code: receipt.invoice_code,
-      match_success: receipt.match_success
+      match_success: receipt.match_success,
     });
     setFile(null);
     setEditOpen(true);
@@ -189,12 +223,10 @@ export default function Receiving() {
       setAlert('⚠️ You do not have permission to update goods receipts.');
       return;
     }
-
     if (!matchResult?.po_code || !matchResult.grn_code || !matchResult.invoice_code) {
       setAlert('⚠️ All fields are required.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -204,11 +236,10 @@ export default function Receiving() {
       formData.append('invoice_code', matchResult.invoice_code);
       formData.append('match_success', matchResult.match_success);
       if (file) formData.append('attachment', file);
-
       const res = await API.patch(`procurement/goods-receipts/${selectedReceipt.id}/`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setGoodsReceipts(goodsReceipts.map(r => r.id === selectedReceipt.id ? res.data : r));
+      setGoodsReceipts(goodsReceipts.map((r) => (r.id === selectedReceipt.id ? res.data : r)));
       setAlert('✅ Goods receipt updated successfully.');
       setEditOpen(false);
       setMatchResult(null);
@@ -243,7 +274,6 @@ export default function Receiving() {
       setAlert('⚠️ You do not have permission to delete goods receipts.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -263,8 +293,6 @@ export default function Receiving() {
       setLoading(false);
     }
   };
-
-  const paginatedReceipts = goodsReceipts.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -387,6 +415,22 @@ export default function Receiving() {
 
         <Divider sx={{ my: 3 }} />
 
+        <Box display="flex" justifyContent="flex-end" mb={2}>
+          <TextField
+            size="small"
+            placeholder="Search Goods Receipts..."
+            value={search}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
+
         <Typography variant="h6" gutterBottom>Goods Receipts</Typography>
         {goodsReceipts.length > 0 ? (
           <>
@@ -404,7 +448,7 @@ export default function Receiving() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paginatedReceipts.map((receipt) => (
+                  {goodsReceipts.map((receipt) => (
                     <TableRow key={receipt.id}>
                       <TableCell>{receipt.grn_code}</TableCell>
                       <TableCell>{receipt.po_code}</TableCell>
@@ -439,14 +483,16 @@ export default function Receiving() {
                 </TableBody>
               </Table>
             </TableContainer>
-            <Box mt={3} display="flex" justifyContent="center">
-              <Pagination
-                count={Math.ceil(goodsReceipts.length / itemsPerPage)}
-                page={page}
-                onChange={(_, value) => setPage(value)}
-                color="primary"
-              />
-            </Box>
+            {totalPages > 1 && (
+              <Box mt={3} display="flex" justifyContent="center">
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(_, value) => setPage(value)}
+                  color="primary"
+                />
+              </Box>
+            )}
           </>
         ) : (
           <Typography>No goods receipts found.</Typography>

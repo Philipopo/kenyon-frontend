@@ -1,15 +1,15 @@
 // src/pages/inventory/ItemMaster.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Container, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
-  TextField, Button, Box, Modal, Grid, Alert, InputAdornment, Pagination, Divider,
-  IconButton, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Button, Box, Modal, Grid, Alert, Pagination, Divider, IconButton, Dialog,
+  DialogTitle, DialogContent, DialogContentText, DialogActions, TextField,
 } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 const modalStyle = {
   position: 'absolute',
@@ -25,22 +25,23 @@ const modalStyle = {
 
 export default function ItemMaster() {
   const [items, setItems] = useState([]);
+  const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(''); // Added for success messages
+  const [success, setSuccess] = useState('');
   const [open, setOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false); // For delete confirmation
-  const [deleteId, setDeleteId] = useState(null); // ID of item to delete
-  const [search, setSearch] = useState('');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
   const [page, setPage] = useState(1);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
-  const [
-  //hasCreatePermission, 
-  setHasCreatePermission] = useState(false);
-  const [hasUpdatePermission, setHasUpdatePermission] = useState(false); // Added
-  const [hasDeletePermission, setHasDeletePermission] = useState(false); // Added
-  const [editId, setEditId] = useState(null); // For update mode
+  const [hasCreatePermission, setHasCreatePermission] = useState(false);
+  const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
+  const [hasDeletePermission, setHasDeletePermission] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const context = useSearch();
+  const searchTerm = context ? context.searchTerm : '';
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm); // Track previous searchTerm
 
   const [newItem, setNewItem] = useState({
     name: '', quantity: '', part_number: '', manufacturer: '', contact: '',
@@ -52,60 +53,60 @@ export default function ItemMaster() {
 
   const fetchItems = async () => {
     try {
-      const res = await API.get('inventory/items/');
-      console.log("Items response:", res.data);
-      setItems(res.data || []);
+      const res = await API.get('inventory/items/', {
+        params: { search: searchTerm, page: page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[ITEMS FETCHED]', res.data);
+      setItems(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
     } catch (err) {
-      console.error("Error fetching items:", err.response?.data || err.message);
+      console.error('Error fetching items:', err.response?.data || err.message);
       setError('❌ Failed to fetch items: ' + (err.response?.data?.detail || err.message));
+      setItems([]);
+      setTotalPages(1);
     }
   };
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
-        const token = localStorage.getItem("accessToken");
-        console.log("Access token:", token);
+        const token = localStorage.getItem('accessToken');
+        console.log('Access token:', token);
         if (!token) {
-          setError("⚠️ No authentication token found. Please log in.");
+          setError('⚠️ No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get("/auth/permissions/page/items/");
-        console.log("Page permission response:", pageResponse.data);
+        const pageResponse = await API.get('/auth/permissions/page/items/');
+        console.log('Page permission response:', pageResponse.data);
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
-          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || "No reason provided"}`);
+          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
           setCheckingPermissions(false);
           return;
         }
 
-        // Check create, update, delete permissions
         const [createResponse, updateResponse, deleteResponse] = await Promise.all([
-          API.get("/auth/permissions/action/create_item/"),
-          API.get("/auth/permissions/action/update_item/"),
-          API.get("/auth/permissions/action/delete_item/"),
+          API.get('/auth/permissions/action/create_item/'),
+          API.get('/auth/permissions/action/update_item/'),
+          API.get('/auth/permissions/action/delete_item/'),
         ]);
         setHasCreatePermission(createResponse.data.allowed || false);
         setHasUpdatePermission(updateResponse.data.allowed || false);
         setHasDeletePermission(deleteResponse.data.allowed || false);
-        if (!createResponse.data.allowed) {
-          console.log("Create permission denied:", createResponse.data.reason);
-        }
-        if (!updateResponse.data.allowed) {
-          console.log("Update permission denied:", updateResponse.data.reason);
-        }
-        if (!deleteResponse.data.allowed) {
-          console.log("Delete permission denied:", deleteResponse.data.reason);
-        }
+        console.log('Create permission:', createResponse.data);
+        console.log('Update permission:', updateResponse.data);
+        console.log('Delete permission:', deleteResponse.data);
         fetchItems();
       } catch (err) {
-        console.error("Error checking permissions:", err.response?.data || err.message);
+        console.error('Error checking permissions:', err.response?.data || err.message);
         if (err.response?.status === 401) {
-          setError("⚠️ Authentication failed. Please log in again.");
+          setError('⚠️ Authentication failed. Please log in again.');
         } else if (err.response?.status === 404) {
-          setError("⚠️ Permission endpoint not found. Contact support.");
+          setError('⚠️ Permission endpoint not found. Contact support.');
         } else {
           setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         }
@@ -115,20 +116,30 @@ export default function ItemMaster() {
       }
     };
     checkPermissions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // Removed fetchItems from dependencies
+
+  useEffect(() => {
+    if (hasPermission) {
+      // Reset page to 1 only when searchTerm changes
+      if (searchTerm !== prevSearchTermRef.current) {
+        setPage(1);
+        prevSearchTermRef.current = searchTerm;
+      }
+      fetchItems();
+    }
+  }, [searchTerm, page, hasPermission]); // Removed fetchItems from dependencies
 
   const handleOpen = async (item = null) => {
     if (!hasPermission) {
-      setError("⚠️ You do not have permission to view items.");
+      setError('⚠️ You do not have permission to view items.');
       return;
     }
     try {
-      const action = item ? "update_item" : "create_item";
+      const action = item ? 'update_item' : 'create_item';
       const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
       console.log(`${action} permission response:`, actionResponse.data);
       if (!actionResponse.data.allowed) {
-        setError(`⚠️ You do not have permission to ${item ? "update" : "create"} items: ${actionResponse.data.reason || "No reason provided"}`);
+        setError(`⚠️ You do not have permission to ${item ? 'update' : 'create'} items: ${actionResponse.data.reason || 'No reason provided'}`);
         return;
       }
       if (item) {
@@ -147,8 +158,8 @@ export default function ItemMaster() {
       }
       setOpen(true);
     } catch (err) {
-      console.error(`Error checking ${item ? "update" : "create"} permission:`, err.response?.data || err.message);
-      setError(`❌ Failed to check ${item ? "update" : "create"} permission: ${err.response?.data?.detail || err.message}`);
+      console.error(`Error checking ${item ? 'update' : 'create'} permission:`, err.response?.data || err.message);
+      setError(`❌ Failed to check ${item ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
 
@@ -165,7 +176,7 @@ export default function ItemMaster() {
 
   const handleDeleteOpen = (id) => {
     if (!hasDeletePermission) {
-      setError("⚠️ You do not have permission to delete items.");
+      setError('⚠️ You do not have permission to delete items.');
       return;
     }
     setDeleteId(id);
@@ -223,7 +234,6 @@ export default function ItemMaster() {
       fetchItems();
     } catch (err) {
       console.error(`${editId ? 'Updating' : 'Adding'} item error:`, err.response?.data || err.message);
-      console.error('Raw response:', err.response);
       let errorMsg = `Failed to ${editId ? 'update' : 'add'} item: Unable to process request.`;
       if (err.response?.status === 403) {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
@@ -233,8 +243,6 @@ export default function ItemMaster() {
           .join('; ');
       } else if (err.response?.data?.detail) {
         errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} item: Network error.`;
       }
       setError(`❌ ${errorMsg}`);
     }
@@ -254,24 +262,10 @@ export default function ItemMaster() {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete items.'}`;
       } else if (err.response?.data?.detail) {
         errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || 'Failed to delete item: Network error.';
       }
       setError(`❌ ${errorMsg}`);
     }
   };
-
-  const filteredItems = items.filter(
-    (item) =>
-      Object.values(item).some(
-        (val) => typeof val === 'string' && val.toLowerCase().includes(search.toLowerCase())
-      ) ||
-      Object.values(item.custom_fields || {}).some((val) =>
-        val.toLowerCase().includes(search.toLowerCase())
-      )
-  );
-
-  const paginatedItems = filteredItems.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -309,32 +303,12 @@ export default function ItemMaster() {
         Item Master
       </Typography>
 
-      {/* Search and Add Button */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={2}>
-        <TextField
-          placeholder="Search item..."
-          variant="outlined"
-          size="small"
-          sx={{ minWidth: 300 }}
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpen()}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpen()} disabled={!hasCreatePermission}>
           Add New Item
         </Button>
       </Box>
 
-      {/* Table */}
       <Paper sx={{ p: 2 }}>
         <Typography variant="h6" gutterBottom>
           Item Registry
@@ -342,6 +316,7 @@ export default function ItemMaster() {
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell><strong>Name</strong></TableCell>
               <TableCell><strong>Part Number</strong></TableCell>
               <TableCell><strong>Manufacturer</strong></TableCell>
               <TableCell><strong>Contact</strong></TableCell>
@@ -353,8 +328,8 @@ export default function ItemMaster() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {paginatedItems.length > 0 ? (
-              paginatedItems.map((item, idx) => (
+            {items.length > 0 ? (
+              items.map((item) => (
                 <TableRow
                   key={item.id}
                   hover
@@ -364,6 +339,9 @@ export default function ItemMaster() {
                     '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' },
                   }}
                 >
+                  <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>
+                    {item.name}
+                  </TableCell>
                   <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>
                     {item.part_number}
                   </TableCell>
@@ -397,7 +375,7 @@ export default function ItemMaster() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={8} align="center">
+                <TableCell colSpan={9} align="center">
                   No items found.
                 </TableCell>
               </TableRow>
@@ -405,10 +383,9 @@ export default function ItemMaster() {
           </TableBody>
         </Table>
 
-        {/* Pagination */}
         <Box mt={3} display="flex" justifyContent="center">
           <Pagination
-            count={Math.ceil(filteredItems.length / itemsPerPage)}
+            count={totalPages}
             page={page}
             onChange={(_, value) => setPage(value)}
             color="primary"
@@ -416,7 +393,6 @@ export default function ItemMaster() {
         </Box>
       </Paper>
 
-      {/* Modal for Viewing Item Details */}
       <Modal open={openViewModal} onClose={() => setOpenViewModal(false)}>
         <Box
           sx={{
@@ -472,7 +448,6 @@ export default function ItemMaster() {
         </Box>
       </Modal>
 
-      {/* Modal for Adding/Updating Item */}
       <Modal open={open} onClose={handleClose}>
         <Box sx={modalStyle}>
           <Typography variant="h6" gutterBottom>
@@ -604,7 +579,6 @@ export default function ItemMaster() {
         </Box>
       </Modal>
 
-      {/* Dialog for Delete Confirmation */}
       <Dialog open={deleteOpen} onClose={handleDeleteClose}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>

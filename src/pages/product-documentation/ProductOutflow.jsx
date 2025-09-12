@@ -1,27 +1,17 @@
 // src/pages/product-documentation/ProductOutflow.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Container, Typography, Paper, Grid, TextField, Button, Modal, Box, InputAdornment,
-  Pagination, Alert, Table, TableHead, TableRow, TableCell, TableBody, Dialog,
-  DialogTitle, DialogContent, DialogContentText, DialogActions, IconButton, Select, MenuItem,
+  Container, Typography, Paper, Grid, TextField, Button, Dialog, DialogTitle,
+  DialogContent, DialogActions, InputAdornment, Pagination, Alert, Table,
+  TableHead, TableRow, TableCell, TableBody, TableContainer, IconButton, Select, MenuItem, CircularProgress, Box,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash';
 import API from '../../api';
-
-const modalStyle = {
-  position: 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: 700,
-  bgcolor: 'background.paper',
-  boxShadow: 24,
-  p: 4,
-  borderRadius: 2,
-};
+import { useSearch } from '../../context/SearchContext';
 
 export default function ProductOutflow() {
   const [outflows, setOutflows] = useState([]);
@@ -36,6 +26,7 @@ export default function ProductOutflow() {
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [checkingPermissions, setCheckingPermissions] = useState(true);
@@ -43,7 +34,19 @@ export default function ProductOutflow() {
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
   const [selectedOutflow, setSelectedOutflow] = useState(null);
-  const outflowsPerPage = 10;
+  const [loading, setLoading] = useState(false);
+  const { searchTerm } = useSearch();
+  const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -56,6 +59,7 @@ export default function ProductOutflow() {
           return;
         }
         const pageResponse = await API.get('/auth/permissions/page/product_outflow/');
+        console.log('Page permission response:', pageResponse.data);
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
@@ -76,6 +80,7 @@ export default function ProductOutflow() {
           setError('⚠️ You do not have permission to create product outflows.');
         }
       } catch (err) {
+        console.error('Error checking permissions:', err.response?.data || err.message);
         setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPermission(false);
       } finally {
@@ -85,33 +90,60 @@ export default function ProductOutflow() {
     checkPermissions();
   }, []);
 
-  const fetchOutflows = async () => {
+  const fetchOutflows = useCallback(async () => {
     try {
-      const res = await API.get('product-documentation/outflows/');
-      setOutflows(res.data || []);
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('product-documentation/outflows/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[OUTFLOWS FETCHED]', res.data);
+      setOutflows(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
     } catch (err) {
-      setError('❌ Failed to fetch outflows: ' + (err.response?.data?.detail || err.message));
+      console.error('Error fetching outflows:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch outflows: ${err.response?.data?.detail || err.message}`);
+      setOutflows([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [search, searchTerm, page, itemsPerPage]);
 
   const fetchProducts = async () => {
     try {
       const res = await API.get('product-documentation/inflows/');
-      setProducts(res.data || []);
+      setProducts(res.data.results || []);
     } catch (err) {
-      setError('❌ Failed to fetch products: ' + (err.response?.data?.detail || err.message));
+      console.error('Error fetching products:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch products: ${err.response?.data?.detail || err.message}`);
     }
   };
 
   const fetchAvailableSerials = async (productId) => {
-    if (!productId) return;
+    if (!productId) {
+      setAvailableSerials([]);
+      return;
+    }
     try {
       const res = await API.get(`product-documentation/inflows/${productId}/`);
       setAvailableSerials(res.data.serial_numbers.filter(s => s.status === 'in_stock').map(s => s.serial_number));
     } catch (err) {
-      setError('❌ Failed to fetch available serial numbers: ' + (err.response?.data?.detail || err.message));
+      console.error('Error fetching available serial numbers:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch available serial numbers: ${err.response?.data?.detail || err.message}`);
     }
   };
+
+  useEffect(() => {
+    if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPermission) fetchOutflows();
+  }, [search, searchTerm, page, hasPermission, fetchOutflows]);
 
   const handleOpen = async (outflow = null) => {
     if (!hasPermission) {
@@ -135,7 +167,7 @@ export default function ProductOutflow() {
           input_serial_numbers: outflow.serial_numbers.map(s => s.serial_number).join(', '),
         });
         setEditId(outflow.id);
-        fetchAvailableSerials(outflow.product.id);
+        await fetchAvailableSerials(outflow.product.id);
       } else {
         setFormData({
           product: '', customer_name: '', sales_order: '', dispatch_date: '', quantity: '', input_serial_numbers: '',
@@ -145,6 +177,7 @@ export default function ProductOutflow() {
       }
       setOpen(true);
     } catch (err) {
+      console.error(`Error checking ${outflow ? 'update' : 'create'} permission:`, err.response?.data || err.message);
       setError(`❌ Failed to check ${outflow ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
@@ -210,6 +243,7 @@ export default function ProductOutflow() {
       input_serial_numbers: serials,
     };
     try {
+      setLoading(true);
       if (editId) {
         await API.patch(`product-documentation/outflows/${editId}/`, payload);
         setSuccess('✅ Outflow updated successfully');
@@ -231,11 +265,14 @@ export default function ProductOutflow() {
         errorMsg = err.response?.data?.detail || err.message;
       }
       setError(`❌ ${errorMsg}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDelete = async () => {
     try {
+      setLoading(true);
       await API.delete(`product-documentation/outflows/${deleteId}/`);
       setSuccess('✅ Outflow deleted successfully');
       setDeleteOpen(false);
@@ -249,14 +286,10 @@ export default function ProductOutflow() {
         errorMsg = err.response?.data?.detail || err.message;
       }
       setError(`❌ ${errorMsg}`);
+    } finally {
+      setLoading(false);
     }
   };
-
-  const filteredOutflows = outflows.filter((outflow) =>
-    Object.values(outflow).some((val) => String(val).toLowerCase().includes(search.toLowerCase()))
-  );
-
-  const paginatedOutflows = filteredOutflows.slice((page - 1) * outflowsPerPage, page * outflowsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -264,6 +297,7 @@ export default function ProductOutflow() {
         <Typography variant="h6" sx={{ mt: 4 }}>
           Loading permissions...
         </Typography>
+        <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
   }
@@ -299,12 +333,9 @@ export default function ProductOutflow() {
           <TextField
             fullWidth
             size="small"
-            placeholder="Search outflows..."
+            placeholder="Search by customer name or sales order..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -325,56 +356,58 @@ export default function ProductOutflow() {
         <Typography variant="h6" gutterBottom>
           Outflow Records
         </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell><strong>Product</strong></TableCell>
-              <TableCell><strong>Customer Name</strong></TableCell>
-              <TableCell><strong>Sales Order</strong></TableCell>
-              <TableCell><strong>Dispatch Date</strong></TableCell>
-              <TableCell><strong>Quantity</strong></TableCell>
-              <TableCell><strong>Serial Numbers</strong></TableCell>
-              <TableCell><strong>Actions</strong></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {paginatedOutflows.length > 0 ? (
-              paginatedOutflows.map((outflow) => (
-                <TableRow
-                  key={outflow.id}
-                  hover
-                  sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
-                >
-                  <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.product.product_name}</TableCell>
-                  <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.customer_name}</TableCell>
-                  <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.sales_order || 'N/A'}</TableCell>
-                  <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.dispatch_date}</TableCell>
-                  <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.quantity}</TableCell>
-                  <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                    {outflow.serial_numbers.length ? outflow.serial_numbers.map(s => s.serial_number).join(', ') : 'N/A'}
-                  </TableCell>
-                  <TableCell>
-                    <IconButton onClick={() => handleOpen(outflow)} disabled={!hasUpdatePermission}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton onClick={() => handleDeleteOpen(outflow.id)} disabled={!hasDeletePermission}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
+        <TableContainer>
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={7}>No outflows found.</TableCell>
+                <TableCell><strong>Product</strong></TableCell>
+                <TableCell><strong>Customer Name</strong></TableCell>
+                <TableCell><strong>Sales Order</strong></TableCell>
+                <TableCell><strong>Dispatch Date</strong></TableCell>
+                <TableCell><strong>Quantity</strong></TableCell>
+                <TableCell><strong>Serial Numbers</strong></TableCell>
+                <TableCell><strong>Actions</strong></TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {outflows.length > 0 ? (
+                outflows.map((outflow) => (
+                  <TableRow
+                    key={outflow.id}
+                    hover
+                    sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
+                  >
+                    <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.product.product_name}</TableCell>
+                    <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.customer_name}</TableCell>
+                    <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.sales_order || 'N/A'}</TableCell>
+                    <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.dispatch_date}</TableCell>
+                    <TableCell onClick={() => setSelectedOutflow(outflow)}>{outflow.quantity}</TableCell>
+                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
+                      {outflow.serial_numbers.length ? outflow.serial_numbers.map(s => s.serial_number).join(', ') : 'N/A'}
+                    </TableCell>
+                    <TableCell>
+                      <IconButton onClick={() => handleOpen(outflow)} disabled={!hasUpdatePermission}>
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton onClick={() => handleDeleteOpen(outflow.id)} disabled={!hasDeletePermission}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7}>No outflows found.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-        {filteredOutflows.length > outflowsPerPage && (
+        {totalPages > 1 && (
           <Box mt={4} display="flex" justifyContent="center">
             <Pagination
-              count={Math.ceil(filteredOutflows.length / outflowsPerPage)}
+              count={totalPages}
               page={page}
               onChange={(_, value) => setPage(value)}
               color="primary"
@@ -383,26 +416,11 @@ export default function ProductOutflow() {
         )}
       </Paper>
 
-      <Modal open={!!selectedOutflow} onClose={() => setSelectedOutflow(null)}>
-        <Box
-          sx={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: 400,
-            bgcolor: 'background.paper',
-            borderRadius: 2,
-            boxShadow: 24,
-            p: 4,
-            outline: 'none',
-          }}
-        >
+      <Dialog open={!!selectedOutflow} onClose={() => setSelectedOutflow(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Outflow Details: {selectedOutflow?.customer_name}</DialogTitle>
+        <DialogContent>
           {selectedOutflow && (
             <>
-              <Typography variant="h6" gutterBottom>
-                Outflow Details: {selectedOutflow.customer_name}
-              </Typography>
               <Typography variant="body2" gutterBottom>
                 <strong>Product:</strong> {selectedOutflow.product.product_name}
               </Typography>
@@ -418,21 +436,19 @@ export default function ProductOutflow() {
               <Typography variant="body2" gutterBottom>
                 <strong>Serial Numbers:</strong> {selectedOutflow.serial_numbers.length ? selectedOutflow.serial_numbers.map(s => s.serial_number).join(', ') : 'N/A'}
               </Typography>
-              <Box sx={{ mt: 3, textAlign: 'right' }}>
-                <Button onClick={() => setSelectedOutflow(null)} variant="contained">
-                  Close
-                </Button>
-              </Box>
             </>
           )}
-        </Box>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedOutflow(null)} variant="contained">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-      <Modal open={open} onClose={handleClose}>
-        <Box sx={modalStyle}>
-          <Typography variant="h6" gutterBottom>
-            {editId ? 'Update Product Outflow' : 'Add New Product Outflow'}
-          </Typography>
+      <Dialog open={open} onClose={handleClose} fullWidth maxWidth="md">
+        <DialogTitle>{editId ? 'Update Product Outflow' : 'Add New Product Outflow'}</DialogTitle>
+        <DialogContent>
           <Grid container spacing={2}>
             <Grid item xs={6}>
               <Select
@@ -513,28 +529,24 @@ export default function ProductOutflow() {
                 error={error.includes('serial numbers')}
               />
             </Grid>
-            <Grid item xs={12} textAlign="right">
-              <Button onClick={handleClose} sx={{ mr: 1 }}>
-                Cancel
-              </Button>
-              <Button variant="contained" onClick={handleSaveOutflow}>
-                {editId ? 'Update Outflow' : 'Save Outflow'}
-              </Button>
-            </Grid>
           </Grid>
-        </Box>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClose}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveOutflow} disabled={loading}>
+            {editId ? 'Update Outflow' : 'Save Outflow'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-      <Dialog open={deleteOpen} onClose={handleDeleteClose}>
+      <Dialog open={deleteOpen} onClose={handleDeleteClose} fullWidth maxWidth="sm">
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Action cannot be reversed, are you sure you want to continue?
-          </DialogContentText>
+          <Typography>Action cannot be reversed, are you sure you want to continue?</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleDeleteClose}>Cancel</Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
+          <Button onClick={handleDelete} color="error" variant="contained" disabled={loading}>
             Delete
           </Button>
         </DialogActions>

@@ -1,4 +1,4 @@
-import API from '../api'; // Make sure this is imported wherever you're using the handler
+import API from '../api';
 import React, { useEffect, useState, useRef } from 'react';
 import {
   Box,
@@ -11,9 +11,8 @@ import {
   Divider,
   Collapse,
   Avatar,
-  
 } from '@mui/material';
-import { 
+import {
   Dashboard,
   Inventory,
   Settings,
@@ -37,58 +36,66 @@ import {
   Construction,
   ListAlt,
   Payment,
-  CameraAlt
-
+  CameraAlt,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useThemeContext } from '../context/ThemeContext';
-
-
 import axios from 'axios';
 
-
-const DEFAULT_AVATAR = '/default_avatar.png'; // replace with actual path to default image
-
+const DEFAULT_AVATAR = '/default_avatar.png';
 
 const drawerWidth = 280;
 
 const menuItems = [
+  // [Unchanged menuItems array from your code]
   {
     icon: <Dashboard />,
     text: 'Dashboard',
     path: '/dashboard',
-    description: 'Overview of inventory metrics and quick actions'
+    description: 'Overview of inventory metrics and quick actions',
   },
-  {
+ {
     icon: <Inventory />,
     text: 'Inventory Management',
     subItems: [
       {
         text: 'Stock Tracking',
         path: '/dashboard/inventory/stock',
-        description: 'Real-time stock levels across all locations'
+        description: 'Real-time stock levels across all locations',
+        icon: <StarBorder />,
       },
       {
         text: 'Item Master',
         path: '/dashboard/inventory/items',
         description: 'Manage manufacturer data, part numbers, and custom fields',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Bin Locations',
         path: '/dashboard/inventory/bins',
         description: 'Automatic bin numbering (e.g., A1-R2-S3) and management',
-        icon: <StarBorder />
+        icon: <StarBorder />,
+      },
+      {
+        text: 'Aisle & Rack Dashboard',
+        path: '/dashboard/inventory/aisle-rack',
+        description: 'View aisle and rack status with color-coded availability',
+        icon: <StarBorder />,
+      },
+      {
+        text: 'API Key Management',
+        path: '/dashboard/accounts/api-keys',
+        description: 'Generate, view, and delete API keys for IoT integration',
+        icon: <StarBorder />,
       },
       {
         text: 'Expiry Tracking',
         path: '/dashboard/inventory/expiry',
         description: 'Manufacturing/expiry dates with alerts',
-        icon: <StarBorder />
-      }
-    ]
+        icon: <StarBorder />,
+      },
+    ],
   },
-  
   {
     icon: <Receipt />,
     text: 'Procurement',
@@ -97,134 +104,129 @@ const menuItems = [
         text: 'Purchase Orders',
         path: '/dashboard/procurement/orders',
         description: 'Automated PO generation based on EOQ calculations',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Requisitions',
         path: '/dashboard/procurement/requisitions',
         description: 'Internal PR workflows with email routing',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Receiving',
         path: '/dashboard/procurement/receiving',
         description: 'Document attachments (PO receipts, test certificates)',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Approval',
         path: '/dashboard/procurement/approval',
-        description: 'Approve purchase orders(accessable to only super admin/C.E.O)',
-        icon: <StarBorder />
-      }
-    ]
+        description: 'Approve purchase orders (accessible to only super admin/C.E.O)',
+        icon: <StarBorder />,
+      },
+    ],
   },
-
   {
-    icon: <Description />, // Changed from DescriptionIcon to Description
+    icon: <Description />,
     text: 'Product Documentation',
     subItems: [
       {
         text: 'Product Inflow',
         path: '/dashboard/product-documentation/inflow',
         description: 'Track manufactured products with details like SKU, quantity, and cost',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Product Outflow',
         path: '/dashboard/product-documentation/outflow',
         description: 'Monitor dispatched products with customer and sales order details',
-        icon: <StarBorder />
-      }
-    ]
+        icon: <StarBorder />,
+      },
+    ],
   },
-
-   // New Finance Management Section
   {
-    icon: <AttachMoney />, // Import from @mui/icons-material
+    icon: <AttachMoney />,
     text: 'Finance Management',
     subItems: [
       {
         text: 'Financial Dashboard',
         path: '/dashboard/finance/overview',
         description: 'Financial summaries and KPIs',
-        icon: <Assessment />
+        icon: <Assessment />,
       },
       {
         text: 'Categories',
         path: '/dashboard/finance/categories',
         description: 'Manage financial categories and accounts',
-        icon: <Category />
+        icon: <Category />,
       },
       {
         text: 'Transactions',
         path: '/dashboard/finance/transactions',
         description: 'View and manage all financial transactions',
-        icon: <Receipt />
-      }
-    ]
+        icon: <Receipt />,
+      },
+    ],
   },
-  // New Receipt Generation Section
   {
-    icon: <Description />, // Import from @mui/icons-material
+    icon: <Description />,
     text: 'Receipt Generation',
     subItems: [
       {
         text: 'Create Receipt',
         path: '/dashboard/receipts/create',
         description: 'Generate new receipts for payments',
-        icon: <PostAdd />
+        icon: <PostAdd />,
       },
       {
         text: 'Digital Signing',
         path: '/dashboard/receipts/signing',
         description: 'Digitally sign completed receipts',
-        icon: <Draw />
+        icon: <Draw />,
       },
       {
         text: 'Receipt Archive',
         path: '/dashboard/receipts/archive',
         description: 'View historical receipts',
-        icon: <Archive />
-      }
-    ]
+        icon: <Archive />,
+      },
+    ],
   },
-  // New Equipment Rental Section
   {
-    icon: <Construction />, // Import from @mui/icons-material
+    icon: <Construction />,
     text: 'Equipment Rental',
     subItems: [
       {
         text: 'Active Rentals',
         path: '/dashboard/rentals/active',
         description: 'Currently rented equipment and due dates',
-        icon: <ListAlt />
+        icon: <ListAlt />,
       },
       {
         text: 'Rental Payments',
         path: '/dashboard/rentals/payments',
         description: 'Payment receipts and records',
-        icon: <Payment />
+        icon: <Payment />,
       },
       {
         text: 'Equipment Catalog',
         path: '/dashboard/rentals/catalog',
         description: 'Manage available rental equipment',
-        icon: <Warehouse />
-      }
-    ]
+        icon: <Warehouse />,
+      },
+    ],
   },
   {
     icon: <Warehouse />,
     text: 'Warehouse',
     path: '/dashboard/warehouse',
-    description: 'Visual rack map with storage status indicators'
+    description: 'Visual rack map with storage status indicators',
   },
   {
     icon: <Timeline />,
     text: 'Audit Trail',
     path: '/dashboard/audit',
-    description: 'Complete history of movements and changes'
+    description: 'Complete history of movements and changes',
   },
   {
     icon: <Analytics />,
@@ -234,33 +236,33 @@ const menuItems = [
         text: 'Stock Analytics',
         path: '/dashboard/analytics/stock',
         description: 'Turnover rates and space utilization heatmaps',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Dwell Time',
         path: '/dashboard/analytics/dwell',
         description: 'Average storage duration metrics',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'EOQ Reports',
         path: '/dashboard/analytics/eoq',
         description: 'Economic Order Quantity optimization',
-        icon: <StarBorder />
-      }
-    ]
+        icon: <StarBorder />,
+      },
+    ],
   },
   {
     icon: <Warning />,
     text: 'Alerts',
     path: '/dashboard/alerts',
-    description: 'Stock thresholds, expiry warnings, and RFID issues'
+    description: 'Stock thresholds, expiry warnings, and RFID issues',
   },
   {
     icon: <People />,
     text: 'User Management',
     path: '/dashboard/users',
-    description: 'Role-based access control (Admin only)'
+    description: 'Role-based access control (Admin only)',
   },
   {
     icon: <Settings />,
@@ -270,22 +272,22 @@ const menuItems = [
         text: 'ERP Integration',
         path: '/dashboard/settings/erp',
         description: 'AWS cloud configuration and module settings',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Company Branding',
         path: '/dashboard/settings/branding',
         description: 'Customize interface and reporting templates',
-        icon: <StarBorder />
+        icon: <StarBorder />,
       },
       {
         text: 'Tracker Setup',
         path: '/dashboard/settings/trackers',
         description: 'RFID/Scanner configuration',
-        icon: <StarBorder />
-      }
-    ]
-  }
+        icon: <StarBorder />,
+      },
+    ],
+  },
 ];
 
 export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
@@ -329,6 +331,14 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
 
   useEffect(() => {
     fetchUser();
+    // Add event listener for profile updates
+    const handleProfileUpdate = () => {
+      console.log('[Profile Updated Event Received]');
+      fetchUser(); // Refetch user data
+    };
+    window.addEventListener('profileUpdated', handleProfileUpdate);
+    // Cleanup on component unmount
+    return () => window.removeEventListener('profileUpdated', handleProfileUpdate);
   }, []);
 
   const handleImageChange = async (e) => {
@@ -379,7 +389,6 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
           backgroundColor: mode === 'dark' ? '#424242' : '#212121',
           color: 'common.white',
         }}
-        
       >
         <Box
           sx={{
@@ -463,8 +472,7 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
               >
                 <ListItemIcon sx={{ color: 'inherit' }}>{item.icon}</ListItemIcon>
                 <ListItemText primary={item.text} />
-                {item.subItems &&
-                  (openSubMenus[item.text] ? <ExpandLess /> : <ExpandMore />)}
+                {item.subItems && (openSubMenus[item.text] ? <ExpandLess /> : <ExpandMore />)}
               </ListItemButton>
               {item.subItems && (
                 <Collapse in={openSubMenus[item.text]} timeout="auto" unmountOnExit>
@@ -476,9 +484,7 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
                         onClick={() => navigate(subItem.path)}
                         sx={{ pl: 4 }}
                       >
-                        <ListItemIcon sx={{ color: 'inherit' }}>
-                          {subItem.icon}
-                        </ListItemIcon>
+                        <ListItemIcon sx={{ color: 'inherit' }}>{subItem.icon}</ListItemIcon>
                         <ListItemText primary={subItem.text} />
                       </ListItemButton>
                     ))}
@@ -492,46 +498,31 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
 
       <Divider />
       <Box sx={{ p: 2 }}>
-        {/* <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-          <Typography variant="body2" display="flex" alignItems="center" gap={1}>
-            <DarkMode fontSize="small" />
-            Dark Mode
-          </Typography>
-          <Switch checked={mode === 'dark'} onChange={toggleTheme} />
-        </Box> */}
-
         <ListItemButton
-        onClick={async () => {
-          try {
-            const access = localStorage.getItem('accessToken');
-            const refresh = localStorage.getItem('refreshToken');
-            await axios.post('http://127.0.0.1:8000/api/auth/logout/', {
-              refresh: refresh,
-            }, {
-              headers: {
-                Authorization: `Bearer ${access}`,
-              },
-            });
-          } catch (error) {
-            console.warn('Logout request failed:', error.message);
-          }
-
-          // Remove everything auth-related
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          localStorage.removeItem('userEmail');
-          localStorage.clear(); // optionally clear all
-          window.location.href = '/'; // 🔁 force reload to clean state
-
-          // 🔁 Force full reload to flush React state
-          window.location.href = '/';
-        }}
-      >
-        <ListItemIcon sx={{ color: 'inherit' }}>
-          <ExitToApp />
-        </ListItemIcon>
-        <ListItemText primary="Logout" />
-      </ListItemButton>
+          onClick={async () => {
+            try {
+              const access = localStorage.getItem('accessToken');
+              const refresh = localStorage.getItem('refreshToken');
+              await axios.post(
+                'http://127.0.0.1:8000/api/auth/logout/',
+                { refresh },
+                { headers: { Authorization: `Bearer ${access}` } }
+              );
+            } catch (error) {
+              console.warn('Logout request failed:', error.message);
+            }
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('userEmail');
+            localStorage.clear();
+            window.location.href = '/';
+          }}
+        >
+          <ListItemIcon sx={{ color: 'inherit' }}>
+            <ExitToApp />
+          </ListItemIcon>
+          <ListItemText primary="Logout" />
+        </ListItemButton>
       </Box>
     </Box>
   );
@@ -570,5 +561,3 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
     </Box>
   );
 }
-
-

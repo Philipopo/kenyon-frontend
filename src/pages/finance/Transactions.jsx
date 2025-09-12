@@ -1,35 +1,18 @@
 // src/pages/finance/Transactions.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Container,
-  Typography,
-  Paper,
-  Box,
-  TextField,
-  InputAdornment,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Pagination,
-  Alert,
-  CircularProgress,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
-  MenuItem,
-  IconButton,
+  Container, Typography, Paper, Box, TextField, InputAdornment, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, Pagination,
+  Alert, CircularProgress, Button, Dialog, DialogTitle, DialogContent,
+  DialogActions, Grid, MenuItem, IconButton,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash';
 import api from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 export default function Transactions() {
   const [hasPageAccess, setHasPageAccess] = useState(false);
@@ -41,6 +24,7 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [isUpdate, setIsUpdate] = useState(false);
@@ -50,7 +34,40 @@ export default function Transactions() {
   const [formLoading, setFormLoading] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
+
+  const fetchTransactions = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await api.get('/finance/transactions/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[TRANSACTIONS FETCHED]', res.data);
+      setTransactions(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
+    } catch (err) {
+      console.error('Error fetching transactions:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch transactions: ${err.response?.data?.detail || err.message}`);
+      setTransactions([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, searchTerm, page]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -69,36 +86,23 @@ export default function Transactions() {
         setHasPageAccess(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+          setCheckingPermissions(false);
+          return;
         }
-
-        const createResponse = await api.get('/auth/permissions/action/create_finance_transaction/');
+        const [createResponse, updateResponse, deleteResponse] = await Promise.all([
+          api.get('/auth/permissions/action/create_finance_transaction/'),
+          api.get('/auth/permissions/action/update_finance_transaction/'),
+          api.get('/auth/permissions/action/delete_finance_transaction/'),
+        ]);
         setCanCreateTransaction(createResponse.data.allowed || false);
-        const updateResponse = await api.get('/auth/permissions/action/update_finance_transaction/');
         setCanUpdateTransaction(updateResponse.data.allowed || false);
-        const deleteResponse = await api.get('/auth/permissions/action/delete_finance_transaction/');
         setCanDeleteTransaction(deleteResponse.data.allowed || false);
-
         if (pageResponse.data.allowed) {
-          try {
-            const res = await api.get('/finance/transactions/');
-            setTransactions(res.data);
-          } catch (err) {
-            setError(
-              err.response?.data?.detail ||
-              err.response?.data?.message ||
-              'Failed to load transactions.'
-            );
-          } finally {
-            setLoading(false);
-          }
+          fetchTransactions();
         }
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else {
-          setError(`⚠️ Failed to check permissions: ${err.response?.data?.reason || err.message}`);
-        }
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPageAccess(false);
         setCanCreateTransaction(false);
         setCanUpdateTransaction(false);
@@ -107,20 +111,31 @@ export default function Transactions() {
         setCheckingPermissions(false);
       }
     };
-
     checkPermissions();
-  }, []);
+  }, [fetchTransactions]);
+
+  useEffect(() => {
+    if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPageAccess) fetchTransactions();
+  }, [search, searchTerm, page, hasPageAccess, fetchTransactions]);
 
   const handleFormChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async () => {
-    if (!form.ref || !form.type || !form.amount || !form.date) {
+    if (!form.type || !form.amount || !form.date) {
       setFormError('⚠ Please fill all required fields.');
       return;
     }
-
+    if (Number(form.amount) <= 0) {
+      setFormError('⚠ Amount must be positive.');
+      return;
+    }
     if (isUpdate && !canUpdateTransaction) {
       setFormError('⚠ You do not have permission to update a transaction.');
       return;
@@ -129,12 +144,11 @@ export default function Transactions() {
       setFormError('⚠ You do not have permission to create a transaction.');
       return;
     }
-
     try {
       setFormLoading(true);
       setFormError(null);
       const payload = {
-        ref: form.ref.trim(),
+        ref: form.ref.trim() || undefined, // Let backend generate ref if empty
         type: form.type,
         amount: parseFloat(form.amount),
         date: form.date,
@@ -150,12 +164,17 @@ export default function Transactions() {
       setForm({ ref: '', type: '', amount: '', date: '' });
       setIsUpdate(false);
       setSelectedTransaction(null);
+      fetchTransactions();
     } catch (err) {
-      setFormError(
-        err.response?.data?.detail ||
-        err.response?.data?.message ||
-        `Failed to ${isUpdate ? 'update' : 'create'} transaction.`
-      );
+      let errorMsg = `Failed to ${isUpdate ? 'update' : 'create'} transaction: Unable to process request.`;
+      if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setFormError(`❌ ${errorMsg}`);
     } finally {
       setFormLoading(false);
     }
@@ -183,12 +202,15 @@ export default function Transactions() {
       setTransactions(transactions.filter((txn) => txn.id !== deleteId));
       setDeleteOpen(false);
       setDeleteId(null);
+      fetchTransactions();
     } catch (err) {
-      setFormError(
-        err.response?.data?.detail ||
-        err.response?.data?.message ||
-        'Failed to delete transaction.'
-      );
+      let errorMsg = 'Failed to delete transaction: Unable to process request.';
+      if (err.response?.status === 403) {
+        errorMsg = `⚠ Permission denied: ${err.response.data.detail || 'You lack permission to delete transactions.'}`;
+      } else {
+        errorMsg = err.response?.data?.detail || err.message;
+      }
+      setFormError(`❌ ${errorMsg}`);
     }
   };
 
@@ -197,19 +219,11 @@ export default function Transactions() {
     setDeleteOpen(true);
   };
 
-  const filteredTransactions = transactions.filter((transaction) =>
-    transaction.ref?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const paginatedTransactions = filteredTransactions.slice(
-    (page - 1) * itemsPerPage,
-    page * itemsPerPage
-  );
-
   if (checkingPermissions) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Typography variant="h6">Loading permissions...</Typography>
+        <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
   }
@@ -224,6 +238,11 @@ export default function Transactions() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
       <Typography variant="h4" fontWeight="bold" gutterBottom>
         Finance Transactions
       </Typography>
@@ -235,10 +254,7 @@ export default function Transactions() {
             size="small"
             placeholder="Search by reference..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -282,13 +298,13 @@ export default function Transactions() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paginatedTransactions.length > 0 ? (
-                    paginatedTransactions.map((transaction, index) => (
+                  {transactions.length > 0 ? (
+                    transactions.map((transaction, index) => (
                       <TableRow key={transaction.id}>
                         <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
                         <TableCell>{transaction.ref}</TableCell>
                         <TableCell>{transaction.type}</TableCell>
-                        <TableCell>₦{transaction.amount.toLocaleString()}</TableCell>
+                        <TableCell>₦{parseFloat(transaction.amount).toLocaleString()}</TableCell>
                         <TableCell>{new Date(transaction.date).toLocaleDateString()}</TableCell>
                         <TableCell>{transaction.created_by_name}</TableCell>
                         {(canUpdateTransaction || canDeleteTransaction) && (
@@ -310,7 +326,7 @@ export default function Transactions() {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={canUpdateTransaction || canDeleteTransaction ? 7 : 6} align="center">
-                        No results found.
+                        No transactions found.
                       </TableCell>
                     </TableRow>
                   )}
@@ -318,14 +334,16 @@ export default function Transactions() {
               </Table>
             </TableContainer>
 
-            <Box display="flex" justifyContent="center" mt={3}>
-              <Pagination
-                count={Math.ceil(filteredTransactions.length / itemsPerPage)}
-                page={page}
-                onChange={(_, value) => setPage(value)}
-                color="primary"
-              />
-            </Box>
+            {totalPages > 1 && (
+              <Box display="flex" justifyContent="center" mt={3}>
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(_, value) => setPage(value)}
+                  color="primary"
+                />
+              </Box>
+            )}
           </>
         )}
       </Paper>
@@ -336,12 +354,11 @@ export default function Transactions() {
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <TextField
-                label="Reference"
+                label="Reference (optional)"
                 name="ref"
                 fullWidth
                 value={form.ref}
                 onChange={handleFormChange}
-                required
               />
             </Grid>
             <Grid item xs={12}>

@@ -1,12 +1,16 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/procurement/Requisitions.jsx
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, Paper, TextField, Button, MenuItem, Alert, Box, Divider,
   CircularProgress, Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Pagination
+  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Pagination, InputAdornment,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SearchIcon from '@mui/icons-material/Search';
+import { debounce } from 'lodash';
 import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
 
 const departments = ['Operations', 'IT', 'Maintenance', 'Finance'];
 
@@ -26,7 +30,7 @@ const budgetLimits = {
 
 export default function Requisitions() {
   const [form, setForm] = useState({
-    item: '', quantity: '', department: '', purpose: '', cost: ''
+    item: '', quantity: '', department: '', purpose: '', cost: '',
   });
   const [requisitions, setRequisitions] = useState([]);
   const [alert, setAlert] = useState(null);
@@ -36,13 +40,26 @@ export default function Requisitions() {
   const [permissions, setPermissions] = useState({
     create_requisition: false,
     update_requisition: false,
-    delete_requisition: false
+    delete_requisition: false,
   });
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedRequisition, setSelectedRequisition] = useState(null);
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState('');
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -54,15 +71,14 @@ export default function Requisitions() {
           setCheckingPermissions(false);
           return;
         }
-
         const pageResponse = await API.get('/auth/permissions/page/requisitions/');
+        console.log('Page permission response:', pageResponse.data);
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
           setCheckingPermissions(false);
           return;
         }
-
         const actions = ['create_requisition', 'update_requisition', 'delete_requisition'];
         const actionPerms = {};
         for (const action of actions) {
@@ -79,19 +95,39 @@ export default function Requisitions() {
         setCheckingPermissions(false);
       }
     };
-
     checkPermissions();
   }, []);
 
   const fetchRequisitions = async () => {
     try {
-      const res = await API.get('procurement/requisitions/');
-      setRequisitions(res.data.reverse() || []);
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('procurement/requisitions/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[REQUISITIONS FETCHED]', res.data);
+      setRequisitions(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
     } catch (err) {
       console.error('Error fetching requisitions:', err.response?.data || err.message);
       setAlert(`❌ Failed to fetch requisitions: ${err.response?.data?.detail || err.message}`);
+      setRequisitions([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPermission) fetchRequisitions();
+  }, [search, searchTerm, page, hasPermission]);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -103,25 +139,35 @@ export default function Requisitions() {
       setAlert('⚠️ You do not have permission to create requisitions.');
       return;
     }
-
     const { item, quantity, department, purpose, cost } = form;
     if (!item || !quantity || !department || !purpose || !cost) {
       setAlert('⚠ All fields are required.');
       return;
     }
-
     const parsedCost = parseFloat(cost);
+    const parsedQuantity = parseInt(quantity);
+    if (parsedQuantity <= 0) {
+      setAlert('⚠ Quantity must be positive.');
+      return;
+    }
+    if (parsedCost <= 0) {
+      setAlert('⚠ Cost must be positive.');
+      return;
+    }
     const budget = budgetLimits[department] || 0;
     if (parsedCost > budget) {
       setAlert(`⚠ Request exceeds the ₦${budget.toLocaleString()} budget for ${department}`);
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
       await API.post('procurement/requisitions/', {
-        item, quantity: parseInt(quantity), cost: parsedCost, department, purpose
+        item,
+        quantity: parsedQuantity,
+        cost: parsedCost,
+        department,
+        purpose,
       });
       setAlert(`✅ Requisition submitted successfully. Routed to: ${approvalFlows[department]?.join(' → ') || 'Unknown'}`);
       setForm({ item: '', quantity: '', department: '', purpose: '', cost: '' });
@@ -152,7 +198,7 @@ export default function Requisitions() {
       quantity: requisition.quantity,
       department: requisition.department,
       purpose: requisition.purpose,
-      cost: requisition.cost
+      cost: requisition.cost,
     });
     setEditOpen(true);
   };
@@ -162,25 +208,35 @@ export default function Requisitions() {
       setAlert('⚠️ You do not have permission to update requisitions.');
       return;
     }
-
     const { item, quantity, department, purpose, cost } = form;
     if (!item || !quantity || !department || !purpose || !cost) {
       setAlert('⚠ All fields are required.');
       return;
     }
-
     const parsedCost = parseFloat(cost);
+    const parsedQuantity = parseInt(quantity);
+    if (parsedQuantity <= 0) {
+      setAlert('⚠ Quantity must be positive.');
+      return;
+    }
+    if (parsedCost <= 0) {
+      setAlert('⚠ Cost must be positive.');
+      return;
+    }
     const budget = budgetLimits[department] || 0;
     if (parsedCost > budget) {
       setAlert(`⚠ Request exceeds the ₦${budget.toLocaleString()} budget for ${department}`);
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
       await API.patch(`procurement/requisitions/${selectedRequisition.id}/`, {
-        item, quantity: parseInt(quantity), cost: parsedCost, department, purpose
+        item,
+        quantity: parsedQuantity,
+        cost: parsedCost,
+        department,
+        purpose,
       });
       setAlert('✅ Requisition updated successfully.');
       setEditOpen(false);
@@ -215,7 +271,6 @@ export default function Requisitions() {
       setAlert('⚠️ You do not have permission to delete requisitions.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
@@ -235,8 +290,6 @@ export default function Requisitions() {
       setLoading(false);
     }
   };
-
-  const paginatedRequisitions = requisitions.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -346,6 +399,22 @@ export default function Requisitions() {
 
         <Divider sx={{ my: 3 }} />
 
+        <Box display="flex" justifyContent="flex-end" mb={2}>
+          <TextField
+            size="small"
+            placeholder="Search Requisitions..."
+            value={search}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
+
         {form.department && (
           <Box>
             <Typography variant="subtitle2" gutterBottom>
@@ -379,7 +448,7 @@ export default function Requisitions() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paginatedRequisitions.map((req) => (
+                  {requisitions.map((req) => (
                     <TableRow key={req.id}>
                       <TableCell>{req.code}</TableCell>
                       <TableCell>{req.item}</TableCell>
@@ -406,14 +475,16 @@ export default function Requisitions() {
                 </TableBody>
               </Table>
             </TableContainer>
-            <Box mt={3} display="flex" justifyContent="center">
-              <Pagination
-                count={Math.ceil(requisitions.length / itemsPerPage)}
-                page={page}
-                onChange={(_, value) => setPage(value)}
-                color="primary"
-              />
-            </Box>
+            {totalPages > 1 && (
+              <Box mt={3} display="flex" justifyContent="center">
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(_, value) => setPage(value)}
+                  color="primary"
+                />
+              </Box>
+            )}
           </>
         ) : (
           <Typography>No requisitions found.</Typography>
@@ -436,6 +507,76 @@ export default function Requisitions() {
             disabled={loading || !permissions.delete_requisition}
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Requisition</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Item Name"
+            name="item"
+            fullWidth
+            margin="normal"
+            value={form.item}
+            onChange={handleChange}
+            disabled={!permissions.update_requisition}
+          />
+          <TextField
+            label="Quantity"
+            name="quantity"
+            type="number"
+            fullWidth
+            margin="normal"
+            value={form.quantity}
+            onChange={handleChange}
+            disabled={!permissions.update_requisition}
+          />
+          <TextField
+            label="Estimated Cost (₦)"
+            name="cost"
+            type="number"
+            fullWidth
+            margin="normal"
+            value={form.cost}
+            onChange={handleChange}
+            disabled={!permissions.update_requisition}
+          />
+          <TextField
+            select
+            label="Department"
+            name="department"
+            fullWidth
+            margin="normal"
+            value={form.department}
+            onChange={handleChange}
+            disabled={!permissions.update_requisition}
+          >
+            {departments.map((dep) => (
+              <MenuItem key={dep} value={dep}>{dep}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Purpose"
+            name="purpose"
+            multiline
+            rows={3}
+            fullWidth
+            margin="normal"
+            value={form.purpose}
+            onChange={handleChange}
+            disabled={!permissions.update_requisition}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleUpdate}
+            disabled={loading || !permissions.update_requisition}
+          >
+            Update
           </Button>
         </DialogActions>
       </Dialog>

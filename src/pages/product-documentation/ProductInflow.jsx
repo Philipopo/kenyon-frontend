@@ -1,27 +1,17 @@
 // src/pages/product-documentation/ProductInflow.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Container, Typography, Paper, Grid, TextField, Button, Modal, Box, InputAdornment,
-  Pagination, Alert, Table, TableHead, TableRow, TableCell, TableBody, Dialog,
-  DialogTitle, DialogContent, DialogContentText, DialogActions, IconButton,
+  Container, Typography, Paper, Grid, TextField, Button, Dialog, DialogTitle,
+  DialogContent, DialogActions, InputAdornment, Pagination, Alert, Table,
+  TableHead, TableRow, TableCell, TableBody, TableContainer, IconButton, CircularProgress, Box,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { debounce } from 'lodash';
 import API from '../../api';
-
-const modalStyle = {
-  position: 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: 700,
-  bgcolor: 'background.paper',
-  boxShadow: 24,
-  p: 4,
-  borderRadius: 2,
-};
+import { useSearch } from '../../context/SearchContext';
 
 export default function ProductInflow() {
   const [inflows, setInflows] = useState([]);
@@ -34,6 +24,7 @@ export default function ProductInflow() {
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [checkingPermissions, setCheckingPermissions] = useState(true);
@@ -41,7 +32,19 @@ export default function ProductInflow() {
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
   const [selectedInflow, setSelectedInflow] = useState(null);
-  const inflowsPerPage = 10;
+  const [loading, setLoading] = useState(false);
+  const { searchTerm } = useSearch();
+  const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  const debouncedSetSearch = useCallback(
+    debounce((value) => {
+      setSearch(value);
+      setPage(1);
+    }, 500),
+    []
+  );
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -54,6 +57,7 @@ export default function ProductInflow() {
           return;
         }
         const pageResponse = await API.get('/auth/permissions/page/product_inflow/');
+        console.log('Page permission response:', pageResponse.data);
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
@@ -73,6 +77,7 @@ export default function ProductInflow() {
           setError('⚠️ You do not have permission to create product inflows.');
         }
       } catch (err) {
+        console.error('Error checking permissions:', err.response?.data || err.message);
         setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPermission(false);
       } finally {
@@ -82,14 +87,36 @@ export default function ProductInflow() {
     checkPermissions();
   }, []);
 
-  const fetchInflows = async () => {
+  const fetchInflows = useCallback(async () => {
     try {
-      const res = await API.get('product-documentation/inflows/');
-      setInflows(res.data || []);
+      setLoading(true);
+      const searchValue = search || searchTerm;
+      const res = await API.get('product-documentation/inflows/', {
+        params: { search: searchValue, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('[INFLOWS FETCHED]', res.data);
+      setInflows(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
     } catch (err) {
-      setError('❌ Failed to fetch inflows: ' + (err.response?.data?.detail || err.message));
+      console.error('Error fetching inflows:', err.response?.data || err.message);
+      setError(`❌ Failed to fetch inflows: ${err.response?.data?.detail || err.message}`);
+      setInflows([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [search, searchTerm, page, itemsPerPage]);
+
+  useEffect(() => {
+    if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
+    }
+    if (hasPermission) fetchInflows();
+  }, [search, searchTerm, page, hasPermission, fetchInflows]);
 
   const handleOpen = async (inflow = null) => {
     if (!hasPermission) {
@@ -121,6 +148,7 @@ export default function ProductInflow() {
       }
       setOpen(true);
     } catch (err) {
+      console.error(`Error checking ${inflow ? 'update' : 'create'} permission:`, err.response?.data || err.message);
       setError(`❌ Failed to check ${inflow ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
@@ -178,6 +206,7 @@ export default function ProductInflow() {
       input_serial_numbers: serials,
     };
     try {
+      setLoading(true);
       if (editId) {
         await API.patch(`product-documentation/inflows/${editId}/`, payload);
         setSuccess('✅ Inflow updated successfully');
@@ -199,11 +228,14 @@ export default function ProductInflow() {
         errorMsg = err.response?.data?.detail || err.message;
       }
       setError(`❌ ${errorMsg}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDelete = async () => {
     try {
+      setLoading(true);
       await API.delete(`product-documentation/inflows/${deleteId}/`);
       setSuccess('✅ Inflow deleted successfully');
       setDeleteOpen(false);
@@ -217,14 +249,10 @@ export default function ProductInflow() {
         errorMsg = err.response?.data?.detail || err.message;
       }
       setError(`❌ ${errorMsg}`);
+    } finally {
+      setLoading(false);
     }
   };
-
-  const filteredInflows = inflows.filter((inflow) =>
-    Object.values(inflow).some((val) => String(val).toLowerCase().includes(search.toLowerCase()))
-  );
-
-  const paginatedInflows = filteredInflows.slice((page - 1) * inflowsPerPage, page * inflowsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -232,6 +260,7 @@ export default function ProductInflow() {
         <Typography variant="h6" sx={{ mt: 4 }}>
           Loading permissions...
         </Typography>
+        <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
   }
@@ -267,12 +296,9 @@ export default function ProductInflow() {
           <TextField
             fullWidth
             size="small"
-            placeholder="Search inflows..."
+            placeholder="Search by product name or SKU..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => debouncedSetSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -293,56 +319,58 @@ export default function ProductInflow() {
         <Typography variant="h6" gutterBottom>
           Inflow Records
         </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell><strong>Product Name</strong></TableCell>
-              <TableCell><strong>SKU</strong></TableCell>
-              <TableCell><strong>Serial Numbers</strong></TableCell>
-              <TableCell><strong>Production Date</strong></TableCell>
-              <TableCell><strong>Quantity</strong></TableCell>
-              <TableCell><strong>Cost</strong></TableCell>
-              <TableCell><strong>Actions</strong></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {paginatedInflows.length > 0 ? (
-              paginatedInflows.map((inflow) => (
-                <TableRow
-                  key={inflow.id}
-                  hover
-                  sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
-                >
-                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.product_name}</TableCell>
-                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.sku}</TableCell>
-                  <TableCell onClick={() => setSelectedInflow(inflow)}>
-                    {inflow.serial_numbers.length ? inflow.serial_numbers.map(s => s.serial_number).join(', ') : 'N/A'}
-                  </TableCell>
-                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.production_date}</TableCell>
-                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.quantity}</TableCell>
-                  <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.cost}</TableCell>
-                  <TableCell>
-                    <IconButton onClick={() => handleOpen(inflow)} disabled={!hasUpdatePermission}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton onClick={() => handleDeleteOpen(inflow.id)} disabled={!hasDeletePermission}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
+        <TableContainer>
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={7}>No inflows found.</TableCell>
+                <TableCell><strong>Product Name</strong></TableCell>
+                <TableCell><strong>SKU</strong></TableCell>
+                <TableCell><strong>Serial Numbers</strong></TableCell>
+                <TableCell><strong>Production Date</strong></TableCell>
+                <TableCell><strong>Quantity</strong></TableCell>
+                <TableCell><strong>Cost</strong></TableCell>
+                <TableCell><strong>Actions</strong></TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {inflows.length > 0 ? (
+                inflows.map((inflow) => (
+                  <TableRow
+                    key={inflow.id}
+                    hover
+                    sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
+                  >
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.product_name}</TableCell>
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.sku}</TableCell>
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.serial_numbers.length ? inflow.serial_numbers.map(s => s.serial_number).join(', ') : 'N/A'}
+                    </TableCell>
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.production_date}</TableCell>
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>{inflow.quantity}</TableCell>
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>{parseFloat(inflow.cost).toLocaleString()}</TableCell>
+                    <TableCell>
+                      <IconButton onClick={() => handleOpen(inflow)} disabled={!hasUpdatePermission}>
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton onClick={() => handleDeleteOpen(inflow.id)} disabled={!hasDeletePermission}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7}>No inflows found.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-        {filteredInflows.length > inflowsPerPage && (
+        {totalPages > 1 && (
           <Box mt={4} display="flex" justifyContent="center">
             <Pagination
-              count={Math.ceil(filteredInflows.length / inflowsPerPage)}
+              count={totalPages}
               page={page}
               onChange={(_, value) => setPage(value)}
               color="primary"
@@ -351,26 +379,11 @@ export default function ProductInflow() {
         )}
       </Paper>
 
-      <Modal open={!!selectedInflow} onClose={() => setSelectedInflow(null)}>
-        <Box
-          sx={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: 400,
-            bgcolor: 'background.paper',
-            borderRadius: 2,
-            boxShadow: 24,
-            p: 4,
-            outline: 'none',
-          }}
-        >
+      <Dialog open={!!selectedInflow} onClose={() => setSelectedInflow(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Inflow Details: {selectedInflow?.product_name}</DialogTitle>
+        <DialogContent>
           {selectedInflow && (
             <>
-              <Typography variant="h6" gutterBottom>
-                Inflow Details: {selectedInflow.product_name}
-              </Typography>
               <Typography variant="body2" gutterBottom>
                 <strong>SKU:</strong> {selectedInflow.sku}
               </Typography>
@@ -384,23 +397,21 @@ export default function ProductInflow() {
                 <strong>Quantity:</strong> {selectedInflow.quantity}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Cost:</strong> {selectedInflow.cost}
+                <strong>Cost:</strong> {parseFloat(selectedInflow.cost).toLocaleString()}
               </Typography>
-              <Box sx={{ mt: 3, textAlign: 'right' }}>
-                <Button onClick={() => setSelectedInflow(null)} variant="contained">
-                  Close
-                </Button>
-              </Box>
             </>
           )}
-        </Box>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedInflow(null)} variant="contained">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-      <Modal open={open} onClose={handleClose}>
-        <Box sx={modalStyle}>
-          <Typography variant="h6" gutterBottom>
-            {editId ? 'Update Product Inflow' : 'Add New Product Inflow'}
-          </Typography>
+      <Dialog open={open} onClose={handleClose} fullWidth maxWidth="md">
+        <DialogTitle>{editId ? 'Update Product Inflow' : 'Add New Product Inflow'}</DialogTitle>
+        <DialogContent>
           <Grid container spacing={2}>
             <Grid item xs={6}>
               <TextField
@@ -479,28 +490,24 @@ export default function ProductInflow() {
                 helperText={formData.cost === '' && error.includes('required') ? 'Cost is required' : ''}
               />
             </Grid>
-            <Grid item xs={12} textAlign="right">
-              <Button onClick={handleClose} sx={{ mr: 1 }}>
-                Cancel
-              </Button>
-              <Button variant="contained" onClick={handleSaveInflow}>
-                {editId ? 'Update Inflow' : 'Save Inflow'}
-              </Button>
-            </Grid>
           </Grid>
-        </Box>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClose}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveInflow} disabled={loading}>
+            {editId ? 'Update Inflow' : 'Save Inflow'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-      <Dialog open={deleteOpen} onClose={handleDeleteClose}>
+      <Dialog open={deleteOpen} onClose={handleDeleteClose} fullWidth maxWidth="sm">
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Action cannot be reversed, are you sure you want to continue?
-          </DialogContentText>
+          <Typography>Action cannot be reversed, are you sure you want to continue?</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleDeleteClose}>Cancel</Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
+          <Button onClick={handleDelete} color="error" variant="contained" disabled={loading}>
             Delete
           </Button>
         </DialogActions>
