@@ -1,4 +1,3 @@
-// src/pages/inventory/Stocks.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Container, Paper, Box, Typography, Button, TextField, InputAdornment, Table, TableHead,
@@ -10,7 +9,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { debounce } from 'lodash'; // Add lodash for debouncing
+import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
@@ -24,7 +23,7 @@ export default function Stocks() {
   const [deleteId, setDeleteId] = useState(null);
   const [editId, setEditId] = useState(null);
   const [formData, setFormData] = useState({
-    item: '', category: '', quantity: '', location: '', critical: false,
+    item: '', location: '', quantity: '', critical: false,
   });
   const [loading, setLoading] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
@@ -33,31 +32,24 @@ export default function Stocks() {
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const { searchTerm } = useSearch(); // Use global searchTerm
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
   const prevLocalSearchRef = useRef(localSearch);
 
-  // Debounced local search handler
- const debouncedSetLocalSearch = useCallback(
-    (value) => {
-      const debounced = debounce(() => {
-        setLocalSearch(value);
-        setPage(1);
-      }, 500);
-      debounced();
-    },
-    []
-  );
+  const debouncedSetLocalSearch = debounce((value) => {
+    setLocalSearch(value);
+    setPage(1);
+  }, 500);
 
+  const memoizedSetLocalSearch = useCallback((value) => {
+    debouncedSetLocalSearch(value);
+  }, [debouncedSetLocalSearch]); // Add debouncedSetLocalSearch
 
-
-
-
-    const fetchStocks = useCallback(async () => {
+  const fetchStocks = useCallback(async () => {
     try {
       setLoading(true);
-      const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
+      const search = localSearch || searchTerm;
       const response = await API.get('inventory/stocks/', {
         params: { search, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
@@ -74,7 +66,7 @@ export default function Stocks() {
     } finally {
       setLoading(false);
     }
-  }, [localSearch, searchTerm, page, itemsPerPage]); // Added dependencies
+  }, [localSearch, searchTerm, page, itemsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -119,12 +111,7 @@ export default function Stocks() {
       }
     };
     checkPermissions();
-  }, [fetchStocks]); // Added fetchStocks to dependencies
-
-
-
-
-
+  }, [fetchStocks]);
 
   useEffect(() => {
     if (hasPermission) {
@@ -135,10 +122,7 @@ export default function Stocks() {
       }
       fetchStocks();
     }
-  }, [searchTerm, localSearch, page, hasPermission, fetchStocks]); // Added fetchStocks to dependencies
-
-
-
+  }, [searchTerm, localSearch, page, hasPermission, fetchStocks]);
 
   const handleOpenDialog = async (stock = null) => {
     if (!hasPermission) {
@@ -154,10 +138,15 @@ export default function Stocks() {
         return;
       }
       if (stock) {
-        setFormData({ ...stock, quantity: stock.quantity.toString() });
+        setFormData({
+          item: stock.item?.name || stock.item_name || '', // Fallback to item_name
+          location: stock.location || '',
+          quantity: stock.quantity.toString(),
+          critical: stock.critical,
+        });
         setEditId(stock.id);
       } else {
-        setFormData({ item: '', category: '', quantity: '', location: '', critical: false });
+        setFormData({ item: '', location: '', quantity: '', critical: false });
         setEditId(null);
       }
       setOpenDialog(true);
@@ -169,7 +158,7 @@ export default function Stocks() {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setFormData({ item: '', category: '', quantity: '', location: '', critical: false });
+    setFormData({ item: '', location: '', quantity: '', critical: false });
     setEditId(null);
     setError('');
     setSuccess('');
@@ -197,8 +186,8 @@ export default function Stocks() {
   };
 
   const handleFormSubmit = async () => {
-    const { item, category, quantity, location } = formData;
-    if (!item || !category || !quantity || !location) {
+    const { item, location, quantity } = formData;
+    if (!item || !location || !quantity) {
       setError('⚠️ Please fill in all required fields.');
       return;
     }
@@ -208,10 +197,9 @@ export default function Stocks() {
     }
     try {
       const payload = {
-        item: formData.item.trim(),
-        category: formData.category.trim(),
-        quantity: Number(formData.quantity),
-        location: formData.location.trim(),
+        item: item.trim(), // Assuming item is a string name for now; adjust if it should be an ID
+        location: location.trim(),
+        quantity: Number(quantity),
         critical: formData.critical,
       };
       if (editId) {
@@ -219,7 +207,7 @@ export default function Stocks() {
         setSuccess('✅ Stock record updated successfully');
       } else {
         await API.post('/inventory/stocks/', payload);
-        setSuccess('✅ Stock record created successfully');
+        setSuccess('✅ Stock record created manually successfully');
       }
       fetchStocks();
       handleCloseDialog();
@@ -305,7 +293,7 @@ export default function Stocks() {
         <TextField
           placeholder="Search..."
           value={localSearch}
-          onChange={(e) => debouncedSetLocalSearch(e.target.value)}
+          onChange={(e) => memoizedSetLocalSearch(e.target.value)} // Use memoizedSetLocalSearch
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -321,7 +309,7 @@ export default function Stocks() {
             <TableHead>
               <TableRow>
                 <TableCell>Item Name</TableCell>
-                <TableCell>Category</TableCell>
+                <TableCell>Created At</TableCell>
                 <TableCell>Quantity</TableCell>
                 <TableCell>Location</TableCell>
                 <TableCell>Critical</TableCell>
@@ -338,10 +326,10 @@ export default function Stocks() {
               ) : stocks.length > 0 ? (
                 stocks.map((stock) => (
                   <TableRow key={stock.id}>
-                    <TableCell>{stock.item}</TableCell>
-                    <TableCell>{stock.category}</TableCell>
+                    <TableCell>{stock.item_name || stock.item?.name || 'Unknown Item'}</TableCell> {/* Fallback to item_name */}
+                    <TableCell>{new Date(stock.created_at).toLocaleString()}</TableCell>
                     <TableCell>{stock.quantity}</TableCell>
-                    <TableCell>{stock.location}</TableCell>
+                    <TableCell>{stock.location || (stock.storage_bin?.bin_id || 'N/A')}</TableCell>
                     <TableCell>{stock.critical ? 'Yes' : 'No'}</TableCell>
                     <TableCell>
                       <IconButton onClick={() => handleOpenDialog(stock)} disabled={!hasUpdatePermission}>
@@ -398,13 +386,13 @@ export default function Stocks() {
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Category"
-                name="category"
-                value={formData.category}
+                label="Location"
+                name="location"
+                value={formData.location}
                 onChange={handleFormChange}
                 required
-                error={formData.category === '' && error.includes('required')}
-                helperText={formData.category === '' && error.includes('required') ? 'Category is required' : ''}
+                error={formData.location === '' && error.includes('required')}
+                helperText={formData.location === '' && error.includes('required') ? 'Location is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
@@ -418,18 +406,6 @@ export default function Stocks() {
                 required
                 error={formData.quantity === '' && error.includes('required')}
                 helperText={formData.quantity === '' && error.includes('required') ? 'Quantity is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Location"
-                name="location"
-                value={formData.location}
-                onChange={handleFormChange}
-                required
-                error={formData.location === '' && error.includes('required')}
-                helperText={formData.location === '' && error.includes('required') ? 'Location is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>

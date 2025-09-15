@@ -30,7 +30,7 @@ export default function BinLocations() {
   const [bins, setBins] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [formData, setFormData] = useState({
-    row: '', rack: '', shelf: '', type: '', capacity: '', used: '', description: '',
+    row: '', rack: '', shelf: '', type: '', capacity: '', description: '', // Removed 'used' from initial state
   });
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -122,7 +122,7 @@ export default function BinLocations() {
       }
     };
     checkPermissions();
-  }, [fetchBins]); // Added fetchBins to dependency array
+  }, [fetchBins]);
 
   useEffect(() => {
     if (hasPermission) {
@@ -133,7 +133,7 @@ export default function BinLocations() {
       }
       fetchBins();
     }
-  }, [searchTerm, localSearch, page, hasPermission, fetchBins]); // Added fetchBins to dependency array
+  }, [searchTerm, localSearch, page, hasPermission, fetchBins]);
 
   const handleOpen = async (bin = null) => {
     if (!hasPermission) {
@@ -150,12 +150,12 @@ export default function BinLocations() {
       }
       if (bin) {
         setFormData({
-          row: bin.row, rack: bin.rack, shelf: bin.shelf, type: bin.type,
-          capacity: bin.capacity.toString(), used: bin.used.toString(), description: bin.description || '',
+          row: bin.row || '', rack: bin.rack || '', shelf: bin.shelf || '', type: bin.type || '',
+          capacity: bin.capacity?.toString() || '', description: bin.description || '', // Removed 'used' from form data
         });
         setEditId(bin.id);
       } else {
-        setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', used: '', description: '' });
+        setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' }); // Removed 'used' from initial form data
         setEditId(null);
       }
       setOpen(true);
@@ -167,7 +167,7 @@ export default function BinLocations() {
 
   const handleClose = () => {
     setOpen(false);
-    setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', used: '', description: '' });
+    setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' }); // Removed 'used' from reset
     setEditId(null);
     setError('');
     setSuccess('');
@@ -195,23 +195,20 @@ export default function BinLocations() {
   };
 
   const handleSaveBin = async () => {
-    const { row, rack, shelf, type, capacity, used, description } = formData;
-    if (!row || !rack || !shelf || !type || !capacity || !used) {
+    const { row, rack, shelf, type, capacity, description } = formData; // Removed 'used' from destructuring
+    if (!row || !rack || !shelf || !type || !capacity) { // Removed 'used' from validation
       setError('⚠️ Please fill in all required fields.');
       return;
     }
-    if (Number(capacity) <= 0 || Number(used) < 0) {
-      setError('⚠️ Capacity must be positive and used must be non-negative.');
-      return;
-    }
-    if (Number(used) > Number(capacity)) {
-      setError('⚠️ Used capacity cannot exceed total capacity.');
+    const numCapacity = Number(capacity);
+    if (numCapacity <= 0) { // Simplified validation since 'used' is not user-controlled
+      setError('⚠️ Capacity must be positive.');
       return;
     }
     const bin_id = editId ? formData.bin_id || generateBinId(row, rack, shelf) : generateBinId(row, rack, shelf);
     const payload = {
       bin_id, row, rack, shelf, type,
-      capacity: Number(capacity), used: Number(used), description,
+      capacity: numCapacity, description, // Removed 'used' from payload
     };
     try {
       if (editId) {
@@ -226,17 +223,10 @@ export default function BinLocations() {
     } catch (err) {
       console.error(`${editId ? 'Updating' : 'Adding'} bin error:`, err.response?.data || err.message);
       let errorMsg = `Failed to ${editId ? 'update' : 'add'} bin: Unable to process request.`;
-      if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
-      } else if (err.response?.status === 400 && err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} bin: Network error.`;
-      }
+      if (err.response?.status === 403) errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      else if (err.response?.status === 400 && err.response?.data) errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
+      else if (err.response?.data?.detail) errorMsg = err.response.data.detail;
+      else errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} bin: Network error.`;
       setError(`❌ ${errorMsg}`);
     }
   };
@@ -245,19 +235,14 @@ export default function BinLocations() {
     try {
       await API.delete(`inventory/bins/${deleteId}/`);
       setSuccess('✅ Bin deleted successfully');
-      setDeleteOpen(false);
-      setDeleteId(null);
+      handleDeleteClose();
       fetchBins();
     } catch (err) {
       console.error('Error deleting bin:', err.response?.data || err.message);
       let errorMsg = 'Failed to delete bin: Unable to process request.';
-      if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete bins.'}`;
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || 'Failed to delete bin: Network error.';
-      }
+      if (err.response?.status === 403) errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      else if (err.response?.data?.detail) errorMsg = err.response.data.detail;
+      else errorMsg = err.message || 'Failed to delete bin: Network error.';
       setError(`❌ ${errorMsg}`);
     }
   };
@@ -487,7 +472,7 @@ export default function BinLocations() {
                 helperText={formData.type === '' && error.includes('required') ? 'Type is required' : ''}
               />
             </Grid>
-            <Grid item xs={3}>
+            <Grid item xs={6}>
               <TextField
                 label="Capacity"
                 name="capacity"
@@ -498,19 +483,6 @@ export default function BinLocations() {
                 required
                 error={formData.capacity === '' && error.includes('required')}
                 helperText={formData.capacity === '' && error.includes('required') ? 'Capacity is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={3}>
-              <TextField
-                label="Used"
-                name="used"
-                type="number"
-                value={formData.used}
-                onChange={handleChange}
-                fullWidth
-                required
-                error={formData.used === '' && error.includes('required')}
-                helperText={formData.used === '' && error.includes('required') ? 'Used is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>

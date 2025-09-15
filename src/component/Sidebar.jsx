@@ -37,6 +37,7 @@ import {
   ListAlt,
   Payment,
   CameraAlt,
+  ChatBubble,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useThemeContext } from '../context/ThemeContext';
@@ -54,7 +55,7 @@ const menuItems = [
     path: '/dashboard',
     description: 'Overview of inventory metrics and quick actions',
   },
- {
+  {
     icon: <Inventory />,
     text: 'Inventory Management',
     subItems: [
@@ -221,6 +222,12 @@ const menuItems = [
     text: 'Warehouse',
     path: '/dashboard/warehouse',
     description: 'Visual rack map with storage status indicators',
+  },
+  {
+    icon: <ChatBubble />,
+    text: 'Chat',
+    path: '/dashboard/chat/chat',
+    description: 'Role-based access control (Admin only)',
   },
   {
     icon: <Timeline />,

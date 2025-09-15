@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+//import { Link } from 'react-router-dom';
 import {
   Box,
   Grid,
@@ -15,63 +15,37 @@ import {
   DialogActions,
   TextField,
   Alert,
-  // MenuItem,
-  // Select,
-  // InputLabel,
-  // FormControl,
+  Menu,
+  MenuItem,
+  IconButton,
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
-  LocalShipping as LocalShippingIcon,
-  Timeline as ActivityIcon,
-  CalendarToday as CalendarIcon,
+  //LocalShipping as LocalShippingIcon,
   Add as AddIcon,
   Lock as LockIcon,
-  PostAdd as PostAddIcon,
-  Assessment as AssessmentIcon,
-  ChecklistRtl as ChecklistRtlIcon,
   Edit as EditIcon,
+  MoreHoriz as MoreHorizIcon,
 } from '@mui/icons-material';
-import StockLevelWidget from '../widget/StockLevelWidget';
 import AlertsWidget from '../widget/AlertsWidget';
+import { Line } from 'react-chartjs-2';
 import api from '../api';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
 
-// Nigerian states to match accounts/models.py
-// Commented out since unused; uncomment if state selection is implemented
-// const NIGERIAN_STATES = [
-//   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
-//   'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT', 'Gombe',
-//   'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
-//   'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
-//   'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara',
-// ];
-
-const quickActions = [
-  {
-    label: 'Create Order',
-    link: '/dashboard/procurement/orders',
-    icon: <PostAddIcon fontSize="small" />,
-  },
-  {
-    label: 'Receive Stock',
-    link: '/dashboard/inventory/stock',
-    icon: <InventoryIcon fontSize="small" />,
-  },
-  {
-    label: 'Generate Report',
-    link: '/dashboard/analytics/stock',
-    icon: <AssessmentIcon fontSize="small" />,
-  },
-  {
-    label: 'New Audit',
-    link: '/dashboard/audit',
-    icon: <ChecklistRtlIcon fontSize="small" />,
-  },
-];
+// Register ChartJS components
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function Dashboard() {
   const [metrics, setMetrics] = useState([]);
-  const [recentActivities, setRecentActivities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openPasswordModal, setOpenPasswordModal] = useState(false);
   const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
@@ -84,6 +58,15 @@ export default function Dashboard() {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [anchorEl, setAnchorEl] = useState(null); // For dropdown menu
+  const [stockData, setStockData] = useState({ labels: [], datasets: [] });
+
+  const quickActions = [
+    { label: 'Create Order', link: '/dashboard/procurement/orders' },
+    { label: 'Receive Stock', link: '/dashboard/inventory/stock' },
+    { label: 'Generate Report', link: '/dashboard/analytics/stock' },
+    { label: 'New Audit', link: '/dashboard/audit' },
+  ];
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -92,8 +75,35 @@ export default function Dashboard() {
           headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
         });
         console.log('[METRICS FETCHED]', res.data);
-        setMetrics(res.data || []);
-        setRecentActivities([]);
+        // Filter out Total Active Rentals (id: 3)
+        const filteredMetrics = res.data.filter(metric => metric.id !== 3);
+        setMetrics(filteredMetrics || []);
+
+        // Fetch stock tracking data
+        const stockRes = await api.get('/inventory/stocks/', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+        });
+        const records = stockRes.data.results || [];
+        const groupedData = records.reduce((acc, record) => {
+          const date = new Date(record.created_at).toLocaleDateString();
+          if (!acc[date]) acc[date] = 0;
+          acc[date] += record.quantity;
+          return acc;
+        }, {});
+        const labels = Object.keys(groupedData);
+        const data = Object.values(groupedData);
+        setStockData({
+          labels,
+          datasets: [
+            {
+              label: 'Stock Level',
+              data,
+              fill: false,
+              borderColor: 'rgb(75, 192, 192)',
+              tension: 0.1,
+            },
+          ],
+        });
       } catch (err) {
         console.error('❌ Error fetching dashboard metrics:', err);
       } finally {
@@ -205,16 +215,29 @@ export default function Dashboard() {
     }
   };
 
+  const handleMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleActionSelect = (link) => {
+    window.location.href = link;
+    handleMenuClose();
+  };
+
   if (loading) return <p style={{ padding: 20 }}>Loading dashboard metrics...</p>;
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4, px: 3 }}>
       <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
-          <Typography variant="h4" component="h1" gutterBottom>
+          <Typography variant="h6" fontWeight={500} gutterBottom>
             Inventory Overview
           </Typography>
-          <Typography variant="subtitle1" color="text.secondary">
+          <Typography variant="body2" color="text.secondary">
             Real-time monitoring and analytics
           </Typography>
           {locationError && (
@@ -223,7 +246,7 @@ export default function Dashboard() {
             </Alert>
           )}
         </Box>
-        <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -248,101 +271,35 @@ export default function Dashboard() {
           >
             Edit User Profile
           </Button>
+          <IconButton
+            onClick={handleMenuOpen}
+            sx={{ color: '#757575', ml: 1 }}
+          >
+            <MoreHorizIcon />
+          </IconButton>
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+            PaperProps={{
+              sx: { width: 200, mt: 1 },
+            }}
+          >
+            {quickActions.map((action) => (
+              <MenuItem
+                key={action.label}
+                onClick={() => handleActionSelect(action.link)}
+              >
+                {action.label}
+              </MenuItem>
+            ))}
+          </Menu>
         </Box>
       </Box>
 
-      <Grid container spacing={3} sx={{ mb: 3, width: '100%' }}>
-        <Grid item xs={12}>
-          <Paper elevation={0} sx={{
-            p: 3,
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            backgroundColor: 'background.paper'
-          }}>
-            <Box sx={{
-              display: 'flex',
-              alignItems: 'center',
-              mb: 3,
-              justifyContent: 'space-between'
-            }}>
-              <Typography variant="h6" sx={{
-                display: 'flex',
-                alignItems: 'center',
-                fontWeight: 600
-              }}>
-                <LocalShippingIcon sx={{
-                  mr: 1.5,
-                  fontSize: '1.5rem',
-                  color: 'primary.main'
-                }} />
-                Quick Actions
-              </Typography>
-              <Chip
-                label={`${quickActions.length} actions`}
-                size="small"
-                variant="outlined"
-                sx={{
-                  borderColor: 'primary.main',
-                  color: 'primary.main'
-                }}
-              />
-            </Box>
-
-            <Grid container spacing={2}>
-              {quickActions.map((action) => (
-                <Grid item xs={12} sm={6} md={3} key={action.label}>
-                  <Link to={action.link} style={{ textDecoration: 'none' }}>
-                    <Paper
-                      elevation={0}
-                      sx={{
-                        p: 2.5,
-                        height: '100%',
-                        minWidth: '240px',
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        borderRadius: 1,
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        transition: 'all 0.25s ease',
-                        '&:hover': {
-                          borderColor: '#ccc',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
-                          transform: 'translateY(-2px)'
-                        },
-                      }}
-                    >
-                      <Box sx={{
-                        width: 48,
-                        height: 48,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mb: 1.5,
-                        borderRadius: '50%',
-                        border: '1px solid'
-                      }}>
-                        {action.icon}
-                      </Box>
-                      <Typography variant="subtitle1" fontWeight={500}>
-                        {action.label}
-                      </Typography>
-                    </Paper>
-                  </Link>
-                </Grid>
-              ))}
-            </Grid>
-          </Paper>
-        </Grid>
-      </Grid>
-
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {metrics.map((metric) => (
-          <Grid item xs={12} sm={6} md={3} key={metric.id}>
+          <Grid item xs={12} md={3} key={metric.id}>
             <Paper
               elevation={2}
               sx={{
@@ -350,11 +307,9 @@ export default function Dashboard() {
                 height: '100%',
                 width: '100%',
                 minWidth: '250px',
-                borderRadius: 2,
+                borderRadius: 8,
                 transition: 'transform 0.2s',
-                '&:hover': {
-                  transform: 'translateY(-4px)',
-                },
+                '&:hover': { transform: 'translateY(-4px)' },
               }}
             >
               <Stack direction="row" alignItems="center" spacing={2} mb={2}>
@@ -367,10 +322,14 @@ export default function Dashboard() {
                 }}>
                   <InventoryIcon />
                 </Box>
-                <Typography variant="h6">{metric.title}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {metric.title}
+                </Typography>
               </Stack>
               <Stack direction="row" alignItems="baseline" spacing={1}>
-                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{metric.value}</Typography>
+                <Typography variant="h4" fontWeight={700}>
+                  {metric.value}
+                </Typography>
                 <Chip
                   label={metric.change}
                   size="small"
@@ -386,55 +345,55 @@ export default function Dashboard() {
         ))}
       </Grid>
 
-      <Grid container spacing={3}>
-        <Box sx={{ flex: 1, minHeight: 0 }}>
-          <StockLevelWidget />
-        </Box>
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          <AlertsWidget />
-        </Box>
-      </Grid>
-
-      <Grid container spacing={3} sx={{ mt: 2 }}>
+      <Grid container spacing={3} sx={{ width: '100%', mb: 3 }}>
         <Grid item xs={12} md={6}>
           <Paper elevation={3} sx={{
             p: 3,
+            borderRadius: 8,
+            backgroundColor: '#fff',
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
             height: '100%',
-            borderRadius: 2,
+            display: 'flex',
+            flexDirection: 'column',
           }}>
-            <Typography variant="h6" gutterBottom sx={{
-              mb: 2,
-              display: 'flex',
-              alignItems: 'center',
-            }}>
-              <ActivityIcon sx={{ mr: 1, color: 'info.main' }} />
-              Recent Activities
+            <Typography variant="h6" fontWeight={500} gutterBottom>
+              Stock Tracking
             </Typography>
-            <Stack spacing={2}>
-              {recentActivities.map((activity) => (
-                <Box key={activity.id} sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  p: 1,
-                  borderRadius: 1,
-                  '&:hover': {
-                    backgroundColor: 'action.hover',
+            <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 300 }}>
+              <Line
+                data={stockData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: 'Stock Levels Over Time' },
                   },
-                }}>
-                  <Box>
-                    <Typography fontWeight="medium">{activity.action}</Typography>
-                    <Typography variant="body2" color="text.secondary">{activity.item}</Typography>
-                  </Box>
-                  <Chip
-                    label={activity.time}
-                    size="small"
-                    icon={<CalendarIcon fontSize="small" />}
-                    variant="outlined"
-                  />
-                </Box>
-              ))}
-            </Stack>
+                  scales: {
+                    x: { title: { display: true, text: 'Date' } },
+                    y: { title: { display: true, text: 'Quantity' }, beginAtZero: true },
+                  },
+                }}
+              />
+            </Box>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Paper elevation={3} sx={{
+            p: 3,
+            borderRadius: 8,
+            backgroundColor: '#fff',
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <Typography variant="h6" fontWeight={500} gutterBottom>
+              Active Alerts
+            </Typography>
+            <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+              <AlertsWidget />
+            </Box>
           </Paper>
         </Grid>
       </Grid>

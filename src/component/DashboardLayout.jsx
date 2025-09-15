@@ -18,6 +18,7 @@ import API from '../api';
 import logo from '../assets/kenyon_logo-removebg-preview.png';
 import ChatWidget from '../widget/ChatWidget';
 
+
 const drawerWidth = 280;
 
 export default function DashboardLayout() {

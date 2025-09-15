@@ -1,14 +1,11 @@
 {
   "files": {
-    "main.js": "/static/js/main.61acdc9b.js",
-    "static/js/977.b584b783.chunk.js": "/static/js/977.b584b783.chunk.js",
-    "static/js/732.35ed01f5.chunk.js": "/static/js/732.35ed01f5.chunk.js",
+    "main.js": "/static/js/main.21537a26.js",
+    "static/media/kenyon_logo-removebg-preview.png": "/static/media/kenyon_logo-removebg-preview.fa2960dcebcf0847427c.png",
     "index.html": "/index.html",
-    "main.61acdc9b.js.map": "/static/js/main.61acdc9b.js.map",
-    "977.b584b783.chunk.js.map": "/static/js/977.b584b783.chunk.js.map",
-    "732.35ed01f5.chunk.js.map": "/static/js/732.35ed01f5.chunk.js.map"
+    "main.21537a26.js.map": "/static/js/main.21537a26.js.map"
   },
   "entrypoints": [
-    "static/js/main.61acdc9b.js"
+    "static/js/main.21537a26.js"
   ]
 }

@@ -68,6 +68,10 @@ import ProductDocumentation from './pages/product-documentation/ProductDocumenta
 import ProductInflow from './pages/product-documentation/ProductInflow';
 import ProductOutflow from './pages/product-documentation/ProductOutflow';
 
+//CHAT
+import ChatPage from './pages/ChatPage';
+
+
 function App() {
   return (
     <ThemeContextProvider>
@@ -134,6 +138,9 @@ function App() {
                 <Route path="/dashboard/settings/erp" element={<ERPIntegration />} />
                 <Route path="/dashboard/settings/branding" element={<CompanyBranding />} />
                 <Route path="/dashboard/settings/trackers" element={<TrackerSetup />} />
+
+                {/* chat */}
+                <Route path="/dashboard/chat/chat" element={<ChatPage />} />
               </Route>
             </Route>
 
