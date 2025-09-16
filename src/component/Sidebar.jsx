@@ -28,7 +28,7 @@ import {
   StarBorder,
   AttachMoney,
   Assessment,
-  Category,
+  //Category,
   Description,
   PostAdd,
   Draw,
@@ -155,12 +155,12 @@ const menuItems = [
         description: 'Financial summaries and KPIs',
         icon: <Assessment />,
       },
-      {
-        text: 'Categories',
-        path: '/dashboard/finance/categories',
-        description: 'Manage financial categories and accounts',
-        icon: <Category />,
-      },
+      //{
+        //: 'Categories',
+        //path: '/dashboard/finance/categories',
+        //description: 'Manage financial categories and accounts',
+        //icon: <Category />,
+      //},
       {
         text: 'Transactions',
         path: '/dashboard/finance/transactions',
@@ -245,12 +245,12 @@ const menuItems = [
         description: 'Turnover rates and space utilization heatmaps',
         icon: <StarBorder />,
       },
-      {
-        text: 'Dwell Time',
-        path: '/dashboard/analytics/dwell',
-        description: 'Average storage duration metrics',
-        icon: <StarBorder />,
-      },
+      //{
+        //text: 'Dwell Time',
+        //path: '/dashboard/analytics/dwell',
+        //description: 'Average storage duration metrics',
+        //icon: <StarBorder />,
+      //},
       {
         text: 'EOQ Reports',
         path: '/dashboard/analytics/eoq',
