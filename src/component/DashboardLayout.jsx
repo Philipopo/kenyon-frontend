@@ -1,4 +1,3 @@
-// frontend/src/pages/DashboardLayout.jsx
 import React, { useState, useEffect } from 'react';
 import {
   AppBar,
@@ -10,23 +9,27 @@ import {
 } from '@mui/material';
 import { Search, Menu as MenuIcon, LocationOn } from '@mui/icons-material';
 import { Brightness4, Brightness7 } from '@mui/icons-material';
+import { toast } from 'react-hot-toast';
 import Sidebar from './Sidebar';
 import { useThemeContext } from '../context/ThemeContext';
-import { useSearch } from '../context/SearchContext'; // Add SearchContext
+import { useSearch } from '../context/SearchContext';
 import { Outlet } from 'react-router-dom';
 import API from '../api';
 import logo from '../assets/kenyon_logo-removebg-preview.png';
 import ChatWidget from '../widget/ChatWidget';
-
 
 const drawerWidth = 280;
 
 export default function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { mode, toggleTheme } = useThemeContext();
-  const { searchTerm, setSearchTerm } = useSearch(); // Use SearchContext
+  const { searchTerm, setSearchTerm } = useSearch();
   const [userProfile, setUserProfile] = useState({ full_name: '', state: 'Lagos' });
+  const [brandingLogo, setBrandingLogo] = useState(null);
+  const [brandingColor, setBrandingColor] = useState(null);
+  const [canViewBranding, setCanViewBranding] = useState(false); // Initialize as false
 
+  // Fetch user profile (unchanged)
   const fetchUserProfile = async () => {
     try {
       const response = await API.get('/auth/profile/', {
@@ -42,8 +45,45 @@ export default function DashboardLayout() {
     }
   };
 
+  // Fetch branding data
+  const fetchBranding = async () => {
+    try {
+      // Check permission to view branding
+      await API.get('/auth/permissions/page/branding/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      setCanViewBranding(true); // User has permission
+
+      // Fetch branding data
+      const response = await API.get('/settings/company-branding/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      if (response.data.results?.length > 0) {
+        const branding = response.data.results[0];
+        setBrandingLogo(branding.logo);
+        setBrandingColor(branding.primary_color || '#212121');
+      } else {
+        // No branding data, use fallbacks
+        setBrandingLogo(null);
+        setBrandingColor(null);
+      }
+    } catch (error) {
+      console.error('Error fetching branding:', error.response || error);
+      if (error.response?.status === 403) {
+        setCanViewBranding(false); // No permission
+        toast.error(error.response.data.reason || 'Requires admin role to view branding');
+      } else {
+        toast.error(error.response?.data?.detail || 'Failed to load branding');
+      }
+      // Use fallbacks on error
+      setBrandingLogo(null);
+      setBrandingColor(null);
+    }
+  };
+
   useEffect(() => {
     fetchUserProfile();
+    fetchBranding();
     window.addEventListener('profileUpdated', fetchUserProfile);
     return () => window.removeEventListener('profileUpdated', fetchUserProfile);
   }, []);
@@ -59,7 +99,9 @@ export default function DashboardLayout() {
         sx={{
           width: { sm: `calc(100% - ${drawerWidth}px)` },
           ml: { sm: `${drawerWidth}px` },
-          backgroundColor: mode === 'dark' ? '#424242' : '#212121',
+          backgroundColor: canViewBranding && brandingColor
+            ? brandingColor
+            : (mode === 'dark' ? '#424242' : '#212121'),
         }}
       >
         <Toolbar>
@@ -73,8 +115,8 @@ export default function DashboardLayout() {
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <img
-                src={logo}
-                alt="Kenyon Logo"
+                src={canViewBranding && brandingLogo ? brandingLogo : logo}
+                alt="Company Logo"
                 style={{
                   width: 40,
                   height: 40,
@@ -103,8 +145,8 @@ export default function DashboardLayout() {
               <Search sx={{ mr: 1 }} />
               <InputBase
                 placeholder="Search…"
-                value={searchTerm} // Bind to searchTerm
-                onChange={(e) => setSearchTerm(e.target.value)} // Update searchTerm
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 sx={{
                   color: '#fff',
                   width: '100%',

@@ -1,17 +1,14 @@
-// src/pages/Warehouse.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Paper, Typography, Box, Table, TableContainer, TableHead, TableRow, TableCell, TableBody,
-  Pagination, TextField, InputAdornment, Button, Modal, Grid, Select, MenuItem, Alert, IconButton,
-  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Tabs, Tab, CircularProgress
+  Pagination, TextField, Button, Modal, Grid, Select, MenuItem, Alert, IconButton,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, CircularProgress
 } from '@mui/material';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-//import MapIcon from '@mui/icons-material/Map';
-import API from '../api';
+import { toast } from 'react-hot-toast';
+import API from '../api'; // Keep correct import
 
 const modalStyle = {
   position: 'absolute',
@@ -27,87 +24,111 @@ const modalStyle = {
 
 export default function Warehouse() {
   const [items, setItems] = useState([]);
-  const [serials, setSerials] = useState([]);
-  const [formData, setFormData] = useState({ serial_number: '', location: '', status: 'in_stock' });
+  const [availableItems, setAvailableItems] = useState([]);
+  const [storageBins, setStorageBins] = useState([]);
+  const [formData, setFormData] = useState({ item: '', storage_bin: '', quantity: '', status: 'in_stock' });
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
-  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [alert, setAlert] = useState(null);
-  const [tabValue, setTabValue] = useState(0);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [actionPermissions, setActionPermissions] = useState({
-    create_warehouse_item: false,
-    update_warehouse_item: false,
-    delete_warehouse_item: false,
+    create_warehouse_new_item: false,
+    update_warehouse_new_item: false,
+    delete_warehouse_new_item: false,
   });
+  const [loading, setLoading] = useState(false);
   const itemsPerPage = 10;
 
-  // Sample data for analytics (replace with API call)
-  const analyticsData = [
-    { name: 'Laptop', stock: 50 },
-    { name: 'Phone', stock: 30 },
-    { name: 'Tablet', stock: 20 },
-  ];
-
   const fetchItems = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await API.get('/warehouse/items/');
-      setItems(res.data || []);
+      const res = await API.get('/warehouse_new/items/', {
+        params: { page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setItems(res.data.results || []);
+      setTotalPages(Math.ceil((res.data.count || 0) / itemsPerPage));
+      setAlert(null);
     } catch (err) {
-      setAlert(`❌ Failed to fetch warehouse items: ${err.response?.data?.detail || err.message}`);
+      toast.error(err.response?.data?.detail || 'Failed to fetch warehouse items');
+      setItems([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [page]);
+
+  const fetchAvailableItems = useCallback(async () => {
+    try {
+      const res = await API.get('/warehouse_new/items/available_items/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setAvailableItems(res.data || []);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to fetch available items');
     }
   }, []);
 
-  const fetchSerials = useCallback(async () => {
+  const fetchStorageBins = useCallback(async () => {
     try {
-      const res = await API.get('/warehouse/items/available_serials/');
-      setSerials(res.data || []);
+      const res = await API.get('/inventory/bins/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setStorageBins(res.data.results || res.data || []);
     } catch (err) {
-      setAlert(`❌ Failed to fetch serial numbers: ${err.response?.data?.detail || err.message}`);
+      toast.error(err.response?.data?.detail || 'Failed to fetch storage bins');
     }
   }, []);
 
   useEffect(() => {
     const checkPermissions = async () => {
+      setCheckingPermissions(true);
       try {
         const token = localStorage.getItem('accessToken');
         if (!token) {
-          setAlert('⚠️ No authentication token found. Please log in.');
+          toast.error('No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
 
-        const pageResponse = await API.get('/auth/permissions/page/warehouse/');
+        const pageResponse = await API.get('/auth/permissions/page/warehouse_new/', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
-          setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+          toast.error(pageResponse.data.reason || 'You do not have permission to view this page.');
           setCheckingPermissions(false);
           return;
         }
 
-        const actions = ['create_warehouse_item', 'update_warehouse_item', 'delete_warehouse_item'];
+        const actions = ['create_warehouse_new_item', 'update_warehouse_new_item', 'delete_warehouse_new_item'];
         const actionPerms = {};
         for (const action of actions) {
           try {
-            const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
+            const actionResponse = await API.get(`/auth/permissions/action/${action}/`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
             actionPerms[action] = actionResponse.data.allowed || false;
             if (!actionResponse.data.allowed) {
-              setAlert(`⚠️ You do not have permission to perform ${action.replace('_', ' ')}: ${actionResponse.data.reason || 'No reason provided'}`);
+              toast.error(`You do not have permission to perform ${action.replace('_', ' ')}: ${actionResponse.data.reason || 'No reason provided'}`);
             }
           } catch (err) {
             actionPerms[action] = false;
+            toast.error(`Failed to check permission for ${action}: ${err.response?.data?.detail || err.message}`);
           }
         }
         setActionPermissions(actionPerms);
         fetchItems();
-        fetchSerials();
+        fetchAvailableItems();
+        fetchStorageBins();
       } catch (err) {
-        setAlert(`❌ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+        toast.error(err.response?.data?.detail || 'Failed to check permissions');
         setHasPermission(false);
       } finally {
         setCheckingPermissions(false);
@@ -115,22 +136,29 @@ export default function Warehouse() {
     };
 
     checkPermissions();
-  }, [fetchItems, fetchSerials]);
+  }, [fetchItems, fetchAvailableItems, fetchStorageBins]);
+
+  useEffect(() => {
+    if (hasPermission) {
+      fetchItems();
+    }
+  }, [fetchItems, page, hasPermission]);
 
   const handleOpen = async (item = null) => {
-    if (!actionPermissions[item ? 'update_warehouse_item' : 'create_warehouse_item']) {
-      setAlert(`⚠️ You do not have permission to ${item ? 'update' : 'create'} warehouse items.`);
+    if (!actionPermissions[item ? 'update_warehouse_new_item' : 'create_warehouse_new_item']) {
+      toast.error(`You do not have permission to ${item ? 'update' : 'create'} warehouse items.`);
       return;
     }
     if (item) {
       setFormData({
-        serial_number: item.serial_number.id,
-        location: item.location,
-        status: item.status,
+        item: item.item?.id || item.item || '', // Handle nested item.id
+        storage_bin: item.storage_bin?.id || '',
+        quantity: item.quantity?.toString() || '',
+        status: item.status || 'in_stock',
       });
       setEditId(item.id);
     } else {
-      setFormData({ serial_number: '', location: '', status: 'in_stock' });
+      setFormData({ item: '', storage_bin: '', quantity: '', status: 'in_stock' });
       setEditId(null);
     }
     setOpen(true);
@@ -138,14 +166,14 @@ export default function Warehouse() {
 
   const handleClose = () => {
     setOpen(false);
-    setFormData({ serial_number: '', location: '', status: 'in_stock' });
+    setFormData({ item: '', storage_bin: '', quantity: '', status: 'in_stock' });
     setEditId(null);
     setAlert(null);
   };
 
   const handleDeleteOpen = (id) => {
-    if (!actionPermissions.delete_warehouse_item) {
-      setAlert('⚠️ You do not have permission to delete warehouse items.');
+    if (!actionPermissions.delete_warehouse_new_item) {
+      toast.error('You do not have permission to delete warehouse items.');
       return;
     }
     setDeleteId(id);
@@ -164,26 +192,41 @@ export default function Warehouse() {
   };
 
   const handleSave = async () => {
-    const { serial_number, location, status } = formData;
-    if (!serial_number || !location || !status) {
+    const { item, storage_bin, quantity, status } = formData;
+    if (!item || !quantity || !status) {
       setAlert('⚠️ Please fill in all required fields.');
       return;
     }
-    const payload = { serial_number, location, status };
+    if (Number(quantity) <= 0) {
+      setAlert('⚠️ Quantity must be greater than zero.');
+      return;
+    }
+    const selectedItem = availableItems.find(i => i.id === Number(item));
+    if (selectedItem && Number(quantity) > selectedItem.quantity) {
+      setAlert(`⚠️ Quantity (${quantity}) exceeds available item quantity (${selectedItem.quantity}).`);
+      return;
+    }
+    const payload = { item: Number(item), storage_bin: storage_bin || null, quantity: Number(quantity), status };
+    setLoading(true);
     try {
       if (editId) {
-        await API.patch(`/warehouse/items/${editId}/`, payload);
-        setAlert('✅ Warehouse item updated successfully');
+        await API.patch(`/warehouse_new/items/${editId}/`, payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        });
+        toast.success('Warehouse item updated successfully');
       } else {
-        await API.post('/warehouse/items/', payload);
-        setAlert('✅ Warehouse item created successfully');
+        await API.post('/warehouse_new/items/', payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        });
+        toast.success('Warehouse item created successfully');
       }
       fetchItems();
+      fetchAvailableItems();
       handleClose();
     } catch (err) {
-      let errorMsg = `❌ Failed to ${editId ? 'update' : 'add'} warehouse item: Unable to process request.`;
+      let errorMsg = `Failed to ${editId ? 'update' : 'add'} warehouse item`;
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
+        errorMsg = err.response.data.detail || 'You lack permission to perform this action.';
       } else if (err.response?.status === 400 && err.response.data) {
         errorMsg = Object.entries(err.response.data)
           .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
@@ -191,37 +234,34 @@ export default function Warehouse() {
       } else {
         errorMsg = err.response?.data?.detail || err.message;
       }
-      setAlert(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDelete = async () => {
+    setLoading(true);
     try {
-      await API.delete(`/warehouse/items/${deleteId}/`);
-      setAlert('✅ Warehouse item deleted successfully');
-      setDeleteOpen(false);
-      setDeleteId(null);
+      await API.delete(`/warehouse_new/items/${deleteId}/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      toast.success('Warehouse item deleted successfully');
       fetchItems();
+      fetchAvailableItems();
+      handleDeleteClose();
     } catch (err) {
-      let errorMsg = '❌ Failed to delete warehouse item: Unable to process request.';
+      let errorMsg = 'Failed to delete warehouse item';
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete items.'}`;
+        errorMsg = err.response.data.detail || 'You lack permission to delete items.';
       } else {
         errorMsg = err.response?.data?.detail || err.message;
       }
-      setAlert(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setLoading(false);
     }
   };
-
-  const filtered = items.filter(item =>
-    item.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-    item.sku?.toLowerCase().includes(search.toLowerCase()) ||
-    item.serial_number?.serial_number.toLowerCase().includes(search.toLowerCase()) ||
-    item.location?.toLowerCase().includes(search.toLowerCase()) ||
-    item.status?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   if (checkingPermissions) {
     return (
@@ -238,7 +278,7 @@ export default function Warehouse() {
     return (
       <Container>
         <Alert severity="error" sx={{ mt: 4 }} onClose={() => setAlert(null)}>
-          {alert || '⚠️ You do not have permission to view this page.'}
+          {alert || 'You do not have permission to view this page.'}
         </Alert>
       </Container>
     );
@@ -248,7 +288,7 @@ export default function Warehouse() {
     <Container maxWidth="lg" sx={{ mt: 4 }}>
       {alert && (
         <Alert
-          severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
+          severity={alert.includes('⚠️') ? 'warning' : 'success'}
           sx={{ mb: 2 }}
           onClose={() => setAlert(null)}
         >
@@ -256,130 +296,79 @@ export default function Warehouse() {
         </Alert>
       )}
       <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>Warehouse Overview</Typography>
+        <Typography variant="h4" gutterBottom>Warehouse Management</Typography>
         <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          Visual rack map, heatmaps, and smart routing
+          Manage inventory items and storage locations
         </Typography>
 
-        <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)} sx={{ mb: 3 }}>
-          <Tab label="Inventory" />
-          <Tab label="Rack Map" />
-          <Tab label="Analytics" />
-        </Tabs>
+        <Box display="flex" justifyContent="space-between" mb={2}>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpen()}
+            disabled={!actionPermissions.create_warehouse_new_item || loading}
+          >
+            Add Item
+          </Button>
+        </Box>
 
-        {tabValue === 0 && (
-          <>
-            <Box display="flex" justifyContent="space-between" mb={2}>
-              <TextField
-                placeholder="Search warehouse data..."
-                variant="outlined"
-                size="small"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => handleOpen()}
-                disabled={!actionPermissions.create_warehouse_item}
-              >
-                Add Item
-              </Button>
-            </Box>
-
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>S/N</TableCell>
-                    <TableCell>Product</TableCell>
-                    <TableCell>SKU</TableCell>
-                    <TableCell>Serial Number</TableCell>
-                    <TableCell>Location</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Last Updated</TableCell>
-                    <TableCell>Actions</TableCell>
+        <TableContainer>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>S/N</TableCell>
+                <TableCell>Item Name</TableCell>
+                <TableCell>Quantity</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Last Updated</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {items.length > 0 ? (
+                items.map((row, index) => (
+                  <TableRow key={row.id}>
+                    <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
+                    <TableCell>{row.item_name}</TableCell>
+                    <TableCell>{row.quantity}</TableCell>
+                    <TableCell>{row.status}</TableCell>
+                    <TableCell>{new Date(row.last_updated).toLocaleString()}</TableCell>
+                    <TableCell>
+                      <IconButton
+                        onClick={() => handleOpen(row)}
+                        disabled={!actionPermissions.update_warehouse_new_item || loading}
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton
+                        onClick={() => handleDeleteOpen(row.id)}
+                        disabled={!actionPermissions.delete_warehouse_new_item || loading}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {paginated.length > 0 ? (
-                    paginated.map((row, index) => (
-                      <TableRow key={row.id}>
-                        <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
-                        <TableCell>{row.product_name}</TableCell>
-                        <TableCell>{row.sku}</TableCell>
-                        <TableCell>{row.serial_number.serial_number}</TableCell>
-                        <TableCell>{row.location}</TableCell>
-                        <TableCell>{row.status}</TableCell>
-                        <TableCell>{new Date(row.last_updated).toLocaleString()}</TableCell>
-                        <TableCell>
-                          <IconButton
-                            onClick={() => handleOpen(row)}
-                            disabled={!actionPermissions.update_warehouse_item}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            onClick={() => handleDeleteOpen(row.id)}
-                            disabled={!actionPermissions.delete_warehouse_item}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={8} align="center">No matching records found.</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={6} align="center">
+                    {loading ? 'Loading...' : 'No matching records found.'}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-            <Box display="flex" justifyContent="center" mt={3}>
-              <Pagination
-                count={Math.ceil(filtered.length / itemsPerPage)}
-                page={page}
-                onChange={(_, val) => setPage(val)}
-                color="primary"
-              />
-            </Box>
-          </>
-        )}
-
-        {tabValue === 1 && (
-          <Box>
-            <Typography variant="h6" gutterBottom>Rack Map</Typography>
-            <Typography variant="body2">Interactive warehouse layout (to be implemented with a canvas or library like Konva.js)</Typography>
-            {/* Placeholder for rack map */}
-          </Box>
-        )}
-
-        {tabValue === 2 && (
-          <Box>
-            <Typography variant="h6" gutterBottom>Analytics Dashboard</Typography>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={analyticsData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="stock" fill="#1976d2" />
-              </BarChart>
-            </ResponsiveContainer>
-          </Box>
-        )}
+        <Box display="flex" justifyContent="center" mt={3}>
+          <Pagination
+            count={totalPages}
+            page={page}
+            onChange={(_, val) => setPage(val)}
+            color="primary"
+            disabled={loading}
+          />
+        </Box>
       </Paper>
 
       <Modal open={open} onClose={handleClose}>
@@ -390,31 +379,60 @@ export default function Warehouse() {
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <Select
-                name="serial_number"
-                value={formData.serial_number}
+                name="item"
+                value={formData.item}
                 onChange={handleChange}
                 fullWidth
                 required
                 displayEmpty
+                disabled={loading || (editId && !actionPermissions.update_warehouse_new_item)}
+                error={formData.item === '' && alert?.includes('required')}
               >
-                <MenuItem value="" disabled>Select Serial Number</MenuItem>
-                {serials.map((serial) => (
-                  <MenuItem key={serial.id} value={serial.id}>
-                    {serial.serial_number} ({serial.inflow?.product_name || 'Unknown'})
-                  </MenuItem>
-                ))}
+                <MenuItem value="" disabled>Select Item</MenuItem>
+                {availableItems.length > 0 ? (
+                  availableItems.map((item) => (
+                    <MenuItem key={item.id} value={item.id}>
+                      {item.name} (Qty: {item.quantity})
+                    </MenuItem>
+                  ))
+                ) : (
+                  <MenuItem value="" disabled>No available items</MenuItem>
+                )}
+              </Select>
+            </Grid>
+            <Grid item xs={12}>
+              <Select
+                name="storage_bin"
+                value={formData.storage_bin}
+                onChange={handleChange}
+                fullWidth
+                displayEmpty
+                disabled={loading}
+              >
+                <MenuItem value="">No Storage Bin</MenuItem>
+                {storageBins.length > 0 ? (
+                  storageBins.map((bin) => (
+                    <MenuItem key={bin.id} value={bin.id}>
+                      {bin.bin_id} ({bin.row}-{bin.rack}, Capacity: {bin.capacity - bin.used}/{bin.capacity})
+                    </MenuItem>
+                  ))
+                ) : (
+                  <MenuItem value="" disabled>No storage bins available</MenuItem>
+                )}
               </Select>
             </Grid>
             <Grid item xs={6}>
               <TextField
-                label="Location"
-                name="location"
-                value={formData.location}
+                label="Quantity"
+                name="quantity"
+                type="number"
+                value={formData.quantity}
                 onChange={handleChange}
                 fullWidth
                 required
-                error={formData.location === '' && alert?.includes('required')}
-                helperText={formData.location === '' && alert?.includes('required') ? 'Location is required' : ''}
+                disabled={loading}
+                error={formData.quantity === '' && alert?.includes('required')}
+                helperText={formData.quantity === '' && alert?.includes('required') ? 'Quantity is required' : ''}
               />
             </Grid>
             <Grid item xs={6}>
@@ -424,6 +442,7 @@ export default function Warehouse() {
                 onChange={handleChange}
                 fullWidth
                 required
+                disabled={loading}
               >
                 <MenuItem value="in_stock">In Stock</MenuItem>
                 <MenuItem value="reserved">Reserved</MenuItem>
@@ -431,13 +450,13 @@ export default function Warehouse() {
               </Select>
             </Grid>
             <Grid item xs={12} textAlign="right">
-              <Button onClick={handleClose} sx={{ mr: 1 }}>Cancel</Button>
+              <Button onClick={handleClose} sx={{ mr: 1 }} disabled={loading}>Cancel</Button>
               <Button
                 variant="contained"
                 onClick={handleSave}
-                disabled={!actionPermissions[editId ? 'update_warehouse_item' : 'create_warehouse_item']}
+                disabled={loading || !actionPermissions[editId ? 'update_warehouse_new_item' : 'create_warehouse_new_item']}
               >
-                {editId ? 'Update Item' : 'Save Item'}
+                {loading ? 'Saving...' : editId ? 'Update Item' : 'Save Item'}
               </Button>
             </Grid>
           </Grid>
@@ -448,18 +467,18 @@ export default function Warehouse() {
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Action cannot be reversed, are you sure you want to continue?
+            This action cannot be reversed. Are you sure you want to continue?
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleDeleteClose}>Cancel</Button>
+          <Button onClick={handleDeleteClose} disabled={loading}>Cancel</Button>
           <Button
             onClick={handleDelete}
             color="error"
             variant="contained"
-            disabled={!actionPermissions.delete_warehouse_item}
+            disabled={loading || !actionPermissions.delete_warehouse_new_item}
           >
-            Delete
+            {loading ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

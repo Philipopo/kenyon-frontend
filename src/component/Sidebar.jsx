@@ -275,24 +275,24 @@ const menuItems = [
     icon: <Settings />,
     text: 'System Settings',
     subItems: [
-      {
-        text: 'ERP Integration',
-        path: '/dashboard/settings/erp',
-        description: 'AWS cloud configuration and module settings',
-        icon: <StarBorder />,
-      },
+      //{
+        //text: 'ERP Integration',
+        //path: '/dashboard/settings/erp',
+        //description: 'AWS cloud configuration and module settings',
+        //icon: <StarBorder />,
+      //},
       {
         text: 'Company Branding',
         path: '/dashboard/settings/branding',
         description: 'Customize interface and reporting templates',
         icon: <StarBorder />,
       },
-      {
-        text: 'Tracker Setup',
-        path: '/dashboard/settings/trackers',
-        description: 'RFID/Scanner configuration',
-        icon: <StarBorder />,
-      },
+      //{
+        //text: 'Tracker Setup',
+        //path: '/dashboard/settings/trackers',
+        //description: 'RFID/Scanner configuration',
+        //icon: <StarBorder />,
+      //},
     ],
   },
 ];

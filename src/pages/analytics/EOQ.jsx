@@ -1,17 +1,23 @@
-// src/pages/analytics/EOQ.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Typography, Paper, TextField, InputAdornment, Table,
   TableBody, TableCell, TableHead, TableRow, Pagination, Box,
   TableContainer, CircularProgress, Alert, Button, Dialog,
-  DialogTitle, DialogContent, DialogActions, Grid
+  DialogTitle, DialogContent, DialogActions, Grid, Select, MenuItem
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
+import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import API from '../../api';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Pie } from 'react-chartjs-2';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 export default function EOQReports() {
   const [data, setData] = useState([]);
+  const [items, setItems] = useState([]);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -19,11 +25,11 @@ export default function EOQReports() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     item: '',
-    part_number: '',
     demand_rate: '',
     order_cost: '',
     holding_cost: '',
-    eoq: '',
+    lead_time_days: '',
+    safety_stock: ''
   });
   const [formAlert, setFormAlert] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
@@ -31,54 +37,118 @@ export default function EOQReports() {
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [canCreateEOQ, setCanCreateEOQ] = useState(false);
   const itemsPerPage = 10;
+  const navigate = useNavigate();
+
+  // Debug localStorage tokens
+  useEffect(() => {
+    console.log('🔍 Debug - LocalStorage tokens:', {
+      accessToken: localStorage.getItem('accessToken'),
+      access_token: localStorage.getItem('access_token'),
+      refreshToken: localStorage.getItem('refreshToken'),
+      user: localStorage.getItem('user')
+    });
+  }, []);
+
+  const checkAuth = useCallback(() => {
+    // FIXED: Use 'accessToken' instead of 'access_token'
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setError('⚠️ No authentication token found. Please log in.');
+      setTimeout(() => navigate('/login'), 2000);
+      return false;
+    }
+    return token;
+  }, [navigate]);
+
+  const fetchItems = useCallback(async () => {
+    const token = checkAuth();
+    if (!token) return;
+    
+    try {
+      const response = await API.get('/inventory/items/', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setItems(response.data.results || response.data);
+    } catch (err) {
+      console.error('Error fetching items:', err);
+      if (err.response?.status === 401) {
+        setError('⚠️ Session expired. Please log in again.');
+        navigate('/login');
+      } else {
+        setError(`⚠️ Failed to load items: ${err.response?.data?.detail || err.message}`);
+      }
+    }
+  }, [checkAuth, navigate]);
+
+  const fetchEOQReports = useCallback(async () => {
+    const token = checkAuth();
+    if (!token) return;
+    
+    try {
+      const response = await API.get('/analytics/eoq-v2/', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setData(response.data.results || response.data);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching EOQ reports:', err);
+      if (err.response?.status === 401) {
+        setError('⚠️ Session expired. Please log in again.');
+        navigate('/login');
+      } else {
+        setError(`⚠️ Failed to load EOQ reports: ${err.response?.data?.detail || err.message}`);
+      }
+      setLoading(false);
+    }
+  }, [checkAuth, navigate]);
+
+  const checkPermissions = useCallback(async () => {
+    setCheckingPermissions(true);
+    const token = checkAuth();
+    if (!token) {
+      setHasPageAccess(false);
+      setCheckingPermissions(false);
+      return;
+    }
+
+    try {
+      const [pageResponse, actionResponse] = await Promise.all([
+        API.get('/auth/permissions/page/analytics_eoq/', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        API.get('/auth/permissions/action/create_eoq/', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ]);
+      
+      if (!pageResponse.data.allowed) {
+        setError(`⚠️ ${pageResponse.data.reason || 'No permission to view EOQ reports.'}`);
+        setHasPageAccess(false);
+        setCheckingPermissions(false);
+        return;
+      }
+      
+      setHasPageAccess(true);
+      setCanCreateEOQ(actionResponse.data.allowed || false);
+      await Promise.all([fetchItems(), fetchEOQReports()]);
+      
+    } catch (err) {
+      console.error('Error checking permissions:', err);
+      if (err.response?.status === 401) {
+        setError('⚠️ Authentication failed. Please log in again.');
+        navigate('/login');
+      } else {
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+      }
+      setHasPageAccess(false);
+    } finally {
+      setCheckingPermissions(false);
+    }
+  }, [checkAuth, fetchItems, fetchEOQReports, navigate]);
 
   useEffect(() => {
-    const checkPermissions = async () => {
-      try {
-        const token = localStorage.getItem('accessToken');
-        if (!token) {
-          setError('⚠️ No authentication token found. Please log in.');
-          setHasPageAccess(false);
-          setCheckingPermissions(false);
-          return;
-        }
-
-        const pageResponse = await API.get('/auth/permissions/page/analytics_eoq/');
-        if (pageResponse.data && typeof pageResponse.data.allowed === 'boolean') {
-          setHasPageAccess(pageResponse.data.allowed);
-          if (!pageResponse.data.allowed) {
-            setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-            setCheckingPermissions(false);
-            return;
-          }
-        } else {
-          setError('⚠️ Invalid permission response from server.');
-          setHasPageAccess(false);
-          setCheckingPermissions(false);
-          return;
-        }
-
-        const actionResponse = await API.get('/auth/permissions/action/create_eoq/');
-        setCanCreateEOQ(actionResponse.data.allowed || false);
-
-        const response = await API.get('analytics/eoq/');
-        setData(response.data);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error checking permissions or fetching data:', err.response?.data || err.message);
-        setError(
-          err.response?.status === 401 ? '⚠️ Authentication failed. Please log in again.' :
-          err.response?.status === 404 ? '⚠️ Permission endpoint not found. Contact support.' :
-          `⚠️ Failed to check permissions or fetch data: ${err.response?.data?.detail || err.message}`
-        );
-        setHasPageAccess(false);
-      } finally {
-        setCheckingPermissions(false);
-      }
-    };
-
     checkPermissions();
-  }, []);
+  }, [checkPermissions]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -86,21 +156,42 @@ export default function EOQReports() {
   };
 
   const handleCreateEOQ = async () => {
-    const { item, part_number, demand_rate, order_cost, holding_cost, eoq } = form;
-    if (!item || !part_number || !demand_rate || !order_cost || !holding_cost || !eoq) {
+    const { item, demand_rate, order_cost, holding_cost, lead_time_days } = form;
+    if (!item || !demand_rate || !order_cost || !holding_cost || !lead_time_days) {
       setFormAlert('⚠ Please fill in all required fields.');
       return;
     }
 
     try {
       setFormLoading(true);
-      const res = await API.post('analytics/eoq/', form);
-      setData([res.data, ...data]);
+      const token = checkAuth();
+      if (!token) throw new Error('No authentication token found.');
+      
+      const res = await API.post('/analytics/eoq-v2/', {
+        item, 
+        demand_rate, 
+        order_cost, 
+        holding_cost, 
+        lead_time_days, 
+        safety_stock: form.safety_stock || 0
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      setData(prevData => [res.data, ...prevData]);
       setOpen(false);
       setFormAlert(null);
-      setForm({ item: '', part_number: '', demand_rate: '', order_cost: '', holding_cost: '', eoq: '' });
+      setForm({ 
+        item: '', 
+        demand_rate: '', 
+        order_cost: '', 
+        holding_cost: '', 
+        lead_time_days: '', 
+        safety_stock: '' 
+      });
+      toast.success('✅ EOQ report created successfully', { id: 'eoq-create' });
     } catch (err) {
-      console.error('❌ Error creating EOQ report:', err);
+      console.error('Error creating EOQ report:', err);
       setFormAlert(err.response?.data?.detail || '❌ Failed to create EOQ report.');
     } finally {
       setFormLoading(false);
@@ -108,11 +199,20 @@ export default function EOQReports() {
   };
 
   const filteredData = data.filter((row) =>
-    row.item.toLowerCase().includes(search.toLowerCase()) ||
-    row.part_number.toLowerCase().includes(search.toLowerCase())
+    row.item_name?.toLowerCase().includes(search.toLowerCase()) ||
+    row.part_number?.toLowerCase().includes(search.toLowerCase())
   );
 
   const paginatedData = filteredData.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
+  const chartData = {
+    labels: paginatedData.map(row => row.item_name),
+    datasets: [{
+      label: 'EOQ (units)',
+      data: paginatedData.map(row => row.eoq || 0),
+      backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'],
+    }],
+  };
 
   if (checkingPermissions) {
     return (
@@ -161,7 +261,7 @@ export default function EOQReports() {
           <Button
             variant="contained"
             onClick={() => setOpen(true)}
-            disabled={!canCreateEOQ}
+            disabled={!canCreateEOQ || items.length === 0}
           >
             Add EOQ Report
           </Button>
@@ -175,6 +275,17 @@ export default function EOQReports() {
           <Alert severity="error">{error}</Alert>
         ) : (
           <>
+            <Box sx={{ mb: 4, maxWidth: 400 }}>
+              <Typography variant="h6" gutterBottom>EOQ Distribution</Typography>
+              {paginatedData.length > 0 ? (
+                <Pie data={chartData} />
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No data available for chart
+                </Typography>
+              )}
+            </Box>
+            
             <TableContainer>
               <Table>
                 <TableHead>
@@ -186,29 +297,33 @@ export default function EOQReports() {
                     <TableCell>Order Cost (₦)</TableCell>
                     <TableCell>Holding Cost (₦/unit/year)</TableCell>
                     <TableCell>EOQ (units)</TableCell>
+                    <TableCell>Reorder Point</TableCell>
+                    <TableCell>Total Cost (₦)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {paginatedData.length > 0 ? (
                     paginatedData.map((row, index) => (
-                      <TableRow key={row.id}>
+                      <TableRow key={row.id || index}>
                         <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
                         <TableCell>
                           <Box display="flex" alignItems="center" gap={1}>
                             <PrecisionManufacturingIcon fontSize="small" color="primary" />
-                            {row.item}
+                            {row.item_name || 'N/A'}
                           </Box>
                         </TableCell>
-                        <TableCell>{row.part_number}</TableCell>
-                        <TableCell>{row.demand_rate}</TableCell>
-                        <TableCell>₦{parseFloat(row.order_cost).toFixed(2)}</TableCell>
-                        <TableCell>₦{parseFloat(row.holding_cost).toFixed(2)}</TableCell>
-                        <TableCell>{row.eoq}</TableCell>
+                        <TableCell>{row.part_number || 'N/A'}</TableCell>
+                        <TableCell>{row.demand_rate || 'N/A'}</TableCell>
+                        <TableCell>₦{parseFloat(row.order_cost || 0).toFixed(2)}</TableCell>
+                        <TableCell>₦{parseFloat(row.holding_cost || 0).toFixed(2)}</TableCell>
+                        <TableCell>{row.eoq || 'N/A'}</TableCell>
+                        <TableCell>{row.reorder_point || 'N/A'}</TableCell>
+                        <TableCell>₦{parseFloat(row.total_cost || 0).toFixed(2)}</TableCell>
                       </TableRow>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7} align="center">
+                      <TableCell colSpan={9} align="center">
                         No matching records found.
                       </TableCell>
                     </TableRow>
@@ -237,22 +352,29 @@ export default function EOQReports() {
           <DialogContent>
             <Grid container spacing={2} sx={{ mt: 1 }}>
               <Grid item xs={12}>
-                <TextField
+                <Select
                   name="item"
-                  label="Item"
-                  fullWidth
                   value={form.item}
                   onChange={handleChange}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  name="part_number"
-                  label="Part Number"
                   fullWidth
-                  value={form.part_number}
-                  onChange={handleChange}
-                />
+                  displayEmpty
+                  renderValue={(value) => {
+                    const selected = items.find(i => i.id === value);
+                    return selected ? `${selected.name} (${selected.part_number})` : 'Select Item';
+                  }}
+                  disabled={items.length === 0}
+                >
+                  {items.map(item => (
+                    <MenuItem key={item.id} value={item.id}>
+                      {item.name} ({item.part_number})
+                    </MenuItem>
+                  ))}
+                </Select>
+                {items.length === 0 && (
+                  <Typography color="error" variant="caption">
+                    No items available. Add items first.
+                  </Typography>
+                )}
               </Grid>
               <Grid item xs={12}>
                 <TextField
@@ -262,6 +384,8 @@ export default function EOQReports() {
                   fullWidth
                   value={form.demand_rate}
                   onChange={handleChange}
+                  required
+                  inputProps={{ min: 1 }}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -272,7 +396,8 @@ export default function EOQReports() {
                   fullWidth
                   value={form.order_cost}
                   onChange={handleChange}
-                  inputProps={{ step: "0.01" }}
+                  inputProps={{ step: "0.01", min: 0.01 }}
+                  required
                 />
               </Grid>
               <Grid item xs={12}>
@@ -283,17 +408,31 @@ export default function EOQReports() {
                   fullWidth
                   value={form.holding_cost}
                   onChange={handleChange}
-                  inputProps={{ step: "0.01" }}
+                  inputProps={{ step: "0.01", min: 0.01 }}
+                  required
                 />
               </Grid>
               <Grid item xs={12}>
                 <TextField
-                  name="eoq"
-                  label="EOQ (units)"
+                  name="lead_time_days"
+                  label="Lead Time (days)"
                   type="number"
                   fullWidth
-                  value={form.eoq}
+                  value={form.lead_time_days}
                   onChange={handleChange}
+                  required
+                  inputProps={{ min: 0 }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  name="safety_stock"
+                  label="Safety Stock (units)"
+                  type="number"
+                  fullWidth
+                  value={form.safety_stock}
+                  onChange={handleChange}
+                  inputProps={{ min: 0 }}
                 />
               </Grid>
             </Grid>
@@ -309,7 +448,7 @@ export default function EOQReports() {
             <Button
               variant="contained"
               onClick={handleCreateEOQ}
-              disabled={formLoading || !canCreateEOQ}
+              disabled={formLoading || !canCreateEOQ || items.length === 0}
             >
               {formLoading ? <CircularProgress size={24} color="inherit" /> : 'Create'}
             </Button>
