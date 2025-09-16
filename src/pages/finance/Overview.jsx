@@ -109,7 +109,7 @@ export default function Overview() {
           </Alert>
         ) : (
           <Grid container spacing={3}>
-            <Grid item xs={12} md={4}>
+            {/* <Grid item xs={12} md={4}>
               <Card>
                 <CardContent>
                   <Typography variant="h6" color="text.secondary">
@@ -120,7 +120,7 @@ export default function Overview() {
                   </Typography>
                 </CardContent>
               </Card>
-            </Grid>
+            </Grid> */}
             <Grid item xs={12} md={4}>
               <Card>
                 <CardContent>
