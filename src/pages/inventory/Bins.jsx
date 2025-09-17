@@ -1,67 +1,91 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Container, Typography, Paper, Grid, TextField, Button, Modal, Box, InputAdornment,
-  Pagination, Alert, Table, TableHead, TableRow, TableCell, TableBody, Dialog,
-  DialogTitle, DialogContent, DialogContentText, DialogActions, IconButton,
+  Container, Paper, Box, Typography, Button, TextField, InputAdornment, Table, TableHead,
+  TableRow, TableCell, TableBody, TableContainer, Pagination, Dialog, DialogTitle,
+  DialogContent, DialogContentText, DialogActions, Grid, Alert, IconButton, Card,
+  CardContent, LinearProgress, Chip, Collapse, IconButton as MuiIconButton
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
+import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import WarehouseIcon from '@mui/icons-material/Warehouse';
+import StorageIcon from '@mui/icons-material/Storage';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
-const modalStyle = {
-  position: 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: 700,
-  bgcolor: 'background.paper',
-  boxShadow: 24,
-  p: 4,
-  borderRadius: 2,
+const generateBinId = (row, rack, shelf) => `A${row}-R${rack}-S${shelf}`;
+
+// Helper function to calculate usage percentage
+const calculateUsagePercentage = (used, capacity) => {
+  if (capacity === 0) return 0;
+  return Math.round((used / capacity) * 100);
 };
 
-const generateBinId = (row, rack, shelf) => `A${row}-R${rack}-S${shelf}`;
+// Helper function to get usage color
+const getUsageColor = (percentage) => {
+  if (percentage >= 90) return 'error';
+  if (percentage >= 70) return 'warning';
+  return 'success';
+};
 
 export default function BinLocations() {
   const [bins, setBins] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [formData, setFormData] = useState({
-    row: '', rack: '', shelf: '', type: '', capacity: '', description: '', // Removed 'used' from initial state
+    row: '', rack: '', shelf: '', type: '', capacity: '', description: '',
   });
-  const [open, setOpen] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
   const [editId, setEditId] = useState(null);
   const [localSearch, setLocalSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
-  const [selectedBin, setSelectedBin] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  //const [selectedBin, setSelectedBin] = useState(null);
+  const [metricsExpanded, setMetricsExpanded] = useState(true);
   const { searchTerm } = useSearch();
   const binsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
   const prevLocalSearchRef = useRef(localSearch);
 
-  // Debounced local search handler
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSetLocalSearch = useCallback(
-    debounce((value) => {
-      setLocalSearch(value);
-      setPage(1);
-    }, 500),
-    []
-  );
+  const debouncedSetLocalSearch = debounce((value) => {
+    setLocalSearch(value);
+    setPage(1);
+  }, 500);
+
+  const memoizedSetLocalSearch = useCallback((value) => {
+    debouncedSetLocalSearch(value);
+  }, [debouncedSetLocalSearch]);
+
+  // Calculate warehouse statistics
+  const warehouseStats = bins.reduce((stats, bin) => {
+    stats.totalCapacity += bin.capacity;
+    stats.totalUsed += bin.used;
+    stats.binCount += 1;
+    
+    const usage = calculateUsagePercentage(bin.used, bin.capacity);
+    if (usage >= 90) stats.fullBins += 1;
+    if (usage <= 10) stats.emptyBins += 1;
+    
+    return stats;
+  }, { totalCapacity: 0, totalUsed: 0, binCount: 0, fullBins: 0, emptyBins: 0 });
+
+  const warehouseUsage = calculateUsagePercentage(warehouseStats.totalUsed, warehouseStats.totalCapacity);
 
   const fetchBins = useCallback(async () => {
     try {
+      setLoading(true);
       const search = localSearch || searchTerm;
       const res = await API.get('inventory/bins/', {
         params: { search, page, page_size: binsPerPage },
@@ -76,6 +100,8 @@ export default function BinLocations() {
       setError('❌ Failed to fetch bins: ' + (err.response?.data?.detail || err.message));
       setBins([]);
       setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   }, [searchTerm, localSearch, page, binsPerPage]);
 
@@ -135,7 +161,7 @@ export default function BinLocations() {
     }
   }, [searchTerm, localSearch, page, hasPermission, fetchBins]);
 
-  const handleOpen = async (bin = null) => {
+  const handleOpenDialog = async (bin = null) => {
     if (!hasPermission) {
       setError('⚠️ You do not have permission to view bin locations.');
       return;
@@ -151,23 +177,23 @@ export default function BinLocations() {
       if (bin) {
         setFormData({
           row: bin.row || '', rack: bin.rack || '', shelf: bin.shelf || '', type: bin.type || '',
-          capacity: bin.capacity?.toString() || '', description: bin.description || '', // Removed 'used' from form data
+          capacity: bin.capacity?.toString() || '', description: bin.description || '',
         });
         setEditId(bin.id);
       } else {
-        setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' }); // Removed 'used' from initial form data
+        setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' });
         setEditId(null);
       }
-      setOpen(true);
+      setOpenDialog(true);
     } catch (err) {
       console.error(`Error checking ${bin ? 'update' : 'create'} permission:`, err.response?.data || err.message);
       setError(`❌ Failed to check ${bin ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
 
-  const handleClose = () => {
-    setOpen(false);
-    setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' }); // Removed 'used' from reset
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' });
     setEditId(null);
     setError('');
     setSuccess('');
@@ -189,26 +215,26 @@ export default function BinLocations() {
     setSuccess('');
   };
 
-  const handleChange = (e) => {
+  const handleFormChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSaveBin = async () => {
-    const { row, rack, shelf, type, capacity, description } = formData; // Removed 'used' from destructuring
-    if (!row || !rack || !shelf || !type || !capacity) { // Removed 'used' from validation
+  const handleFormSubmit = async () => {
+    const { row, rack, shelf, type, capacity, description } = formData;
+    if (!row || !rack || !shelf || !type || !capacity) {
       setError('⚠️ Please fill in all required fields.');
       return;
     }
     const numCapacity = Number(capacity);
-    if (numCapacity <= 0) { // Simplified validation since 'used' is not user-controlled
+    if (numCapacity <= 0) {
       setError('⚠️ Capacity must be positive.');
       return;
     }
     const bin_id = editId ? formData.bin_id || generateBinId(row, rack, shelf) : generateBinId(row, rack, shelf);
     const payload = {
       bin_id, row, rack, shelf, type,
-      capacity: numCapacity, description, // Removed 'used' from payload
+      capacity: numCapacity, description,
     };
     try {
       if (editId) {
@@ -219,14 +245,21 @@ export default function BinLocations() {
         setSuccess('✅ Bin created successfully');
       }
       fetchBins();
-      handleClose();
+      handleCloseDialog();
     } catch (err) {
       console.error(`${editId ? 'Updating' : 'Adding'} bin error:`, err.response?.data || err.message);
       let errorMsg = `Failed to ${editId ? 'update' : 'add'} bin: Unable to process request.`;
-      if (err.response?.status === 403) errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
-      else if (err.response?.status === 400 && err.response?.data) errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
-      else if (err.response?.data?.detail) errorMsg = err.response.data.detail;
-      else errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} bin: Network error.`;
+      if (err.response?.status === 403) {
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      } else if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
+      } else if (err.response?.data?.detail) {
+        errorMsg = err.response.data.detail;
+      } else {
+        errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} bin: Network error.`;
+      }
       setError(`❌ ${errorMsg}`);
     }
   };
@@ -240,9 +273,13 @@ export default function BinLocations() {
     } catch (err) {
       console.error('Error deleting bin:', err.response?.data || err.message);
       let errorMsg = 'Failed to delete bin: Unable to process request.';
-      if (err.response?.status === 403) errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
-      else if (err.response?.data?.detail) errorMsg = err.response.data.detail;
-      else errorMsg = err.message || 'Failed to delete bin: Network error.';
+      if (err.response?.status === 403) {
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      } else if (err.response?.data?.detail) {
+        errorMsg = err.response.data.detail;
+      } else {
+        errorMsg = err.message || 'Failed to delete bin: Network error.';
+      }
       setError(`❌ ${errorMsg}`);
     }
   };
@@ -268,7 +305,7 @@ export default function BinLocations() {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
+    <Container sx={{ mt: 4 }}>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
@@ -279,85 +316,216 @@ export default function BinLocations() {
           {success}
         </Alert>
       )}
-      <Typography variant="h4" sx={{ mb: 3 }}>
-        Bin Locations
-      </Typography>
+      
+      {/* Header Section */}
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <WarehouseIcon sx={{ fontSize: 40, mr: 2, color: 'primary.main' }} />
+        <Box>
+          <Typography variant="h4" component="h1" gutterBottom>
+            Warehouse Bin Management
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Manage storage locations, track inventory capacity, and organize your warehouse efficiently
+          </Typography>
+        </Box>
+      </Box>
 
-      <Grid container justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Search bins..."
-            value={localSearch}
-            onChange={(e) => debouncedSetLocalSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Grid>
-        <Grid item>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpen()}>
-            Add New Bin
+      {/* Collapsible Metrics Section */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Box 
+          sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            cursor: 'pointer'
+          }}
+          onClick={() => setMetricsExpanded(!metricsExpanded)}
+        >
+          <Typography variant="h6">
+            Warehouse Overview
+          </Typography>
+          <MuiIconButton size="small">
+            {metricsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </MuiIconButton>
+        </Box>
+        
+        <Collapse in={metricsExpanded}>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={3}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <StorageIcon color="primary" sx={{ mr: 1 }} />
+                    <Typography variant="h6">Total Bins</Typography>
+                  </Box>
+                  <Typography variant="h4" color="primary">
+                    {warehouseStats.binCount}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Storage locations
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <InventoryIcon color="info" sx={{ mr: 1 }} />
+                    <Typography variant="h6">Warehouse Usage</Typography>
+                  </Box>
+                  <Typography variant="h4" color="info.main">
+                    {warehouseUsage}%
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                    <Box sx={{ width: '100%', mr: 1 }}>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={warehouseUsage} 
+                        color={getUsageColor(warehouseUsage)}
+                        sx={{ height: 8, borderRadius: 4 }}
+                      />
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <InventoryIcon color="success" sx={{ mr: 1 }} />
+                    <Typography variant="h6">Available Capacity</Typography>
+                  </Box>
+                  <Typography variant="h4" color="success.main">
+                    {warehouseStats.totalCapacity - warehouseStats.totalUsed}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    of {warehouseStats.totalCapacity} total
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <InventoryIcon color="warning" sx={{ mr: 1 }} />
+                    <Typography variant="h6">Full Bins</Typography>
+                  </Box>
+                  <Typography variant="h4" color="warning.main">
+                    {warehouseStats.fullBins}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {warehouseStats.emptyBins} empty bins
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </Collapse>
+      </Paper>
+
+      {/* Search and Action Bar */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+          <Typography variant="h5">Bin Locations</Typography>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
+            Add Bin
           </Button>
-        </Grid>
-      </Grid>
+        </Box>
 
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Warehouse Bin Map
-        </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell><strong>Bin ID</strong></TableCell>
-              <TableCell><strong>Row</strong></TableCell>
-              <TableCell><strong>Rack</strong></TableCell>
-              <TableCell><strong>Shelf</strong></TableCell>
-              <TableCell><strong>Type</strong></TableCell>
-              <TableCell><strong>Capacity</strong></TableCell>
-              <TableCell><strong>Used</strong></TableCell>
-              <TableCell><strong>Actions</strong></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {bins.length > 0 ? (
-              bins.map((bin) => (
-                <TableRow
-                  key={bin.id}
-                  hover
-                  sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
-                >
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.bin_id}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.row}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.rack}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.shelf}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.type}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.capacity}</TableCell>
-                  <TableCell onClick={() => setSelectedBin(bin)}>{bin.used}</TableCell>
-                  <TableCell>
-                    <IconButton onClick={() => handleOpen(bin)} disabled={!hasUpdatePermission}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton onClick={() => handleDeleteOpen(bin.id)} disabled={!hasDeletePermission}>
-                      <DeleteIcon />
-                    </IconButton>
+        <TextField
+          placeholder="Search bins..."
+          value={localSearch}
+          onChange={(e) => memoizedSetLocalSearch(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          }}
+          sx={{ mb: 2, width: '300px' }}
+        />
+
+        <TableContainer>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Bin ID</TableCell>
+                <TableCell>Row</TableCell>
+                <TableCell>Rack</TableCell>
+                <TableCell>Shelf</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Capacity</TableCell>
+                <TableCell>Used</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} align="center">
+                    Loading...
                   </TableCell>
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={8}>No bins found.</TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              ) : bins.length > 0 ? (
+                bins.map((bin) => {
+                  const usagePercentage = calculateUsagePercentage(bin.used, bin.capacity);
+                  return (
+                    <TableRow key={bin.id}>
+                      <TableCell>{bin.bin_id}</TableCell>
+                      <TableCell>{bin.row}</TableCell>
+                      <TableCell>{bin.rack}</TableCell>
+                      <TableCell>{bin.shelf}</TableCell>
+                      <TableCell>
+                        <Chip 
+                          label={bin.type} 
+                          size="small" 
+                          color="primary" 
+                          variant="outlined" 
+                        />
+                      </TableCell>
+                      <TableCell>{bin.capacity}</TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Box sx={{ width: '60%', mr: 1 }}>
+                            <LinearProgress 
+                              variant="determinate" 
+                              value={usagePercentage} 
+                              color={getUsageColor(usagePercentage)}
+                              sx={{ height: 8, borderRadius: 4 }}
+                            />
+                          </Box>
+                          <Typography variant="body2" color="text.secondary">
+                            {bin.used} ({usagePercentage}%)
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <IconButton onClick={() => handleOpenDialog(bin)} disabled={!hasUpdatePermission}>
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton onClick={() => handleDeleteOpen(bin.id)} disabled={!hasDeletePermission}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={8} align="center">
+                    No bins found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-        <Box mt={4} display="flex" justifyContent="center">
+        <Box display="flex" justifyContent="center" mt={2}>
           <Pagination
             count={totalPages}
             page={page}
@@ -367,146 +535,86 @@ export default function BinLocations() {
         </Box>
       </Paper>
 
-      <Modal open={!!selectedBin} onClose={() => setSelectedBin(null)}>
-        <Box
-          sx={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: 400,
-            bgcolor: 'background.paper',
-            borderRadius: 2,
-            boxShadow: 24,
-            p: 4,
-            outline: 'none',
-          }}
-        >
-          {selectedBin && (
-            <>
-              <Typography variant="h6" gutterBottom>
-                Bin Details: {selectedBin.bin_id}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Type:</strong> {selectedBin.type}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Row:</strong> {selectedBin.row}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Rack:</strong> {selectedBin.rack}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Shelf:</strong> {selectedBin.shelf}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Capacity:</strong> {selectedBin.capacity}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Used:</strong> {selectedBin.used}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Description:</strong> {selectedBin.description || 'N/A'}
-              </Typography>
-              <Box sx={{ mt: 3, textAlign: 'right' }}>
-                <Button onClick={() => setSelectedBin(null)} variant="contained">
-                  Close
-                </Button>
-              </Box>
-            </>
+      <Dialog open={openDialog} onClose={handleCloseDialog}>
+        <DialogTitle>{editId ? 'Update Bin' : 'Add Bin'}</DialogTitle>
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
           )}
-        </Box>
-      </Modal>
-
-      <Modal open={open} onClose={handleClose}>
-        <Box sx={modalStyle}>
-          <Typography variant="h6" gutterBottom>
-            {editId ? 'Update Bin Slot' : 'Add New Bin Slot'}
-          </Typography>
-          <Grid container spacing={2}>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={4}>
               <TextField
+                fullWidth
                 label="Row"
                 name="row"
                 value={formData.row}
-                onChange={handleChange}
-                fullWidth
+                onChange={handleFormChange}
                 required
-                error={formData.row === '' && error.includes('required')}
-                helperText={formData.row === '' && error.includes('required') ? 'Row is required' : ''}
               />
             </Grid>
             <Grid item xs={4}>
               <TextField
+                fullWidth
                 label="Rack"
                 name="rack"
                 value={formData.rack}
-                onChange={handleChange}
-                fullWidth
+                onChange={handleFormChange}
                 required
-                error={formData.rack === '' && error.includes('required')}
-                helperText={formData.rack === '' && error.includes('required') ? 'Rack is required' : ''}
               />
             </Grid>
             <Grid item xs={4}>
               <TextField
+                fullWidth
                 label="Shelf"
                 name="shelf"
                 value={formData.shelf}
-                onChange={handleChange}
-                fullWidth
+                onChange={handleFormChange}
                 required
-                error={formData.shelf === '' && error.includes('required')}
-                helperText={formData.shelf === '' && error.includes('required') ? 'Shelf is required' : ''}
               />
             </Grid>
             <Grid item xs={6}>
               <TextField
+                fullWidth
                 label="Type"
                 name="type"
                 value={formData.type}
-                onChange={handleChange}
-                fullWidth
+                onChange={handleFormChange}
                 required
-                error={formData.type === '' && error.includes('required')}
-                helperText={formData.type === '' && error.includes('required') ? 'Type is required' : ''}
               />
             </Grid>
             <Grid item xs={6}>
               <TextField
+                fullWidth
                 label="Capacity"
                 name="capacity"
                 type="number"
                 value={formData.capacity}
-                onChange={handleChange}
-                fullWidth
+                onChange={handleFormChange}
                 required
-                error={formData.capacity === '' && error.includes('required')}
-                helperText={formData.capacity === '' && error.includes('required') ? 'Capacity is required' : ''}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
+                fullWidth
                 label="Description"
                 name="description"
                 value={formData.description}
-                onChange={handleChange}
-                fullWidth
+                onChange={handleFormChange}
                 multiline
                 rows={3}
               />
             </Grid>
-            <Grid item xs={12} textAlign="right">
-              <Button onClick={handleClose} sx={{ mr: 1 }}>
-                Cancel
-              </Button>
-              <Button variant="contained" onClick={handleSaveBin}>
-                {editId ? 'Update Bin' : 'Save Bin'}
-              </Button>
-            </Grid>
           </Grid>
-        </Box>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog}>Cancel</Button>
+          <Button variant="contained" onClick={handleFormSubmit}>
+            {editId ? 'Update' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={deleteOpen} onClose={handleDeleteClose}>
         <DialogTitle>Confirm Delete</DialogTitle>

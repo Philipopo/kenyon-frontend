@@ -1,14 +1,20 @@
-// src/pages/analytics/Stock.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Typography, Paper, Table, TableHead, TableRow, TableCell,
   TableBody, TextField, Box, TableContainer, InputAdornment, Pagination,
   CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, FormControl, InputLabel, Select, MenuItem // Added MenuItem
+  DialogActions, Grid, FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AssessmentIcon from '@mui/icons-material/Assessment';
+import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import API from '../../api';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
+import { Pie, Bar } from 'react-chartjs-2';
+
+// Register ChartJS components
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 export default function StockAnalytics() {
   const [data, setData] = useState([]);
@@ -29,54 +35,127 @@ export default function StockAnalytics() {
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [canCreateStock, setCanCreateStock] = useState(false);
   const itemsPerPage = 10;
+  const navigate = useNavigate();
+
+  const checkAuth = useCallback(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setError('⚠️ No authentication token found. Please log in.');
+      setTimeout(() => navigate('/login'), 2000);
+      return false;
+    }
+    return token;
+  }, [navigate]);
+
+  const fetchStockData = useCallback(async () => {
+    const token = checkAuth();
+    if (!token) return;
+    
+    try {
+      const response = await API.get('analytics/stock/', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setData(response.data.results || response.data);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching stock analytics:', err);
+      if (err.response?.status === 401) {
+        setError('⚠️ Session expired. Please log in again.');
+        navigate('/login');
+      } else {
+        setError(`⚠️ Failed to load stock analytics: ${err.response?.data?.detail || err.message}`);
+      }
+      setLoading(false);
+    }
+  }, [checkAuth, navigate]);
+
+  const checkPermissions = useCallback(async () => {
+    setCheckingPermissions(true);
+    const token = checkAuth();
+    if (!token) {
+      setHasPageAccess(false);
+      setCheckingPermissions(false);
+      return;
+    }
+
+    try {
+      const [pageResponse, actionResponse] = await Promise.all([
+        API.get('/auth/permissions/page/analytics_stock/', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        API.get('/auth/permissions/action/create_stock_analytics/', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ]);
+      
+      if (!pageResponse.data.allowed) {
+        setError(`⚠️ ${pageResponse.data.reason || 'No permission to view stock analytics.'}`);
+        setHasPageAccess(false);
+        setCheckingPermissions(false);
+        return;
+      }
+      
+      setHasPageAccess(true);
+      setCanCreateStock(actionResponse.data.allowed || false);
+      await fetchStockData();
+      
+    } catch (err) {
+      console.error('Error checking permissions:', err);
+      if (err.response?.status === 401) {
+        setError('⚠️ Authentication failed. Please log in again.');
+        navigate('/login');
+      } else {
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+      }
+      setHasPageAccess(false);
+    } finally {
+      setCheckingPermissions(false);
+    }
+  }, [checkAuth, fetchStockData, navigate]);
 
   useEffect(() => {
-    const checkPermissions = async () => {
-      try {
-        const token = localStorage.getItem('accessToken');
-        if (!token) {
-          setError('⚠️ No authentication token found. Please log in.');
-          setHasPageAccess(false);
-          setCheckingPermissions(false);
-          return;
-        }
-
-        const pageResponse = await API.get('/auth/permissions/page/analytics_stock/');
-        if (pageResponse.data && typeof pageResponse.data.allowed === 'boolean') {
-          setHasPageAccess(pageResponse.data.allowed);
-          if (!pageResponse.data.allowed) {
-            setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-            setCheckingPermissions(false);
-            return;
-          }
-        } else {
-          setError('⚠️ Invalid permission response from server.');
-          setHasPageAccess(false);
-          setCheckingPermissions(false);
-          return;
-        }
-
-        const actionResponse = await API.get('/auth/permissions/action/create_stock_analytics/');
-        setCanCreateStock(actionResponse.data.allowed || false);
-
-        const response = await API.get('analytics/stock/');
-        setData(response.data);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error checking permissions or fetching data:', err.response?.data || err.message);
-        setError(
-          err.response?.status === 401 ? '⚠️ Authentication failed. Please log in again.' :
-          err.response?.status === 404 ? '⚠️ Permission endpoint not found. Contact support.' :
-          `⚠️ Failed to check permissions or fetch data: ${err.response?.data?.detail || err.message}`
-        );
-        setHasPageAccess(false);
-      } finally {
-        setCheckingPermissions(false);
-      }
-    };
-
     checkPermissions();
-  }, []);
+  }, [checkPermissions]);
+
+  // Prepare chart data
+  const categoryDistribution = {
+    labels: ['A Items (High Value)', 'B Items (Medium Value)', 'C Items (Low Value)'],
+    datasets: [{
+      label: 'Number of Items',
+      data: [
+        data.filter(item => item.category === 'A').length,
+        data.filter(item => item.category === 'B').length,
+        data.filter(item => item.category === 'C').length
+      ],
+      backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'],
+      borderWidth: 1,
+    }]
+  };
+
+  const riskDistribution = {
+    labels: ['Low Risk', 'Medium Risk', 'High Risk', 'Critical Risk'],
+    datasets: [{
+      label: 'Number of Items',
+      data: [
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('low')).length,
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('medium')).length,
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('high')).length,
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('critical')).length
+      ],
+      backgroundColor: ['#4BC0C0', '#FFCE56', '#FF9F40', '#FF6384'],
+      borderWidth: 1,
+    }]
+  };
+
+  const turnoverAnalysis = {
+    labels: data.map(item => item.item).slice(0, 10), // Top 10 items
+    datasets: [{
+      label: 'Turnover Rate',
+      data: data.map(item => parseFloat(item.turnover_rate) || 0).slice(0, 10),
+      backgroundColor: '#9966FF',
+      borderWidth: 1,
+    }]
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -90,15 +169,34 @@ export default function StockAnalytics() {
       return;
     }
 
+    // Map obsolescence_risk to backend-compatible values
+    const riskMapping = {
+      'Low Risk': 'low',
+      'Medium Risk': 'medium',
+      'High Risk': 'high',
+      'Critical Risk': 'critical',
+    };
+    const formattedForm = {
+      ...form,
+      obsolescence_risk: riskMapping[obsolescence_risk] || obsolescence_risk,
+    };
+
     try {
       setFormLoading(true);
-      const res = await API.post('analytics/stock/', form);
-      setData([res.data, ...data]);
+      const token = checkAuth();
+      if (!token) throw new Error('No authentication token found.');
+      
+      const res = await API.post('analytics/stock/', formattedForm, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      setData(prevData => [res.data, ...prevData]);
       setOpen(false);
       setFormAlert(null);
       setForm({ item: '', category: 'A', turnover_rate: '', obsolescence_risk: '' });
+      toast.success('✅ Stock analytics created successfully', { id: 'stock-create' });
     } catch (err) {
-      console.error('❌ Error creating stock analytics:', err);
+      console.error('Error creating stock analytics:', err.response?.data);
       setFormAlert(err.response?.data?.detail || '❌ Failed to create stock analytics.');
     } finally {
       setFormLoading(false);
@@ -107,8 +205,9 @@ export default function StockAnalytics() {
 
   const filteredData = data.filter(
     (item) =>
-      item.item.toLowerCase().includes(search.toLowerCase()) ||
-      item.category.toLowerCase().includes(search.toLowerCase())
+      item.item?.toLowerCase().includes(search.toLowerCase()) ||
+      item.category?.toLowerCase().includes(search.toLowerCase()) ||
+      item.obsolescence_risk?.toLowerCase().includes(search.toLowerCase())
   );
 
   const paginatedData = filteredData.slice(
@@ -144,7 +243,7 @@ export default function StockAnalytics() {
 
         <Box display="flex" justifyContent="space-between" mb={2}>
           <TextField
-            placeholder="Search by item or category..."
+            placeholder="Search by item, category, or risk..."
             variant="outlined"
             size="small"
             value={search}
@@ -177,6 +276,73 @@ export default function StockAnalytics() {
           <Alert severity="error">{error}</Alert>
         ) : (
           <>
+            {/* Charts Section */}
+            <Box sx={{ mb: 4, display: 'flex', flexWrap: 'wrap', gap: 3, justifyContent: 'center' }}>
+              {/* ABC Classification Chart */}
+              <Box sx={{ width: 300, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="h6" gutterBottom align="center">
+                  ABC Classification
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                  A: High value items (20% of items, 80% of value)<br/>
+                  B: Medium value items (30% of items, 15% of value)<br/>
+                  C: Low value items (50% of items, 5% of value)
+                </Typography>
+                {data.length > 0 ? (
+                  <Pie data={categoryDistribution} />
+                ) : (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No data for chart
+                  </Typography>
+                )}
+              </Box>
+
+              {/* Obsolescence Risk Chart */}
+              <Box sx={{ width: 300, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="h6" gutterBottom align="center">
+                  Obsolescence Risk
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                  Monitor items at risk of becoming obsolete
+                </Typography>
+                {data.length > 0 ? (
+                  <Pie data={riskDistribution} />
+                ) : (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No data for chart
+                  </Typography>
+                )}
+              </Box>
+
+              {/* Turnover Rate Chart */}
+              <Box sx={{ width: 400, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="h6" gutterBottom align="center">
+                  Top 10 Items by Turnover Rate
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                  Higher turnover = faster selling items
+                </Typography>
+                {data.length > 0 ? (
+                  <Bar 
+                    data={turnoverAnalysis} 
+                    options={{
+                      responsive: true,
+                      plugins: {
+                        legend: {
+                          display: false
+                        }
+                      }
+                    }}
+                  />
+                ) : (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No data for chart
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+
+            {/* Data Table */}
             <TableContainer>
               <Table>
                 <TableHead>
@@ -191,17 +357,54 @@ export default function StockAnalytics() {
                 <TableBody>
                   {paginatedData.length > 0 ? (
                     paginatedData.map((row, index) => (
-                      <TableRow key={row.id}>
+                      <TableRow key={row.id || index}>
                         <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
                         <TableCell>
                           <Box display="flex" alignItems="center" gap={1}>
                             <AssessmentIcon fontSize="small" color="primary" />
-                            {row.item}
+                            {row.item || 'N/A'}
                           </Box>
                         </TableCell>
-                        <TableCell>{row.category}</TableCell>
-                        <TableCell>{row.turnover_rate}</TableCell>
-                        <TableCell>{row.obsolescence_risk}</TableCell>
+                        <TableCell>
+                          <Box 
+                            sx={{ 
+                              px: 1, 
+                              py: 0.5, 
+                              borderRadius: 1, 
+                              display: 'inline-block',
+                              backgroundColor: 
+                                row.category === 'A' ? '#ffebee' : 
+                                row.category === 'B' ? '#e3f2fd' : '#fff8e1',
+                              color: 
+                                row.category === 'A' ? '#c62828' : 
+                                row.category === 'B' ? '#1565c0' : '#f57c00',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {row.category || 'N/A'}
+                          </Box>
+                        </TableCell>
+                        <TableCell>{row.turnover_rate || 'N/A'}</TableCell>
+                        <TableCell>
+                          <Box 
+                            sx={{ 
+                              px: 1, 
+                              py: 0.5, 
+                              borderRadius: 1, 
+                              display: 'inline-block',
+                              backgroundColor: 
+                                row.obsolescence_risk?.toLowerCase().includes('low') ? '#e8f5e8' : 
+                                row.obsolescence_risk?.toLowerCase().includes('medium') ? '#fff3e0' :
+                                row.obsolescence_risk?.toLowerCase().includes('high') ? '#ffebee' : '#f5f5f5',
+                              color: 
+                                row.obsolescence_risk?.toLowerCase().includes('low') ? '#2e7d32' : 
+                                row.obsolescence_risk?.toLowerCase().includes('medium') ? '#f57c00' :
+                                row.obsolescence_risk?.toLowerCase().includes('high') ? '#c62828' : '#757575',
+                            }}
+                          >
+                            {row.obsolescence_risk || 'N/A'}
+                          </Box>
+                        </TableCell>
                       </TableRow>
                     ))
                   ) : (
@@ -227,7 +430,9 @@ export default function StockAnalytics() {
         )}
 
         <Typography variant="body2" color="text.secondary" sx={{ mt: 4 }}>
-          * These insights are generated based on historical data. Accurate stock entry improves reporting reliability.
+          * ABC Classification: A items (high value), B items (medium value), C items (low value)<br/>
+          * Turnover Rate: How quickly items sell (higher = better)<br/>
+          * Obsolescence Risk: Likelihood items become outdated or unsellable
         </Typography>
 
         <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
@@ -237,23 +442,25 @@ export default function StockAnalytics() {
               <Grid item xs={12}>
                 <TextField
                   name="item"
-                  label="Item"
+                  label="Item Name"
                   fullWidth
                   value={form.item}
                   onChange={handleChange}
+                  required
                 />
               </Grid>
               <Grid item xs={12}>
-                <FormControl fullWidth>
-                  <InputLabel>Category</InputLabel>
+                <FormControl fullWidth required>
+                  <InputLabel>ABC Category</InputLabel>
                   <Select
                     name="category"
                     value={form.category}
                     onChange={handleChange}
+                    label="ABC Category"
                   >
-                    <MenuItem value="A">A</MenuItem>
-                    <MenuItem value="B">B</MenuItem>
-                    <MenuItem value="C">C</MenuItem>
+                    <MenuItem value="A">A - High Value Items</MenuItem>
+                    <MenuItem value="B">B - Medium Value Items</MenuItem>
+                    <MenuItem value="C">C - Low Value Items</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -265,17 +472,26 @@ export default function StockAnalytics() {
                   fullWidth
                   value={form.turnover_rate}
                   onChange={handleChange}
-                  inputProps={{ step: "0.01" }}
+                  inputProps={{ step: "0.01", min: 0 }}
+                  required
+                  helperText="How quickly items sell (higher = better)"
                 />
               </Grid>
               <Grid item xs={12}>
-                <TextField
-                  name="obsolescence_risk"
-                  label="Obsolescence Risk"
-                  fullWidth
-                  value={form.obsolescence_risk}
-                  onChange={handleChange}
-                />
+                <FormControl fullWidth required>
+                  <InputLabel>Obsolescence Risk</InputLabel>
+                  <Select
+                    name="obsolescence_risk"
+                    value={form.obsolescence_risk}
+                    onChange={handleChange}
+                    label="Obsolescence Risk"
+                  >
+                    <MenuItem value="Low Risk">Low Risk</MenuItem>
+                    <MenuItem value="Medium Risk">Medium Risk</MenuItem>
+                    <MenuItem value="High Risk">High Risk</MenuItem>
+                    <MenuItem value="Critical Risk">Critical Risk</MenuItem>
+                  </Select>
+                </FormControl>
               </Grid>
             </Grid>
 

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-//import { Link } from 'react-router-dom';
 import {
   Box,
   Grid,
@@ -21,13 +20,11 @@ import {
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
-  //LocalShipping as LocalShippingIcon,
   Add as AddIcon,
   Lock as LockIcon,
   Edit as EditIcon,
   MoreHoriz as MoreHorizIcon,
 } from '@mui/icons-material';
-import AlertsWidget from '../widget/AlertsWidget';
 import { Line } from 'react-chartjs-2';
 import api from '../api';
 import {
@@ -58,7 +55,7 @@ export default function Dashboard() {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
   const [locationError, setLocationError] = useState('');
-  const [anchorEl, setAnchorEl] = useState(null); // For dropdown menu
+  const [anchorEl, setAnchorEl] = useState(null);
   const [stockData, setStockData] = useState({ labels: [], datasets: [] });
 
   const quickActions = [
@@ -74,12 +71,9 @@ export default function Dashboard() {
         const res = await api.get('/inventory/metrics/', {
           headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
         });
-        console.log('[METRICS FETCHED]', res.data);
-        // Filter out Total Active Rentals (id: 3)
         const filteredMetrics = res.data.filter(metric => metric.id !== 3);
         setMetrics(filteredMetrics || []);
 
-        // Fetch stock tracking data
         const stockRes = await api.get('/inventory/stocks/', {
           headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
         });
@@ -105,7 +99,7 @@ export default function Dashboard() {
           ],
         });
       } catch (err) {
-        console.error('❌ Error fetching dashboard metrics:', err);
+        setLocationError('Failed to fetch dashboard metrics.');
       } finally {
         setLoading(false);
       }
@@ -122,15 +116,12 @@ export default function Dashboard() {
                 { latitude, longitude },
                 { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
               );
-              console.log('Location updated:', res.data);
               setProfileData((prev) => ({ ...prev, state: res.data.state || 'Lagos' }));
             } catch (err) {
-              console.error('Error updating location:', err);
               setLocationError('Please allow location access or select state manually.');
             }
           },
-          (error) => {
-            console.error('Geolocation error:', error.message);
+          () => {
             setLocationError('Please allow location access or select state manually.');
           },
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -151,14 +142,12 @@ export default function Dashboard() {
           const res = await api.get('/auth/profile/', {
             headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
           });
-          console.log('[PROFILE FETCHED]', res.data);
           setProfileData({
             full_name: res.data.full_name || '',
             state: res.data.state || 'Lagos',
           });
         } catch (err) {
           setProfileError('Failed to load profile data.');
-          console.error('❌ Error fetching profile:', err);
         }
       };
       fetchProfileData();
@@ -176,8 +165,8 @@ export default function Dashboard() {
 
     try {
       setPasswordLoading(true);
-      const res = await api.post('/auth/change-password/', passwordData);
-      setPasswordSuccess(res.data.detail || '✅ Password changed successfully.');
+      await api.post('/auth/change-password/', passwordData);
+      setPasswordSuccess('✅ Password changed successfully.');
       setPasswordError('');
       setPasswordData({ old_password: '', new_password: '' });
     } catch (err) {
@@ -194,20 +183,16 @@ export default function Dashboard() {
       return;
     }
 
-    console.log('[PATCH Payload]', { full_name: profileData.full_name });
-
     try {
       setProfileLoading(true);
-      const res = await api.patch('/auth/profile/', { full_name: profileData.full_name }, {
+      await api.patch('/auth/profile/', { full_name: profileData.full_name }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
       });
-      console.log('[PATCH Response]', res.data);
       setProfileSuccess('✅ Profile updated successfully.');
       setProfileError('');
       setOpenProfileModal(false);
       window.dispatchEvent(new Event('profileUpdated'));
     } catch (err) {
-      console.error('[PATCH Error]', err.response || err);
       setProfileError(err.response?.data?.detail || 'Failed to update profile.');
       setProfileSuccess('');
     } finally {
@@ -231,8 +216,8 @@ export default function Dashboard() {
   if (loading) return <p style={{ padding: 20 }}>Loading dashboard metrics...</p>;
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 4, mb: 4, px: 3 }}>
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <Container sx={{ mt: 4, mb: 4, px: 0, width: '100vw', maxWidth: '100%' }}>
+      <Box sx={{ mb: 4, px: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
           <Typography variant="h6" fontWeight={500} gutterBottom>
             Inventory Overview
@@ -297,7 +282,7 @@ export default function Dashboard() {
         </Box>
       </Box>
 
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      <Grid container spacing={3} sx={{ mb: 3, px: 3 }}>
         {metrics.map((metric) => (
           <Grid item xs={12} md={3} key={metric.id}>
             <Paper
@@ -346,7 +331,7 @@ export default function Dashboard() {
       </Grid>
 
       <Grid container spacing={3} sx={{ width: '100%', mb: 3 }}>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12}>
           <Paper elevation={3} sx={{
             p: 3,
             borderRadius: 8,
@@ -355,11 +340,12 @@ export default function Dashboard() {
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
+            width: '100%',
           }}>
             <Typography variant="h6" fontWeight={500} gutterBottom>
               Stock Tracking
             </Typography>
-            <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 300 }}>
+            <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 900, width: '100%' }}>
               <Line
                 data={stockData}
                 options={{
@@ -375,24 +361,6 @@ export default function Dashboard() {
                   },
                 }}
               />
-            </Box>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Paper elevation={3} sx={{
-            p: 3,
-            borderRadius: 8,
-            backgroundColor: '#fff',
-            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-          }}>
-            <Typography variant="h6" fontWeight={500} gutterBottom>
-              Active Alerts
-            </Typography>
-            <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
-              <AlertsWidget />
             </Box>
           </Paper>
         </Grid>
