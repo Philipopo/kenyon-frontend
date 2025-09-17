@@ -13,16 +13,17 @@ import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
-export default function ProductOutflow() {
-  const [outflows, setOutflows] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [availableSerials, setAvailableSerials] = useState([]);
+export default function ProductInflow() {
+  const [inflows, setInflows] = useState([]);
+  const [items, setItems] = useState([]);
+  const [batchChoices, setBatchChoices] = useState([]);
   const [formData, setFormData] = useState({
-    product: '',
-    customer_name: '',
-    sales_order: '',
-    dispatch_date: '',
+    item: '',
+    batch: '',
+    vendor: '',
+    date_of_delivery: '',
     quantity: '',
+    cost: '',
     input_serial_numbers: '',
   });
   const [open, setOpen] = useState(false);
@@ -38,7 +39,7 @@ export default function ProductOutflow() {
   const [hasPermission, setHasPermission] = useState(false);
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
-  const [selectedOutflow, setSelectedOutflow] = useState(null);
+  const [selectedInflow, setSelectedInflow] = useState(null);
   const [loading, setLoading] = useState(false);
   const { searchTerm } = useSearch();
   const itemsPerPage = 10;
@@ -55,63 +56,47 @@ export default function ProductOutflow() {
     setPage(1);
   }, 500);
 
-  const fetchOutflows = useCallback(async () => {
+  const fetchInflows = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
       const searchValue = search || searchTerm;
-      const res = await API.get('product-documentation-new/outflows/', {
+      const res = await API.get('product-documentation-new/inflows/', {
         params: { search: searchValue, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      const outflowsData = res.data.results || res.data || [];
-      setOutflows(outflowsData);
-      setTotalPages(Math.ceil((res.data.count || outflowsData.length || 1) / itemsPerPage));
-      if (!outflowsData.length) {
-        setTimedAlert(setError, '⚠️ No outflows found in the response.');
+      const inflowsData = res.data.results || res.data || [];
+      setInflows(inflowsData);
+      setTotalPages(Math.ceil((res.data.count || inflowsData.length || 1) / itemsPerPage));
+      if (!inflowsData.length) {
+        setTimedAlert(setError, '⚠️ No inflows found in the response.');
       }
     } catch (err) {
       const errorMsg = err.response?.status === 401
         ? '⚠️ Authentication failed. Please log in again.'
         : err.response?.status === 404
         ? '❌ Endpoint not found. Please check the backend URL.'
-        : `❌ Failed to fetch outflows: ${err.response?.data?.detail || err.message}`;
+        : `❌ Failed to fetch inflows: ${err.response?.data?.detail || err.message}`;
       setTimedAlert(setError, errorMsg);
-      setOutflows([]);
+      setInflows([]);
       setTotalPages(1);
     } finally {
       setLoading(false);
     }
   }, [search, searchTerm, page]);
 
-  const fetchProducts = useCallback(async () => {
+  const fetchItems = useCallback(async () => {
     try {
-      const res = await API.get('product-documentation-new/inflows/', {
+      const res = await API.get('inventory/items/', {
         params: { ordering: '-created_at', limit: 15 },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      const productsData = res.data.results || res.data || [];
-      setProducts(productsData);
+      const itemsData = res.data.results || res.data || [];
+      setItems(itemsData);
+      const batches = [...new Set(itemsData.map(item => item.batch).filter(Boolean))];
+      setBatchChoices(batches);
     } catch (err) {
-      setTimedAlert(setError, `❌ Failed to fetch products: ${err.response?.data?.detail || err.message}`);
-    }
-  }, []);
-
-  const fetchAvailableSerials = useCallback(async (productId) => {
-    if (!productId) {
-      setAvailableSerials([]);
-      return;
-    }
-    try {
-      const res = await API.get(`product-documentation-new/inflows/${productId}/`);
-      const serials = res.data.serial_numbers
-        ? res.data.serial_numbers
-            .filter(s => s.status === 'in_stock')
-            .map(s => s.serial_number)
-        : [];
-      setAvailableSerials(serials);
-    } catch (err) {
-      setTimedAlert(setError, `❌ Failed to fetch available serial numbers: ${err.response?.data?.detail || err.message}`);
+      setTimedAlert(setError, `❌ Failed to fetch items: ${err.response?.data?.detail || err.message}`);
     }
   }, []);
 
@@ -125,7 +110,7 @@ export default function ProductOutflow() {
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/product_outflow/');
+        const pageResponse = await API.get('/auth/permissions/page/product_inflow/');
         setHasPermission(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setTimedAlert(setError, `⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
@@ -133,17 +118,17 @@ export default function ProductOutflow() {
           return;
         }
         const [createResponse, updateResponse, deleteResponse] = await Promise.all([
-          API.get('/auth/permissions/action/create_product_outflow/'),
-          API.get('/auth/permissions/action/update_product_outflow/'),
-          API.get('/auth/permissions/action/delete_product_outflow/'),
+          API.get('/auth/permissions/action/create_product_inflow/'),
+          API.get('/auth/permissions/action/update_product_inflow/'),
+          API.get('/auth/permissions/action/delete_product_inflow/'),
         ]);
         setHasUpdatePermission(updateResponse.data.allowed || false);
         setHasDeletePermission(deleteResponse.data.allowed || false);
         if (createResponse.data.allowed) {
-          fetchOutflows();
-          fetchProducts();
+          fetchInflows();
+          fetchItems();
         } else {
-          setTimedAlert(setError, '⚠️ You do not have permission to create product outflows.');
+          setTimedAlert(setError, '⚠️ You do not have permission to create product inflows.');
         }
       } catch (err) {
         setTimedAlert(setError, `⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
@@ -153,7 +138,7 @@ export default function ProductOutflow() {
       }
     };
     checkPermissions();
-  }, [fetchOutflows, fetchProducts]);
+  }, [fetchInflows, fetchItems]);
 
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
@@ -161,62 +146,61 @@ export default function ProductOutflow() {
       prevSearchRef.current = search;
       prevSearchTermRef.current = searchTerm;
     }
-    if (hasPermission) fetchOutflows();
-  }, [search, searchTerm, page, hasPermission, fetchOutflows]);
+    if (hasPermission) fetchInflows();
+  }, [search, searchTerm, page, hasPermission, fetchInflows]);
 
-  const handleOpen = async (outflow = null) => {
+  const handleOpen = async (inflow = null) => {
     if (!hasPermission) {
-      setTimedAlert(setError, '⚠️ You do not have permission to view product outflows.');
+      setTimedAlert(setError, '⚠️ You do not have permission to view product inflows.');
       return;
     }
     try {
-      const action = outflow ? 'update_product_outflow' : 'create_product_outflow';
+      const action = inflow ? 'update_product_inflow' : 'create_product_inflow';
       const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
       if (!actionResponse.data.allowed) {
-        setTimedAlert(setError, `⚠️ You do not have permission to ${outflow ? 'update' : 'create'} product outflows: ${actionResponse.data.reason || 'No reason provided'}`);
+        setTimedAlert(setError, `⚠️ You do not have permission to ${inflow ? 'update' : 'create'} product inflows: ${actionResponse.data.reason || 'No reason provided'}`);
         return;
       }
-      if (outflow) {
+      if (inflow) {
         setFormData({
-          product: outflow.product || '',
-          customer_name: outflow.customer_name || '',
-          sales_order: outflow.sales_order || '',
-          dispatch_date: outflow.dispatch_date || '',
-          quantity: outflow.quantity?.toString() || '',
-          input_serial_numbers: outflow.serial_numbers?.map(s => s.serial_number).join(', ') || '',
+          item: inflow.item || '',
+          batch: inflow.batch || '',
+          vendor: inflow.vendor || '',
+          date_of_delivery: inflow.date_of_delivery || '',
+          quantity: inflow.quantity?.toString() || '',
+          cost: inflow.cost?.toString() || '',
+          input_serial_numbers: inflow.serial_numbers?.map(s => s.serial_number).join(', ') || '',
         });
-        setEditId(outflow.id);
-        await fetchAvailableSerials(outflow.product);
+        setEditId(inflow.id);
       } else {
         setFormData({
-          product: '',
-          customer_name: '',
-          sales_order: '',
-          dispatch_date: '',
+          item: '',
+          batch: '',
+          vendor: '',
+          date_of_delivery: '',
           quantity: '',
+          cost: '',
           input_serial_numbers: '',
         });
         setEditId(null);
-        setAvailableSerials([]);
       }
       setOpen(true);
     } catch (err) {
-      setTimedAlert(setError, `❌ Failed to check ${outflow ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
+      setTimedAlert(setError, `❌ Failed to check ${inflow ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
 
   const handleClose = () => {
     setOpen(false);
-    setFormData({ product: '', customer_name: '', sales_order: '', dispatch_date: '', quantity: '', input_serial_numbers: '' });
+    setFormData({ item: '', batch: '', vendor: '', date_of_delivery: '', quantity: '', cost: '', input_serial_numbers: '' });
     setEditId(null);
     setError('');
     setSuccess('');
-    setAvailableSerials([]);
   };
 
   const handleDeleteOpen = (id) => {
     if (!hasDeletePermission) {
-      setTimedAlert(setError, '⚠️ You do not have permission to delete outflows.');
+      setTimedAlert(setError, '⚠️ You do not have permission to delete inflows.');
       return;
     }
     setDeleteId(id);
@@ -233,19 +217,16 @@ export default function ProductOutflow() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    if (name === 'product') {
-      fetchAvailableSerials(value);
-    }
   };
 
-  const handleSaveOutflow = async () => {
-    const { product, customer_name, sales_order, dispatch_date, quantity, input_serial_numbers } = formData;
-    if (!product || !customer_name || !dispatch_date || !quantity) {
+  const handleSaveInflow = async () => {
+    const { item, batch, vendor, date_of_delivery, quantity, cost, input_serial_numbers } = formData;
+    if (!item || !batch || !vendor || !date_of_delivery || !quantity || !cost) {
       setTimedAlert(setError, '⚠️ Please fill in all required fields.');
       return;
     }
-    if (Number(quantity) <= 0) {
-      setTimedAlert(setError, '⚠️ Quantity must be positive.');
+    if (Number(quantity) <= 0 || Number(cost) <= 0) {
+      setTimedAlert(setError, '⚠️ Quantity and cost must be positive.');
       return;
     }
     const serials = input_serial_numbers ? input_serial_numbers.split(',').map(s => s.trim()).filter(s => s) : [];
@@ -253,31 +234,28 @@ export default function ProductOutflow() {
       setTimedAlert(setError, '⚠️ Number of serial numbers must match quantity.');
       return;
     }
-    if (serials.length && serials.some(s => !availableSerials.includes(s))) {
-      setTimedAlert(setError, '⚠️ Invalid or unavailable serial numbers selected.');
-      return;
-    }
     const payload = {
-      product,
-      customer_name,
-      sales_order: sales_order || null,
-      dispatch_date,
+      item,
+      batch,
+      vendor,
+      date_of_delivery,
       quantity: Number(quantity),
+      cost: Number(cost),
       input_serial_numbers: serials.join(','),
     };
     try {
       setLoading(true);
       if (editId) {
-        await API.patch(`product-documentation-new/outflows/${editId}/`, payload);
-        setTimedAlert(setSuccess, '✅ Outflow updated successfully');
+        await API.patch(`product-documentation-new/inflows/${editId}/`, payload);
+        setTimedAlert(setSuccess, '✅ Inflow updated successfully');
       } else {
-        await API.post('product-documentation-new/outflows/', payload);
-        setTimedAlert(setSuccess, '✅ Outflow created successfully');
+        await API.post('product-documentation-new/inflows/', payload);
+        setTimedAlert(setSuccess, '✅ Inflow created successfully');
       }
-      fetchOutflows();
+      fetchInflows();
       handleClose();
     } catch (err) {
-      let errorMsg = `Failed to ${editId ? 'update' : 'add'} outflow: Unable to process request.`;
+      let errorMsg = `Failed to ${editId ? 'update' : 'add'} inflow: Unable to process request.`;
       if (err.response?.status === 403) {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
       } else if (err.response?.status === 400 && err.response?.data) {
@@ -296,15 +274,15 @@ export default function ProductOutflow() {
   const handleDelete = async () => {
     try {
       setLoading(true);
-      await API.delete(`product-documentation-new/outflows/${deleteId}/`);
-      setTimedAlert(setSuccess, '✅ Outflow deleted successfully');
+      await API.delete(`product-documentation-new/inflows/${deleteId}/`);
+      setTimedAlert(setSuccess, '✅ Inflow deleted successfully');
       setDeleteOpen(false);
       setDeleteId(null);
-      fetchOutflows();
+      fetchInflows();
     } catch (err) {
-      let errorMsg = 'Failed to delete outflow: Unable to process request.';
+      let errorMsg = 'Failed to delete inflow: Unable to process request.';
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete outflows.'}`;
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete inflows.'}`;
       } else {
         errorMsg = err.response?.data?.detail || err.message;
       }
@@ -348,7 +326,7 @@ export default function ProductOutflow() {
         </Alert>
       )}
       <Typography variant="h4" sx={{ mb: 3 }}>
-        Product Outflows
+        Product Inflow
       </Typography>
 
       <Grid container justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -356,7 +334,7 @@ export default function ProductOutflow() {
           <TextField
             fullWidth
             size="small"
-            placeholder="Search by item name, batch, customer, or sales order..."
+            placeholder="Search by item name, batch, or vendor..."
             value={search}
             onChange={(e) => debouncedSetSearch(e.target.value)}
             InputProps={{
@@ -370,14 +348,14 @@ export default function ProductOutflow() {
         </Grid>
         <Grid item>
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpen()}>
-            Add New Outflow
+            Add New Inflow
           </Button>
         </Grid>
       </Grid>
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
-          Outflow Records
+          Inflow Records
         </Typography>
         <TableContainer>
           <Table>
@@ -385,10 +363,10 @@ export default function ProductOutflow() {
               <TableRow>
                 <TableCell><strong>Item Name</strong></TableCell>
                 <TableCell><strong>Batch</strong></TableCell>
-                <TableCell><strong>Customer Name</strong></TableCell>
-                <TableCell><strong>Sales Order</strong></TableCell>
-                <TableCell><strong>Dispatch Date</strong></TableCell>
+                <TableCell><strong>Vendor</strong></TableCell>
+                <TableCell><strong>Date of Delivery</strong></TableCell>
                 <TableCell><strong>Quantity</strong></TableCell>
+                <TableCell><strong>Cost</strong></TableCell>
                 <TableCell><strong>Serial Numbers</strong></TableCell>
                 <TableCell><strong>Actions</strong></TableCell>
               </TableRow>
@@ -400,41 +378,41 @@ export default function ProductOutflow() {
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
-              ) : outflows.length > 0 ? (
-                outflows.map((outflow, index) => (
+              ) : inflows.length > 0 ? (
+                inflows.map((inflow, index) => (
                   <TableRow
-                    key={outflow.id || `outflow-${index}`}
+                    key={inflow.id || `inflow-${index}`}
                     hover
                     sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
                   >
-                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                      {outflow.item_name || '—'}
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.item_name || '—'}
                     </TableCell>
-                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                      {outflow.item_batch || '—'}
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.batch || '—'}
                     </TableCell>
-                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                      {outflow.customer_name || '—'}
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.vendor || '—'}
                     </TableCell>
-                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                      {outflow.sales_order || '—'}
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.date_of_delivery || '—'}
                     </TableCell>
-                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                      {outflow.dispatch_date || '—'}
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.quantity || 0}
                     </TableCell>
-                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                      {outflow.quantity || 0}
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.cost ? parseFloat(inflow.cost).toLocaleString() : '0.00'}
                     </TableCell>
-                    <TableCell onClick={() => setSelectedOutflow(outflow)}>
-                      {outflow.serial_numbers && outflow.serial_numbers.length
-                        ? outflow.serial_numbers.map(s => s.serial_number || '—').join(', ')
+                    <TableCell onClick={() => setSelectedInflow(inflow)}>
+                      {inflow.serial_numbers && inflow.serial_numbers.length
+                        ? inflow.serial_numbers.map(s => s.serial_number || '—').join(', ')
                         : '—'}
                     </TableCell>
                     <TableCell>
-                      <IconButton onClick={() => handleOpen(outflow)} disabled={!hasUpdatePermission}>
+                      <IconButton onClick={() => handleOpen(inflow)} disabled={!hasUpdatePermission}>
                         <EditIcon />
                       </IconButton>
-                      <IconButton onClick={() => handleDeleteOpen(outflow.id)} disabled={!hasDeletePermission}>
+                      <IconButton onClick={() => handleDeleteOpen(inflow.id)} disabled={!hasDeletePermission}>
                         <DeleteIcon />
                       </IconButton>
                     </TableCell>
@@ -443,7 +421,7 @@ export default function ProductOutflow() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={8} align="center">
-                    No outflows found. {error && `Error: ${error}`}
+                    No inflows found. {error && `Error: ${error}`}
                   </TableCell>
                 </TableRow>
               )}
@@ -463,46 +441,43 @@ export default function ProductOutflow() {
         )}
       </Paper>
 
-      <Dialog open={!!selectedOutflow} onClose={() => setSelectedOutflow(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Outflow Details: {selectedOutflow?.item_name || '—'}</DialogTitle>
+      <Dialog open={!!selectedInflow} onClose={() => setSelectedInflow(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Inflow Details: {selectedInflow?.item_name || '—'}</DialogTitle>
         <DialogContent>
-          {selectedOutflow && (
+          {selectedInflow && (
             <>
               <Typography variant="body2" gutterBottom>
-                <strong>Item Name:</strong> {selectedOutflow.item_name || '—'}
+                <strong>Batch:</strong> {selectedInflow.batch || '—'}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Batch:</strong> {selectedOutflow.item_batch || '—'}
+                <strong>Vendor:</strong> {selectedInflow.vendor || '—'}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Customer Name:</strong> {selectedOutflow.customer_name || '—'}
+                <strong>Date of Delivery:</strong> {selectedInflow.date_of_delivery || '—'}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Sales Order:</strong> {selectedOutflow.sales_order || '—'}
+                <strong>Quantity:</strong> {selectedInflow.quantity || 0}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Dispatch Date:</strong> {selectedOutflow.dispatch_date || '—'}
+                <strong>Cost:</strong> {selectedInflow.cost ? parseFloat(selectedInflow.cost).toLocaleString() : '0.00'}
               </Typography>
               <Typography variant="body2" gutterBottom>
-                <strong>Quantity:</strong> {selectedOutflow.quantity || 0}
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                <strong>Serial Numbers:</strong> {selectedOutflow.serial_numbers && selectedOutflow.serial_numbers.length
-                  ? selectedOutflow.serial_numbers.map(s => s.serial_number || '—').join(', ')
+                <strong>Serial Numbers:</strong> {selectedInflow.serial_numbers && selectedInflow.serial_numbers.length
+                  ? selectedInflow.serial_numbers.map(s => s.serial_number || '—').join(', ')
                   : '—'}
               </Typography>
             </>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSelectedOutflow(null)} variant="contained">
+          <Button onClick={() => setSelectedInflow(null)} variant="contained">
             Close
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={open} onClose={handleClose} fullWidth maxWidth="md">
-        <DialogTitle>{editId ? 'Update Product Outflow' : 'Add New Product Outflow'}</DialogTitle>
+        <DialogTitle>{editId ? 'Update Product Inflow' : 'Add New Product Inflow'}</DialogTitle>
         <DialogContent>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
@@ -516,57 +491,61 @@ export default function ProductOutflow() {
           )}
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={6}>
-              <FormControl fullWidth required error={formData.product === '' && error.includes('required')}>
-                <InputLabel>Product Inflow</InputLabel>
+              <FormControl fullWidth required error={formData.item === '' && error.includes('required')}>
+                <InputLabel>Item</InputLabel>
                 <Select
-                  name="product"
-                  value={formData.product}
+                  name="item"
+                  value={formData.item}
                   onChange={handleChange}
                 >
-                  <MenuItem value="" disabled>Select Product Inflow</MenuItem>
-                  {products.map((product) => (
-                    <MenuItem key={product.id} value={product.id}>
-                      {product.item_name} (Batch: {product.batch || '—'})
+                  <MenuItem value="" disabled>Select Item</MenuItem>
+                  {items.map((item) => (
+                    <MenuItem key={item.id} value={item.id}>
+                      {item.name} (Batch: {item.batch || '—'})
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={6}>
+              <FormControl fullWidth required error={formData.batch === '' && error.includes('required')}>
+                <InputLabel>Batch</InputLabel>
+                <Select
+                  name="batch"
+                  value={formData.batch}
+                  onChange={handleChange}
+                >
+                  <MenuItem value="" disabled>Select Batch</MenuItem>
+                  {batchChoices.map((batch) => (
+                    <MenuItem key={batch} value={batch}>{batch}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={6}>
               <TextField
-                label="Customer Name"
-                name="customer_name"
-                value={formData.customer_name}
+                label="Vendor"
+                name="vendor"
+                value={formData.vendor}
                 onChange={handleChange}
                 fullWidth
                 required
-                error={formData.customer_name === '' && error.includes('required')}
-                helperText={formData.customer_name === '' && error.includes('required') ? 'Customer Name is required' : ''}
+                error={formData.vendor === '' && error.includes('required')}
+                helperText={formData.vendor === '' && error.includes('required') ? 'Vendor is required' : ''}
               />
             </Grid>
             <Grid item xs={6}>
               <TextField
-                label="Sales Order"
-                name="sales_order"
-                value={formData.sales_order}
-                onChange={handleChange}
-                fullWidth
-                error={error.includes('sales_order')}
-                helperText={error.includes('sales_order') ? 'Invalid Sales Order' : ''}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField
-                label="Dispatch Date"
-                name="dispatch_date"
+                label="Date of Delivery"
+                name="date_of_delivery"
                 type="date"
-                value={formData.dispatch_date}
+                value={formData.date_of_delivery}
                 onChange={handleChange}
                 fullWidth
                 required
                 InputLabelProps={{ shrink: true }}
-                error={formData.dispatch_date === '' && error.includes('required')}
-                helperText={formData.dispatch_date === '' && error.includes('required') ? 'Dispatch Date is required' : ''}
+                error={formData.date_of_delivery === '' && error.includes('required')}
+                helperText={formData.date_of_delivery === '' && error.includes('required') ? 'Date of Delivery is required' : ''}
               />
             </Grid>
             <Grid item xs={6}>
@@ -582,6 +561,19 @@ export default function ProductOutflow() {
                 helperText={formData.quantity === '' && error.includes('required') ? 'Quantity is required' : ''}
               />
             </Grid>
+            <Grid item xs={6}>
+              <TextField
+                label="Cost"
+                name="cost"
+                type="number"
+                value={formData.cost}
+                onChange={handleChange}
+                fullWidth
+                required
+                error={formData.cost === '' && error.includes('required')}
+                helperText={formData.cost === '' && error.includes('required') ? 'Cost is required' : ''}
+              />
+            </Grid>
             <Grid item xs={12}>
               <TextField
                 label="Serial Numbers (comma-separated)"
@@ -591,7 +583,7 @@ export default function ProductOutflow() {
                 fullWidth
                 multiline
                 rows={3}
-                helperText={`Select ${formData.quantity || 0} serial numbers from: ${availableSerials.join(', ') || 'None available'}`}
+                helperText="Enter serial numbers separated by commas (e.g., SN001, SN002). Must match quantity."
                 error={error.includes('serial numbers')}
               />
             </Grid>
@@ -599,8 +591,8 @@ export default function ProductOutflow() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose}>Cancel</Button>
-          <Button variant="contained" onClick={handleSaveOutflow} disabled={loading}>
-            {loading ? <CircularProgress size={24} /> : editId ? 'Update Outflow' : 'Save Outflow'}
+          <Button variant="contained" onClick={handleSaveInflow} disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : editId ? 'Update Inflow' : 'Save Inflow'}
           </Button>
         </DialogActions>
       </Dialog>
