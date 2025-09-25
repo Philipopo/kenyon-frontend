@@ -16,7 +16,6 @@ import {
   Menu,
   MenuItem,
   IconButton,
-  LinearProgress,
   Skeleton,
   useTheme,
   alpha
@@ -34,7 +33,6 @@ import {
   LocalShipping as LocalShippingIcon,
   Receipt as ReceiptIcon,
   BarChart as BarChartIcon,
-  PieChart as PieChartIcon,
   Timeline as TimelineIcon
 } from '@mui/icons-material';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
@@ -177,7 +175,7 @@ const Dashboard = () => {
 
     fetchDashboardData();
     fetchLocation();
-  }, []);
+  }, [theme.palette.primary.main]); // FIXED: Added missing dependency
 
   useEffect(() => {
     if (openProfileModal) {
@@ -302,17 +300,7 @@ const Dashboard = () => {
     }
   };
 
-  // Analytics charts
-  const turnoverData = useMemo(() => ({
-    labels: ['Turnover Rate'],
-    datasets: [{
-      label: 'Current',
-      data: [analyticsData?.turnover_rate || 0],
-      backgroundColor: [theme.palette.primary.main],
-      borderColor: [theme.palette.primary.dark],
-      borderWidth: 1,
-    }]
-  }), [analyticsData]);
+  // REMOVED UNUSED turnoverData variable
 
   const binUsageData = useMemo(() => ({
     labels: analyticsData?.most_used_bins?.map(bin => bin.bin_id) || [],
@@ -323,7 +311,7 @@ const Dashboard = () => {
       borderColor: theme.palette.primary.dark,
       borderWidth: 1,
     }]
-  }), [analyticsData]);
+  }), [analyticsData, theme.palette.primary.main, theme.palette.primary.dark]); // FIXED: Added missing dependencies
 
   const alertsData = useMemo(() => {
     if (!analyticsData?.alerts_over_time) return { labels: [], datasets: [] };
@@ -348,7 +336,11 @@ const Dashboard = () => {
         borderWidth: 1,
       }]
     };
-  }, [analyticsData]);
+  }, [analyticsData, 
+     theme.palette.warning.main, 
+     theme.palette.warning.dark, 
+     theme.palette.error.main, 
+     theme.palette.error.dark]); // FIXED: Added all missing dependencies
 
   if (loading) {
     return (
@@ -601,10 +593,10 @@ const Dashboard = () => {
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         {alert.alert_type === 'CRITICAL' ? (
-                          <WarningIcon sx={{ color: theme.palette.error.main, mr: 1 }} />
-                        ) : (
-                          <CheckCircleIcon sx={{ color: theme.palette.warning.main, mr: 1 }} />
-                        )}
+  <WarningIcon sx={{ color: theme.palette.error.main, mr: 1 }} />
+) : (
+  <CheckCircleIcon sx={{ color: theme.palette.warning.main, mr: 1 }} />
+)}
                         <Typography variant="subtitle2" fontWeight={600}>
                           {alert.alert_type}
                         </Typography>
