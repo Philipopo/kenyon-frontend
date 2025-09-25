@@ -83,12 +83,7 @@ const menuItems = [
         description: 'View aisle and rack status with color-coded availability',
         icon: <StarBorder />,
       },
-      {
-        text: 'API Key Management',
-        path: '/dashboard/accounts/api-keys',
-        description: 'Generate, view, and delete API keys for IoT integration',
-        icon: <StarBorder />,
-      },
+      
       {
         text: 'Expiry Tracking',
         path: '/dashboard/inventory/expiry',

@@ -1,193 +1,307 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Container, Paper, Box, Typography, Button, TextField, InputAdornment, Table, TableHead,
-  TableRow, TableCell, TableBody, TableContainer, Pagination, Dialog, DialogTitle,
-  DialogContent, DialogContentText, DialogActions, Grid, Alert, FormControlLabel, Checkbox,
-  IconButton,
+  Container, Typography, Paper, Box, Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
+  Grid, FormControl, InputLabel, Select, MenuItem, TextField, Accordion, AccordionSummary, AccordionDetails,
+  Table, TableHead, TableRow, TableCell, TableBody, IconButton, Pagination, Chip, Collapse,
+  Card, CardContent, Divider
 } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { debounce } from 'lodash';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import WarehouseIcon from '@mui/icons-material/Warehouse';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
-export default function Stocks() {
-  const [stocks, setStocks] = useState([]);
-  const [totalPages, setTotalPages] = useState(1);
-  const [localSearch, setLocalSearch] = useState('');
+// Expandable row component
+function Row({ movement, onEdit, onDelete, getMovementField }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <TableRow sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <TableCell>
+          <IconButton
+            aria-label="expand row"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(!open);
+            }}
+          >
+            {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+          </IconButton>
+        </TableCell>
+        <TableCell>{getMovementField(movement, 'item_name')}</TableCell>
+        <TableCell>{getMovementField(movement, 'bin_id')}</TableCell>
+        <TableCell>{getMovementField(movement, 'quantity')}</TableCell>
+        <TableCell>
+          <Chip 
+            label={getMovementField(movement, 'movement_type') === 'IN' ? 'STOCK IN' : 'STOCK OUT'} 
+            color={getMovementField(movement, 'movement_type') === 'IN' ? 'success' : 'error'}
+            size="small"
+          />
+        </TableCell>
+        <TableCell>{new Date(getMovementField(movement, 'timestamp')).toLocaleDateString()}</TableCell>
+        <TableCell>{getMovementField(movement, 'user_display') || getMovementField(movement, 'user')}</TableCell>
+        <TableCell>
+          <IconButton 
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(movement);
+            }}
+            color="primary"
+            size="small"
+          >
+            <EditIcon />
+          </IconButton>
+          <IconButton 
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(movement.id);
+            }}
+            color="error"
+            size="small"
+          >
+            <DeleteIcon />
+          </IconButton>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+          <Collapse in={open} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 2 }}>
+              <Typography variant="h6" gutterBottom component="div">
+                Movement Details
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>ID:</strong> {movement.id}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Batch:</strong> {getMovementField(movement, 'batch') || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Notes:</strong> {getMovementField(movement, 'notes') || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Full Timestamp:</strong> {new Date(getMovementField(movement, 'timestamp')).toLocaleString()}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Created By:</strong> {getMovementField(movement, 'user_display') || getMovementField(movement, 'user')}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography>
+                    <strong>Movement Type:</strong> 
+                    <Chip 
+                      label={getMovementField(movement, 'movement_type') === 'IN' ? 'STOCK IN' : 'STOCK OUT'} 
+                      color={getMovementField(movement, 'movement_type') === 'IN' ? 'success' : 'error'}
+                      size="small"
+                      sx={{ ml: 1 }}
+                    />
+                  </Typography>
+                </Grid>
+              </Grid>
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </>
+  );
+}
+
+export default function StockInOut() {
+  const [items, setItems] = useState([]);
+  const [bins, setBins] = useState([]);
+  const [movements, setMovements] = useState([]);
   const [page, setPage] = useState(1);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState(null);
-  const [editId, setEditId] = useState(null);
-  const [formData, setFormData] = useState({
-    item: '', location: '', quantity: '', critical: false,
+  const [totalPages, setTotalPages] = useState(1);
+  const [formData, setFormData] = useState({ 
+    item_id: '', 
+    quantity: '', 
+    movement_type: '', 
+    storage_bin_id: '', 
+    notes: '' 
   });
-  const [loading, setLoading] = useState(true);
-  const [checkingPermissions, setCheckingPermissions] = useState(true);
-  const [hasPermission, setHasPermission] = useState(false);
-  const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
-  const [hasDeletePermission, setHasDeletePermission] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [deleteId, setDeleteId] = useState(null);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [hasPermission, setHasPermission] = useState(false);
+  const [hasStockInPermission, setHasStockInPermission] = useState(false);
+  const [hasStockOutPermission, setHasStockOutPermission] = useState(false);
   const { searchTerm } = useSearch();
   const itemsPerPage = 10;
-  const prevSearchTermRef = useRef(searchTerm);
-  const prevLocalSearchRef = useRef(localSearch);
 
-  const debouncedSetLocalSearch = debounce((value) => {
-    setLocalSearch(value);
-    setPage(1);
-  }, 500);
-
-  const memoizedSetLocalSearch = useCallback((value) => {
-    debouncedSetLocalSearch(value);
-  }, [debouncedSetLocalSearch]); // Add debouncedSetLocalSearch
-
-  const fetchStocks = useCallback(async () => {
+  const fetchItemsAndBins = useCallback(async () => {
     try {
-      setLoading(true);
-      const search = localSearch || searchTerm;
-      const response = await API.get('inventory/stocks/', {
-        params: { search, page, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('[STOCKS FETCHED]', response.data);
-      setStocks(response.data.results || []);
-      setTotalPages(Math.ceil(response.data.count / itemsPerPage));
+      const [itemsRes, binsRes, movementsRes] = await Promise.all([
+        API.get('inventory/items/', {
+          params: { page_size: 100 },
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        }),
+        API.get('inventory/bins/', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        }),
+        API.get('inventory/movements/', {
+          params: { search: searchTerm, page, page_size: itemsPerPage },
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        })
+      ]);
+      
+      setItems(itemsRes.data.results || itemsRes.data || []);
+      setBins(binsRes.data.results || binsRes.data || []);
+      setMovements(movementsRes.data.results || movementsRes.data || []);
+      setTotalPages(Math.ceil((movementsRes.data.count || 0) / itemsPerPage) || 1);
       setError('');
     } catch (err) {
-      console.error('Error fetching stocks:', err.response?.data || err.message);
-      setError('❌ Failed to fetch stocks: ' + (err.response?.data?.detail || err.message));
-      setStocks([]);
+      console.error('Fetch error:', err);
+      setError(`❌ Failed to fetch data: ${err.response?.data?.detail || err.message}`);
+      setItems([]);
+      setBins([]);
+      setMovements([]);
       setTotalPages(1);
-    } finally {
-      setLoading(false);
     }
-  }, [localSearch, searchTerm, page, itemsPerPage]);
+  }, [searchTerm, page, itemsPerPage]);
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
-        console.log('Access token:', token);
         if (!token) {
           setError('⚠️ No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/stock_records/');
-        console.log('Page permission response:', pageResponse.data);
-        setHasPermission(pageResponse.data.allowed || false);
-        if (!pageResponse.data.allowed) {
-          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-          setCheckingPermissions(false);
-          return;
-        }
-        const [updateResponse, deleteResponse] = await Promise.all([
-          API.get('/auth/permissions/action/update_stock_record/'),
-          API.get('/auth/permissions/action/delete_stock_record/'),
+        
+        const [pageRes, stockInRes, stockOutRes, _updateRes, _deleteRes] = await Promise.all([
+          API.get('/auth/permissions/page/stock_movements/'),
+          API.get('/auth/permissions/action/stock_in/'),
+          API.get('/auth/permissions/action/stock_out/'),
+          API.get('/auth/permissions/action/update_stock_movement/'),
+          API.get('/auth/permissions/action/delete_stock_movement/')
         ]);
-        setHasUpdatePermission(updateResponse.data.allowed || false);
-        setHasDeletePermission(deleteResponse.data.allowed || false);
-        console.log('Update permission:', updateResponse.data);
-        console.log('Delete permission:', deleteResponse.data);
-        fetchStocks();
-      } catch (err) {
-        console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else if (err.response?.status === 404) {
-          setError('⚠️ Permission endpoint not found. Contact support.');
+        
+        setHasPermission(pageRes.data.allowed || false);
+        setHasStockInPermission(stockInRes.data.allowed || false);
+        setHasStockOutPermission(stockOutRes.data.allowed || false);
+        
+        if (!pageRes.data.allowed) {
+          setError(`⚠️ You do not have permission to view Stock In/Out: ${pageRes.data.reason || 'No reason provided'}`);
         } else {
-          setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+          fetchItemsAndBins();
         }
+      } catch (err) {
+        const errorMsg = err.response?.data?.reason === 'page_not_configured'
+          ? '⚠️ Permission not configured for Stock In/Out. Contact your administrator.'
+          : `⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`;
+        setError(errorMsg);
         setHasPermission(false);
       } finally {
         setCheckingPermissions(false);
       }
     };
     checkPermissions();
-  }, [fetchStocks]);
+  }, [fetchItemsAndBins]);
 
   useEffect(() => {
     if (hasPermission) {
-      if (searchTerm !== prevSearchTermRef.current || localSearch !== prevLocalSearchRef.current) {
-        setPage(1);
-        prevSearchTermRef.current = searchTerm;
-        prevLocalSearchRef.current = localSearch;
-      }
-      fetchStocks();
+      fetchItemsAndBins();
     }
-  }, [searchTerm, localSearch, page, hasPermission, fetchStocks]);
+  }, [searchTerm, page, hasPermission, fetchItemsAndBins]);
 
-  const handleOpenDialog = async (stock = null) => {
-    if (!hasPermission) {
-      setError('⚠️ You do not have permission to view stock records.');
+  const getMovementField = (movement, field) => {
+    if (!movement) return '—';
+    
+    switch(field) {
+      case 'item_name':
+        return movement.item_name || movement.item?.name || '—';
+      case 'bin_id':
+        return movement.storage_bin_id || movement.storage_bin?.bin_id || '—';
+      case 'quantity':
+        return movement.quantity || '0';
+      case 'batch':
+        return movement.batch || movement.item?.batch || '—';
+      case 'notes':
+        return movement.notes || '—';
+      case 'movement_type':
+        return movement.movement_type || '—';
+      case 'timestamp':
+        return movement.timestamp || movement.created_at || '—';
+      case 'user':
+        return movement.user?.email || movement.user?.username || movement.user || '—';
+      case 'user_display':
+        return movement.user_display || movement.user?.full_name || movement.user?.name || '—';
+      default:
+        return movement[field] || '—';
+    }
+  };
+
+  const handleOpenDialog = (type, movement = null) => {
+    if (!hasPermission || (type === 'stock_in' && !hasStockInPermission) || (type === 'stock_out' && !hasStockOutPermission)) {
+      setError(`⚠️ You do not have permission to perform ${type === 'stock_in' ? 'stock-in' : 'stock-out'}.`);
       return;
     }
-    try {
-      const action = stock ? 'update_stock_record' : 'create_stock_record';
-      const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
-      console.log(`${action} permission response:`, actionResponse.data);
-      if (!actionResponse.data.allowed) {
-        setError(`⚠️ You do not have permission to ${stock ? 'update' : 'create'} stock records: ${actionResponse.data.reason || 'No reason provided'}`);
-        return;
-      }
-      if (stock) {
-        setFormData({
-          item: stock.item?.name || stock.item_name || '', // Fallback to item_name
-          location: stock.location || '',
-          quantity: stock.quantity.toString(),
-          critical: stock.critical,
-        });
-        setEditId(stock.id);
-      } else {
-        setFormData({ item: '', location: '', quantity: '', critical: false });
-        setEditId(null);
-      }
-      setOpenDialog(true);
-    } catch (err) {
-      console.error(`Error checking ${stock ? 'update' : 'create'} permission:`, err.response?.data || err.message);
-      setError(`❌ Failed to check ${stock ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
+    
+    // Auto-populate form when editing
+    if (movement) {
+      setFormData({
+        item_id: movement.item?.id || movement.item_id || '',
+        storage_bin_id: movement.storage_bin?.id || movement.storage_bin_id || '',
+        quantity: movement.quantity?.toString() || '',
+        movement_type: movement.movement_type?.toLowerCase() || type,
+        notes: movement.notes || ''
+      });
+      setEditId(movement.id);
+    } else {
+      setFormData({ 
+        item_id: '', 
+        quantity: '', 
+        movement_type: type, 
+        storage_bin_id: '', 
+        notes: '' 
+      });
+      setEditId(null);
     }
+    setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setFormData({ item: '', location: '', quantity: '', critical: false });
+    setFormData({ item_id: '', quantity: '', movement_type: '', storage_bin_id: '', notes: '' });
     setEditId(null);
     setError('');
     setSuccess('');
   };
 
   const handleDeleteOpen = (id) => {
-    if (!hasDeletePermission) {
-      setError('⚠️ You do not have permission to delete stock records.');
-      return;
-    }
     setDeleteId(id);
-    setDeleteOpen(true);
+    setOpenDeleteDialog(true);
   };
 
   const handleDeleteClose = () => {
-    setDeleteOpen(false);
+    setOpenDeleteDialog(false);
     setDeleteId(null);
     setError('');
     setSuccess('');
   };
 
-  const handleFormChange = (event) => {
-    const { name, value, type, checked } = event.target;
-    setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
+  const handleFormChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleFormSubmit = async () => {
-    const { item, location, quantity } = formData;
-    if (!item || !location || !quantity) {
+    const { item_id, quantity, movement_type, storage_bin_id, notes } = formData;
+    if (!item_id || !quantity || !movement_type || !storage_bin_id) {
       setError('⚠️ Please fill in all required fields.');
       return;
     }
@@ -196,70 +310,87 @@ export default function Stocks() {
       return;
     }
     try {
-      const payload = {
-        item: item.trim(), // Assuming item is a string name for now; adjust if it should be an ID
-        location: location.trim(),
-        quantity: Number(quantity),
-        critical: formData.critical,
+      const payload = { 
+        item_id: Number(item_id), 
+        storage_bin_id: Number(storage_bin_id), 
+        quantity: Number(quantity), 
+        notes: notes || '' 
       };
+      
+      const endpoint = movement_type === 'stock_in' ? 'stock-in' : 'stock-out';
+      
       if (editId) {
-        await API.patch(`inventory/stocks/${editId}/`, payload);
-        setSuccess('✅ Stock record updated successfully');
+        await API.patch(`inventory/movements/${editId}/`, {
+          quantity: Number(quantity),
+          notes: notes || ''
+        }, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        });
+        setSuccess('✅ Stock movement updated successfully');
       } else {
-        await API.post('/inventory/stocks/', payload);
-        setSuccess('✅ Stock record created manually successfully');
+        await API.post(`inventory/${endpoint}/`, payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        });
+        setSuccess(`✅ ${movement_type === 'stock_in' ? 'Stock-in' : 'Stock-out'} recorded successfully`);
       }
-      fetchStocks();
+      fetchItemsAndBins();
       handleCloseDialog();
     } catch (err) {
-      console.error(`${editId ? 'Updating' : 'Adding'} stock error:`, err.response?.data || err.message);
-      let errorMsg = `Failed to ${editId ? 'update' : 'add'} stock: Unable to process request.`;
+      let errorMsg = `❌ Failed to record ${movement_type === 'stock_in' ? 'stock-in' : 'stock-out'}: ${err.response?.data?.detail || err.message}`;
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
       } else if (err.response?.status === 400 && err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} stock: Network error.`;
+        errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
       }
-      setError(`❌ ${errorMsg}`);
+      setError(errorMsg);
     }
   };
 
   const handleDelete = async () => {
     try {
-      await API.delete(`inventory/stocks/${deleteId}/`);
-      setSuccess('✅ Stock record deleted successfully');
-      setDeleteOpen(false);
-      setDeleteId(null);
-      fetchStocks();
+      await API.delete(`inventory/movements/${deleteId}/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+      });
+      setSuccess('✅ Stock movement deleted successfully');
+      handleDeleteClose();
+      fetchItemsAndBins();
     } catch (err) {
-      console.error('Error deleting stock:', err.response?.data || err.message);
-      let errorMsg = 'Failed to delete stock: Unable to process request.';
+      let errorMsg = `❌ Failed to delete stock movement: ${err.response?.data?.detail || err.message}`;
       if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete stock records.'}`;
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || 'Failed to delete stock: Network error.';
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      } else if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
       }
-      setError(`❌ ${errorMsg}`);
+      setError(errorMsg);
     }
   };
 
-  if (checkingPermissions) {
-    return (
-      <Container>
-        <Typography variant="h6" sx={{ mt: 4 }}>
-          Loading permissions...
-        </Typography>
-      </Container>
-    );
-  }
+  const chartData = movements.reduce((acc, movement) => {
+    const itemName = getMovementField(movement, 'item_name');
+    const existing = acc.find(item => item.name === itemName);
+    const movementType = getMovementField(movement, 'movement_type');
+    const quantity = Number(movement.quantity) || 0;
+    
+    if (existing) {
+      existing[movementType === 'IN' ? 'stock_in' : 'stock_out'] += quantity;
+    } else {
+      acc.push({
+        name: itemName,
+        stock_in: movementType === 'IN' ? quantity : 0,
+        stock_out: movementType === 'OUT' ? quantity : 0
+      });
+    }
+    return acc;
+  }, []);
 
+  // Get selected item and bin details for display
+  const selectedItem = items.find(item => item.id == formData.item_id);
+  const selectedBin = bins.find(bin => bin.id == formData.storage_bin_id);
+
+  if (checkingPermissions) {
+    return <Container><Typography variant="h6" sx={{ mt: 4 }}>Loading permissions...</Typography></Container>;
+  }
+  
   if (!hasPermission) {
     return (
       <Container>
@@ -271,177 +402,332 @@ export default function Stocks() {
   }
 
   return (
-    <Container sx={{ mt: 4 }}>
-      {error && (
+    <Container maxWidth="lg" sx={{ mt: 4 }}>
+      {error && !openDialog && !openDeleteDialog && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
-      {success && (
+      {success && !openDialog && !openDeleteDialog && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
           {success}
         </Alert>
       )}
+      
+      <Typography variant="h4" gutterBottom>Stock In/Out</Typography>
+      
+      <Accordion sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="h6">Stock In/Out Tutorial & Analytics</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body1" paragraph>
+            <strong>💡 Tip:</strong> Click on any row to expand and see full details including batch information and notes.
+          </Typography>
+          <Box sx={{ mt: 2, height: 300 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="stock_in" fill="#8884d8" name="Stock In" />
+                <Bar dataKey="stock_out" fill="#82ca9d" name="Stock Out" />
+              </BarChart>
+            </ResponsiveContainer>
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+
       <Paper sx={{ p: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h5">Stock Records</Typography>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
-            Add Stock
-          </Button>
+          <Typography variant="h6">Stock Movements</Typography>
+          <Box>
+            <Button 
+              variant="contained" 
+              startIcon={<AddIcon />} 
+              onClick={() => handleOpenDialog('stock_in')} 
+              disabled={!hasStockInPermission} 
+              sx={{ mr: 1 }}
+            >
+              Stock In
+            </Button>
+            <Button 
+              variant="contained" 
+              startIcon={<AddIcon />} 
+              onClick={() => handleOpenDialog('stock_out')} 
+              disabled={!hasStockOutPermission}
+            >
+              Stock Out
+            </Button>
+          </Box>
         </Box>
 
-        <TextField
-          placeholder="Search..."
-          value={localSearch}
-          onChange={(e) => memoizedSetLocalSearch(e.target.value)} // Use memoizedSetLocalSearch
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-          sx={{ mb: 2, width: '300px' }}
-        />
+        <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+          💡 Click on any row to view complete details including batch information and notes
+        </Typography>
 
-        <TableContainer>
-          <Table>
-            <TableHead>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell></TableCell>
+              <TableCell><strong>Item Name</strong></TableCell>
+              <TableCell><strong>Storage Bin</strong></TableCell>
+              <TableCell><strong>Quantity</strong></TableCell>
+              <TableCell><strong>Type</strong></TableCell>
+              <TableCell><strong>Date</strong></TableCell>
+              <TableCell><strong>Created By</strong></TableCell>
+              <TableCell><strong>Actions</strong></TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {movements.length > 0 ? movements.map((movement) => (
+              <Row 
+                key={movement.id} 
+                movement={movement} 
+                onEdit={(mov) => handleOpenDialog('', mov)}
+                onDelete={handleDeleteOpen}
+                getMovementField={getMovementField}
+              />
+            )) : (
               <TableRow>
-                <TableCell>Item Name</TableCell>
-                <TableCell>Created At</TableCell>
-                <TableCell>Quantity</TableCell>
-                <TableCell>Location</TableCell>
-                <TableCell>Critical</TableCell>
-                <TableCell>Actions</TableCell>
+                <TableCell colSpan={8} align="center">
+                  <Typography variant="body2" color="textSecondary">
+                    No stock movements found.
+                  </Typography>
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={6} align="center">
-                    Loading...
-                  </TableCell>
-                </TableRow>
-              ) : stocks.length > 0 ? (
-                stocks.map((stock) => (
-                  <TableRow key={stock.id}>
-                    <TableCell>{stock.item_name || stock.item?.name || 'Unknown Item'}</TableCell> {/* Fallback to item_name */}
-                    <TableCell>{new Date(stock.created_at).toLocaleString()}</TableCell>
-                    <TableCell>{stock.quantity}</TableCell>
-                    <TableCell>{stock.location || (stock.storage_bin?.bin_id || 'N/A')}</TableCell>
-                    <TableCell>{stock.critical ? 'Yes' : 'No'}</TableCell>
-                    <TableCell>
-                      <IconButton onClick={() => handleOpenDialog(stock)} disabled={!hasUpdatePermission}>
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton onClick={() => handleDeleteOpen(stock.id)} disabled={!hasDeletePermission}>
-                        <DeleteIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={6} align="center">
-                    No stock records found.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-
-        <Box display="flex" justifyContent="center" mt={2}>
-          <Pagination
-            count={totalPages}
-            page={page}
-            onChange={(_, value) => setPage(value)}
-            color="primary"
+            )}
+          </TableBody>
+        </Table>
+        
+        <Box mt={3} display="flex" justifyContent="center">
+          <Pagination 
+            count={totalPages} 
+            page={page} 
+            onChange={(_, value) => setPage(value)} 
+            color="primary" 
           />
         </Box>
       </Paper>
 
-      <Dialog open={openDialog} onClose={handleCloseDialog}>
-        <DialogTitle>{editId ? 'Update Stock' : 'Add Stock'}</DialogTitle>
+      {/* Enhanced Form Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+        <DialogTitle>
+          <Box display="flex" alignItems="center">
+            {formData.movement_type === 'stock_in' ? (
+              <>
+                <InventoryIcon color="success" sx={{ mr: 1 }} />
+                {editId ? '✏️ Edit Stock In' : '📥 Record Stock In'}
+              </>
+            ) : (
+              <>
+                <WarehouseIcon color="error" sx={{ mr: 1 }} />
+                {editId ? '✏️ Edit Stock Out' : '📤 Record Stock Out'}
+              </>
+            )}
+            {editId && ` (ID: ${editId})`}
+          </Box>
+        </DialogTitle>
         <DialogContent>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
               {error}
             </Alert>
           )}
-          <Grid container spacing={2} sx={{ mt: 1 }}>
+          
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            {/* Selection Section */}
             <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Item Name"
-                name="item"
-                value={formData.item}
-                onChange={handleFormChange}
-                required
-                error={formData.item === '' && error.includes('required')}
-                helperText={formData.item === '' && error.includes('required') ? 'Item name is required' : ''}
-              />
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                    <InventoryIcon sx={{ mr: 1 }} />
+                    Item & Location Selection
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <FormControl fullWidth required>
+                        <InputLabel>Item *</InputLabel>
+                        <Select 
+                          name="item_id" 
+                          value={formData.item_id} 
+                          onChange={handleFormChange} 
+                          label="Item *"
+                          disabled={!!editId} // Disable item selection when editing
+                        >
+                          <MenuItem value="">Select Item</MenuItem>
+                          {items.map((item) => (
+                            <MenuItem key={item.id} value={item.id}>
+                              {item.name} ({item.part_number})
+                              {item.batch && ` - Batch: ${item.batch}`}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {selectedItem && (
+                        <Box sx={{ mt: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>Current Stock:</strong> {selectedItem.total_quantity || 0} 
+                            {selectedItem.available_quantity !== undefined && 
+                              ` (Available: ${selectedItem.available_quantity})`}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Grid>
+                    
+                    <Grid item xs={12} md={6}>
+                      <FormControl fullWidth required>
+                        <InputLabel>Storage Bin *</InputLabel>
+                        <Select 
+                          name="storage_bin_id" 
+                          value={formData.storage_bin_id} 
+                          onChange={handleFormChange} 
+                          label="Storage Bin *"
+                          disabled={!!editId} // Disable bin selection when editing
+                        >
+                          <MenuItem value="">Select Storage Bin</MenuItem>
+                          {bins.map((bin) => (
+                            <MenuItem key={bin.id} value={bin.id}>
+                              {bin.bin_id} 
+                              {bin.capacity && ` (${bin.capacity - (bin.current_load || 0)} free of ${bin.capacity})`}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {selectedBin && (
+                        <Box sx={{ mt: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>Capacity:</strong> {selectedBin.current_load || 0}/{selectedBin.capacity} 
+                            ({selectedBin.capacity - (selectedBin.current_load || 0)} free)
+                          </Typography>
+                        </Box>
+                      )}
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
             </Grid>
+
+            {/* Movement Details Section */}
             <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Location"
-                name="location"
-                value={formData.location}
-                onChange={handleFormChange}
-                required
-                error={formData.location === '' && error.includes('required')}
-                helperText={formData.location === '' && error.includes('required') ? 'Location is required' : ''}
-              />
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                    <WarehouseIcon sx={{ mr: 1 }} />
+                    Movement Details
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Quantity *"
+                        name="quantity"
+                        type="number"
+                        value={formData.quantity}
+                        onChange={handleFormChange}
+                        required
+                        inputProps={{ min: 1 }}
+                        helperText="Must be a positive number"
+                      />
+                    </Grid>
+                    
+                    <Grid item xs={12} md={6}>
+                      <FormControl fullWidth>
+                        <InputLabel>Movement Type</InputLabel>
+                        <Select 
+                          name="movement_type" 
+                          value={formData.movement_type} 
+                          onChange={handleFormChange} 
+                          label="Movement Type"
+                          disabled={!!editId} // Disable type change when editing
+                        >
+                          <MenuItem value="stock_in">Stock In</MenuItem>
+                          <MenuItem value="stock_out">Stock Out</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Notes"
+                        name="notes"
+                        value={formData.notes}
+                        onChange={handleFormChange}
+                        multiline
+                        rows={3}
+                        placeholder="Add any notes about this stock movement..."
+                      />
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Quantity"
-                name="quantity"
-                type="number"
-                value={formData.quantity}
-                onChange={handleFormChange}
-                required
-                error={formData.quantity === '' && error.includes('required')}
-                helperText={formData.quantity === '' && error.includes('required') ? 'Quantity is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    name="critical"
-                    checked={formData.critical}
-                    onChange={handleFormChange}
-                  />
-                }
-                label="Critical"
-              />
-            </Grid>
+
+            {/* Summary Section */}
+            {(selectedItem || selectedBin) && (
+              <Grid item xs={12}>
+                <Card variant="outlined" sx={{ bgcolor: 'primary.50' }}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      📋 Summary
+                    </Typography>
+                    <Grid container spacing={2}>
+                      {selectedItem && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2">
+                            <strong>Item:</strong> {selectedItem.name} ({selectedItem.part_number})
+                          </Typography>
+                          <Typography variant="body2">
+                            <strong>Manufacturer:</strong> {selectedItem.manufacturer}
+                          </Typography>
+                          {selectedItem.batch && (
+                            <Typography variant="body2">
+                              <strong>Batch:</strong> {selectedItem.batch}
+                            </Typography>
+                          )}
+                        </Grid>
+                      )}
+                      {selectedBin && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2">
+                            <strong>Storage Bin:</strong> {selectedBin.bin_id}
+                          </Typography>
+                          <Typography variant="body2">
+                            <strong>Location:</strong> {selectedBin.row}-{selectedBin.rack}
+                            {selectedBin.shelf && `-${selectedBin.shelf}`}
+                          </Typography>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button variant="contained" onClick={handleFormSubmit}>
-            {editId ? 'Update' : 'Save'}
+          <Button variant="contained" onClick={handleFormSubmit} size="large">
+            {editId ? 'Update Movement' : 'Record Movement'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteOpen} onClose={handleDeleteClose}>
+      <Dialog open={openDeleteDialog} onClose={handleDeleteClose}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Action cannot be reversed, are you sure you want to continue?
-          </DialogContentText>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          <Typography>Are you sure you want to delete this stock movement? This action cannot be undone.</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleDeleteClose}>Cancel</Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
-            Delete
-          </Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
         </DialogActions>
       </Dialog>
     </Container>

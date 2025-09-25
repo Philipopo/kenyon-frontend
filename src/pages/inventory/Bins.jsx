@@ -3,7 +3,8 @@ import {
   Container, Paper, Box, Typography, Button, TextField, InputAdornment, Table, TableHead,
   TableRow, TableCell, TableBody, TableContainer, Pagination, Dialog, DialogTitle,
   DialogContent, DialogContentText, DialogActions, Grid, Alert, IconButton, Card,
-  CardContent, LinearProgress, Chip, Collapse, IconButton as MuiIconButton
+  CardContent, LinearProgress, Chip, Collapse, IconButton as MuiIconButton,
+  Accordion, AccordionSummary, AccordionDetails, FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
@@ -14,6 +15,8 @@ import StorageIcon from '@mui/icons-material/Storage';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import InfoIcon from '@mui/icons-material/Info';
+import WarningIcon from '@mui/icons-material/Warning';
 import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
@@ -33,6 +36,126 @@ const getUsageColor = (percentage) => {
   return 'success';
 };
 
+// Expandable row component for bin details
+function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermission }) {
+  const [open, setOpen] = useState(false);
+  const usagePercentage = calculateUsagePercentage(bin.current_load || 0, bin.capacity);
+
+  return (
+    <>
+      <TableRow sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <TableCell>
+          <IconButton
+            aria-label="expand row"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(!open);
+            }}
+          >
+            {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </IconButton>
+        </TableCell>
+        <TableCell>{bin.bin_id}</TableCell>
+        <TableCell>{bin.row}</TableCell>
+        <TableCell>{bin.rack}</TableCell>
+        <TableCell>{bin.shelf || '—'}</TableCell>
+        <TableCell>
+          <Chip 
+            label={bin.type} 
+            size="small" 
+            color="primary" 
+            variant="outlined" 
+          />
+        </TableCell>
+        <TableCell>{bin.capacity}</TableCell>
+        <TableCell>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Box sx={{ width: '60%', mr: 1 }}>
+              <LinearProgress 
+                variant="determinate" 
+                value={usagePercentage} 
+                color={getUsageColor(usagePercentage)}
+                sx={{ height: 8, borderRadius: 4 }}
+              />
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              {bin.current_load || 0} ({usagePercentage}%)
+            </Typography>
+          </Box>
+        </TableCell>
+        <TableCell>
+          <IconButton 
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(bin);
+            }} 
+            disabled={!hasUpdatePermission}
+            color="primary"
+          >
+            <EditIcon />
+          </IconButton>
+          <IconButton 
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(bin.id);
+            }} 
+            disabled={!hasDeletePermission || (bin.current_load || 0) > 0}
+            color="error"
+          >
+            <DeleteIcon />
+          </IconButton>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={10}>
+          <Collapse in={open} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 2 }}>
+              <Typography variant="h6" gutterBottom component="div">
+                Bin Details
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>ID:</strong> {bin.id}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Description:</strong> {bin.description || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Free Space:</strong> {Math.max(0, bin.capacity - (bin.current_load || 0))}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Usage:</strong> 
+                    <Chip 
+                      label={`${usagePercentage}%`} 
+                      size="small" 
+                      color={getUsageColor(usagePercentage)}
+                      sx={{ ml: 1 }}
+                    />
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Created By:</strong> {bin.created_by || bin.user?.name || bin.user?.email || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Status:</strong> 
+                    <Chip 
+                      label={bin.current_load === 0 ? 'Empty' : bin.current_load >= bin.capacity ? 'Full' : 'In Use'} 
+                      size="small" 
+                      color={bin.current_load === 0 ? 'default' : bin.current_load >= bin.capacity ? 'error' : 'primary'}
+                      sx={{ ml: 1 }}
+                    />
+                  </Typography>
+                </Grid>
+              </Grid>
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </>
+  );
+}
+
 export default function BinLocations() {
   const [bins, setBins] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
@@ -48,16 +171,19 @@ export default function BinLocations() {
   const [loading, setLoading] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
+  const [hasCreatePermission, setHasCreatePermission] = useState(false);
   const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  //const [selectedBin, setSelectedBin] = useState(null);
   const [metricsExpanded, setMetricsExpanded] = useState(true);
+  const [tutorialExpanded, setTutorialExpanded] = useState(false);
   const { searchTerm } = useSearch();
   const binsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
   const prevLocalSearchRef = useRef(localSearch);
+
+  const binTypes = ['Pallet Rack', 'Shelf', 'Bulk Storage', 'Mezzanine', 'Flow Rack', 'Cantilever', 'Other'];
 
   const debouncedSetLocalSearch = debounce((value) => {
     setLocalSearch(value);
@@ -70,18 +196,19 @@ export default function BinLocations() {
 
   // Calculate warehouse statistics
   const warehouseStats = bins.reduce((stats, bin) => {
-    stats.totalCapacity += bin.capacity;
-    stats.totalUsed += bin.used;
+    stats.totalCapacity += bin.capacity || 0;
+    stats.totalUsed += bin.current_load || 0;
     stats.binCount += 1;
     
-    const usage = calculateUsagePercentage(bin.used, bin.capacity);
+    const usage = calculateUsagePercentage(bin.current_load || 0, bin.capacity || 1);
     if (usage >= 90) stats.fullBins += 1;
     if (usage <= 10) stats.emptyBins += 1;
+    if (bin.current_load === 0) stats.emptyBins += 1;
     
     return stats;
   }, { totalCapacity: 0, totalUsed: 0, binCount: 0, fullBins: 0, emptyBins: 0 });
 
-  const warehouseUsage = calculateUsagePercentage(warehouseStats.totalUsed, warehouseStats.totalCapacity);
+  const warehouseUsage = calculateUsagePercentage(warehouseStats.totalUsed, warehouseStats.totalCapacity || 1);
 
   const fetchBins = useCallback(async () => {
     try {
@@ -92,8 +219,8 @@ export default function BinLocations() {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
       console.log('[BINS FETCHED]', res.data);
-      setBins(res.data.results || []);
-      setTotalPages(Math.ceil(res.data.count / binsPerPage));
+      setBins(res.data.results || res.data || []);
+      setTotalPages(Math.ceil((res.data.count || 0) / binsPerPage));
       setError('');
     } catch (err) {
       console.error('Error fetching bins:', err.response?.data || err.message);
@@ -109,39 +236,33 @@ export default function BinLocations() {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
-        console.log('Access token:', token);
         if (!token) {
           setError('⚠️ No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/storage_bins/');
-        console.log('Page permission response:', pageResponse.data);
-        setHasPermission(pageResponse.data.allowed || false);
-        if (!pageResponse.data.allowed) {
-          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-          setCheckingPermissions(false);
-          return;
-        }
-        const [updateResponse, deleteResponse] = await Promise.all([
+        
+        const [pageRes, createRes, updateRes, deleteRes] = await Promise.all([
+          API.get('/auth/permissions/page/storage_bins/'),
+          API.get('/auth/permissions/action/create_storage_bin/'),
           API.get('/auth/permissions/action/update_storage_bin/'),
-          API.get('/auth/permissions/action/delete_storage_bin/'),
+          API.get('/auth/permissions/action/delete_storage_bin/')
         ]);
-        setHasUpdatePermission(updateResponse.data.allowed || false);
-        setHasDeletePermission(deleteResponse.data.allowed || false);
-        console.log('Update permission:', updateResponse.data);
-        console.log('Delete permission:', deleteResponse.data);
-        fetchBins();
+        
+        setHasPermission(pageRes.data.allowed || false);
+        setHasCreatePermission(createRes.data.allowed || false);
+        setHasUpdatePermission(updateRes.data.allowed || false);
+        setHasDeletePermission(deleteRes.data.allowed || false);
+        
+        if (!pageRes.data.allowed) {
+          setError(`⚠️ You do not have permission to view this page: ${pageRes.data.reason || 'No reason provided'}`);
+        } else {
+          fetchBins();
+        }
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else if (err.response?.status === 404) {
-          setError('⚠️ Permission endpoint not found. Contact support.');
-        } else {
-          setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
-        }
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPermission(false);
       } finally {
         setCheckingPermissions(false);
@@ -166,29 +287,37 @@ export default function BinLocations() {
       setError('⚠️ You do not have permission to view bin locations.');
       return;
     }
-    try {
-      const action = bin ? 'update_storage_bin' : 'create_storage_bin';
-      const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
-      console.log(`${action} permission response:`, actionResponse.data);
-      if (!actionResponse.data.allowed) {
-        setError(`⚠️ You do not have permission to ${bin ? 'update' : 'create'} storage bins: ${actionResponse.data.reason || 'No reason provided'}`);
-        return;
-      }
-      if (bin) {
-        setFormData({
-          row: bin.row || '', rack: bin.rack || '', shelf: bin.shelf || '', type: bin.type || '',
-          capacity: bin.capacity?.toString() || '', description: bin.description || '',
-        });
-        setEditId(bin.id);
-      } else {
-        setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' });
-        setEditId(null);
-      }
-      setOpenDialog(true);
-    } catch (err) {
-      console.error(`Error checking ${bin ? 'update' : 'create'} permission:`, err.response?.data || err.message);
-      setError(`❌ Failed to check ${bin ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
+    
+    const action = bin ? 'update_storage_bin' : 'create_storage_bin';
+    const hasActionPermission = bin ? hasUpdatePermission : hasCreatePermission;
+    
+    if (!hasActionPermission) {
+      setError(`⚠️ You do not have permission to ${bin ? 'update' : 'create'} storage bins.`);
+      return;
     }
+
+    if (bin) {
+      setFormData({
+        row: bin.row || '',
+        rack: bin.rack || '',
+        shelf: bin.shelf || '',
+        type: bin.type || '',
+        capacity: bin.capacity?.toString() || '',
+        description: bin.description || '',
+      });
+      setEditId(bin.id);
+    } else {
+      setFormData({ 
+        row: '', 
+        rack: '', 
+        shelf: '', 
+        type: '', 
+        capacity: '', 
+        description: '' 
+      });
+      setEditId(null);
+    }
+    setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
@@ -200,8 +329,13 @@ export default function BinLocations() {
   };
 
   const handleDeleteOpen = (id) => {
+    const bin = bins.find(b => b.id === id);
     if (!hasDeletePermission) {
       setError('⚠️ You do not have permission to delete bins.');
+      return;
+    }
+    if (bin && (bin.current_load || 0) > 0) {
+      setError('⚠️ Cannot delete bin that contains stock. Please remove all items first.');
       return;
     }
     setDeleteId(id);
@@ -222,64 +356,87 @@ export default function BinLocations() {
 
   const handleFormSubmit = async () => {
     const { row, rack, shelf, type, capacity, description } = formData;
-    if (!row || !rack || !shelf || !type || !capacity) {
-      setError('⚠️ Please fill in all required fields.');
+    
+    // Validation
+    if (!row || !rack || !type || !capacity) {
+      setError('⚠️ Please fill in all required fields (Row, Rack, Type, Capacity).');
       return;
     }
+    
     const numCapacity = Number(capacity);
     if (numCapacity <= 0) {
-      setError('⚠️ Capacity must be positive.');
+      setError('⚠️ Capacity must be a positive number.');
       return;
     }
-    const bin_id = editId ? formData.bin_id || generateBinId(row, rack, shelf) : generateBinId(row, rack, shelf);
+
+    // Check if editing and new capacity is less than current load
+    if (editId) {
+      const existingBin = bins.find(b => b.id === editId);
+      if (existingBin && numCapacity < (existingBin.current_load || 0)) {
+        setError(`⚠️ New capacity (${numCapacity}) cannot be less than current load (${existingBin.current_load || 0}).`);
+        return;
+      }
+    }
+
+    const bin_id = editId ? bins.find(b => b.id === editId)?.bin_id : generateBinId(row, rack, shelf);
     const payload = {
-      bin_id, row, rack, shelf, type,
-      capacity: numCapacity, description,
+      bin_id, 
+      row, 
+      rack, 
+      shelf: shelf || '', 
+      type,
+      capacity: numCapacity, 
+      description: description || '',
     };
+
     try {
       if (editId) {
-        await API.patch(`inventory/bins/${editId}/`, payload);
+        await API.patch(`inventory/bins/${editId}/`, payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        });
         setSuccess('✅ Bin updated successfully');
       } else {
-        await API.post('inventory/bins/', payload);
+        await API.post('inventory/bins/', payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        });
         setSuccess('✅ Bin created successfully');
       }
       fetchBins();
       handleCloseDialog();
     } catch (err) {
       console.error(`${editId ? 'Updating' : 'Adding'} bin error:`, err.response?.data || err.message);
-      let errorMsg = `Failed to ${editId ? 'update' : 'add'} bin: Unable to process request.`;
+      let errorMsg = `Failed to ${editId ? 'update' : 'add'} bin: ${err.response?.data?.detail || err.message}`;
+      
       if (err.response?.status === 403) {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
       } else if (err.response?.status === 400 && err.response?.data) {
         errorMsg = Object.entries(err.response.data)
           .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
           .join('; ');
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || `Failed to ${editId ? 'update' : 'add'} bin: Network error.`;
       }
+      
       setError(`❌ ${errorMsg}`);
     }
   };
 
   const handleDelete = async () => {
     try {
-      await API.delete(`inventory/bins/${deleteId}/`);
+      await API.delete(`inventory/bins/${deleteId}/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+      });
       setSuccess('✅ Bin deleted successfully');
       handleDeleteClose();
       fetchBins();
     } catch (err) {
       console.error('Error deleting bin:', err.response?.data || err.message);
-      let errorMsg = 'Failed to delete bin: Unable to process request.';
+      let errorMsg = 'Failed to delete bin: ' + (err.response?.data?.detail || err.message);
+      
       if (err.response?.status === 403) {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || 'Failed to delete bin: Network error.';
+      } else if (err.response?.status === 400) {
+        errorMsg = `⚠️ ${err.response.data.detail || 'Cannot delete bin with existing stock.'}`;
       }
+      
       setError(`❌ ${errorMsg}`);
     }
   };
@@ -306,12 +463,12 @@ export default function BinLocations() {
 
   return (
     <Container sx={{ mt: 4 }}>
-      {error && (
+      {error && !openDialog && !deleteOpen && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
-      {success && (
+      {success && !openDialog && !deleteOpen && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
           {success}
         </Alert>
@@ -330,7 +487,44 @@ export default function BinLocations() {
         </Box>
       </Box>
 
-      {/* Collapsible Metrics Section */}
+      {/* Tutorial Accordion */}
+      <Accordion expanded={tutorialExpanded} onChange={() => setTutorialExpanded(!tutorialExpanded)} sx={{ mb: 3 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <InfoIcon sx={{ mr: 1 }} />
+            <Typography variant="h6">Bin Management Tutorial</Typography>
+          </Box>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body1" paragraph>
+            <strong>Welcome to Bin Management! 🏭</strong> This system helps you organize your warehouse storage locations efficiently.
+          </Typography>
+          
+          <Typography variant="h6" gutterBottom>Key Features:</Typography>
+          <ul>
+            <li><strong>Create Bins:</strong> Add new storage locations with unique IDs</li>
+            <li><strong>Track Capacity:</strong> Monitor usage with visual progress bars</li>
+            <li><strong>Organize by Location:</strong> Use Row-Rack-Shelf system for easy navigation</li>
+            <li><strong>Smart Validations:</strong> Prevent errors with capacity and load checks</li>
+          </ul>
+
+          <Typography variant="h6" gutterBottom>Best Practices:</Typography>
+          <ul>
+            <li>💡 Use consistent naming for rows and racks (e.g., A, B, C for rows; 1, 2, 3 for racks)</li>
+            <li>💡 Set realistic capacity based on your storage needs</li>
+            <li>💡 Regularly review bin usage to optimize space</li>
+            <li>💡 Empty bins before deleting them</li>
+          </ul>
+
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <WarningIcon sx={{ mr: 1 }} />
+            <strong>Important:</strong> You cannot reduce a bin's capacity below its current load, 
+            and bins with stock cannot be deleted. Always empty bins before making major changes.
+          </Alert>
+        </AccordionDetails>
+      </Accordion>
+
+      {/* Metrics Section */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Box 
           sx={{ 
@@ -342,7 +536,7 @@ export default function BinLocations() {
           onClick={() => setMetricsExpanded(!metricsExpanded)}
         >
           <Typography variant="h6">
-            Warehouse Overview
+            📊 Warehouse Overview
           </Typography>
           <MuiIconButton size="small">
             {metricsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -395,7 +589,7 @@ export default function BinLocations() {
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <InventoryIcon color="success" sx={{ mr: 1 }} />
-                    <Typography variant="h6">Available Capacity</Typography>
+                    <Typography variant="h6">Available Space</Typography>
                   </Box>
                   <Typography variant="h4" color="success.main">
                     {warehouseStats.totalCapacity - warehouseStats.totalUsed}
@@ -411,13 +605,13 @@ export default function BinLocations() {
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <InventoryIcon color="warning" sx={{ mr: 1 }} />
-                    <Typography variant="h6">Full Bins</Typography>
+                    <Typography variant="h6">Storage Status</Typography>
                   </Box>
                   <Typography variant="h4" color="warning.main">
                     {warehouseStats.fullBins}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {warehouseStats.emptyBins} empty bins
+                    Full • {warehouseStats.emptyBins} Empty
                   </Typography>
                 </CardContent>
               </Card>
@@ -426,17 +620,22 @@ export default function BinLocations() {
         </Collapse>
       </Paper>
 
-      {/* Search and Action Bar */}
+      {/* Bins Table Section */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h5">Bin Locations</Typography>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
-            Add Bin
+          <Typography variant="h5">📦 Bin Locations</Typography>
+          <Button 
+            variant="contained" 
+            startIcon={<AddIcon />} 
+            onClick={() => handleOpenDialog()}
+            disabled={!hasCreatePermission}
+          >
+            Add New Bin
           </Button>
         </Box>
 
         <TextField
-          placeholder="Search bins..."
+          placeholder="Search bins by ID, location, or type..."
           value={localSearch}
           onChange={(e) => memoizedSetLocalSearch(e.target.value)}
           InputProps={{
@@ -446,78 +645,48 @@ export default function BinLocations() {
               </InputAdornment>
             ),
           }}
-          sx={{ mb: 2, width: '300px' }}
+          sx={{ mb: 2, width: '350px' }}
         />
 
         <TableContainer>
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Bin ID</TableCell>
-                <TableCell>Row</TableCell>
-                <TableCell>Rack</TableCell>
-                <TableCell>Shelf</TableCell>
-                <TableCell>Type</TableCell>
-                <TableCell>Capacity</TableCell>
-                <TableCell>Used</TableCell>
-                <TableCell>Actions</TableCell>
+                <TableCell></TableCell>
+                <TableCell><strong>Bin ID</strong></TableCell>
+                <TableCell><strong>Row</strong></TableCell>
+                <TableCell><strong>Rack</strong></TableCell>
+                <TableCell><strong>Shelf</strong></TableCell>
+                <TableCell><strong>Type</strong></TableCell>
+                <TableCell><strong>Capacity</strong></TableCell>
+                <TableCell><strong>Current Load</strong></TableCell>
+                <TableCell><strong>Actions</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
-                    Loading...
+                  <TableCell colSpan={9} align="center">
+                    <Typography>Loading bins...</Typography>
                   </TableCell>
                 </TableRow>
               ) : bins.length > 0 ? (
-                bins.map((bin) => {
-                  const usagePercentage = calculateUsagePercentage(bin.used, bin.capacity);
-                  return (
-                    <TableRow key={bin.id}>
-                      <TableCell>{bin.bin_id}</TableCell>
-                      <TableCell>{bin.row}</TableCell>
-                      <TableCell>{bin.rack}</TableCell>
-                      <TableCell>{bin.shelf}</TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={bin.type} 
-                          size="small" 
-                          color="primary" 
-                          variant="outlined" 
-                        />
-                      </TableCell>
-                      <TableCell>{bin.capacity}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Box sx={{ width: '60%', mr: 1 }}>
-                            <LinearProgress 
-                              variant="determinate" 
-                              value={usagePercentage} 
-                              color={getUsageColor(usagePercentage)}
-                              sx={{ height: 8, borderRadius: 4 }}
-                            />
-                          </Box>
-                          <Typography variant="body2" color="text.secondary">
-                            {bin.used} ({usagePercentage}%)
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <IconButton onClick={() => handleOpenDialog(bin)} disabled={!hasUpdatePermission}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton onClick={() => handleDeleteOpen(bin.id)} disabled={!hasDeletePermission}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                bins.map((bin) => (
+                  <BinRow 
+                    key={bin.id} 
+                    bin={bin} 
+                    onEdit={handleOpenDialog}
+                    onDelete={handleDeleteOpen}
+                    hasUpdatePermission={hasUpdatePermission}
+                    hasDeletePermission={hasDeletePermission}
+                  />
+                ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
-                    No bins found.
+                  <TableCell colSpan={9} align="center">
+                    <Typography variant="body2" color="textSecondary">
+                      No bins found. {hasCreatePermission && 'Click "Add New Bin" to create your first storage location.'}
+                    </Typography>
                   </TableCell>
                 </TableRow>
               )}
@@ -535,64 +704,83 @@ export default function BinLocations() {
         </Box>
       </Paper>
 
-      <Dialog open={openDialog} onClose={handleCloseDialog}>
-        <DialogTitle>{editId ? 'Update Bin' : 'Add Bin'}</DialogTitle>
+      {/* Add/Edit Bin Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <WarehouseIcon sx={{ mr: 1 }} />
+            {editId ? '✏️ Edit Bin Location' : '➕ Add New Bin Location'}
+          </Box>
+        </DialogTitle>
         <DialogContent>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
               {error}
             </Alert>
           )}
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={4}>
+          
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12} sm={4}>
               <TextField
                 fullWidth
-                label="Row"
+                label="Row *"
                 name="row"
                 value={formData.row}
                 onChange={handleFormChange}
                 required
+                placeholder="e.g., A, B, C"
+                helperText="Row identifier"
               />
             </Grid>
-            <Grid item xs={4}>
+            <Grid item xs={12} sm={4}>
               <TextField
                 fullWidth
-                label="Rack"
+                label="Rack *"
                 name="rack"
                 value={formData.rack}
                 onChange={handleFormChange}
                 required
+                placeholder="e.g., 1, 2, 3"
+                helperText="Rack number"
               />
             </Grid>
-            <Grid item xs={4}>
+            <Grid item xs={12} sm={4}>
               <TextField
                 fullWidth
                 label="Shelf"
                 name="shelf"
                 value={formData.shelf}
                 onChange={handleFormChange}
-                required
+                placeholder="e.g., 1, 2, 3"
+                helperText="Shelf level (optional)"
               />
             </Grid>
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                label="Type"
-                name="type"
-                value={formData.type}
-                onChange={handleFormChange}
-                required
-              />
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required>
+                <InputLabel>Bin Type *</InputLabel>
+                <Select
+                  name="type"
+                  value={formData.type}
+                  onChange={handleFormChange}
+                  label="Bin Type *"
+                >
+                  {binTypes.map((type) => (
+                    <MenuItem key={type} value={type}>{type}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Capacity"
+                label="Capacity *"
                 name="capacity"
                 type="number"
                 value={formData.capacity}
                 onChange={handleFormChange}
                 required
+                inputProps={{ min: 1 }}
+                helperText="Maximum storage capacity"
               />
             </Grid>
             <Grid item xs={12}>
@@ -604,29 +792,61 @@ export default function BinLocations() {
                 onChange={handleFormChange}
                 multiline
                 rows={3}
+                placeholder="Add any notes about this bin location..."
               />
             </Grid>
+            
+            {/* Preview Section */}
+            {formData.row && formData.rack && (
+              <Grid item xs={12}>
+                <Card variant="outlined" sx={{ bgcolor: 'grey.50' }}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      📋 Bin Preview
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Bin ID:</strong> {generateBinId(formData.row, formData.rack, formData.shelf)}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Location:</strong> Row {formData.row}, Rack {formData.rack}
+                      {formData.shelf && `, Shelf ${formData.shelf}`}
+                    </Typography>
+                    {editId && (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        <strong>Note:</strong> You cannot reduce capacity below current load. 
+                        Current load: {bins.find(b => b.id === editId)?.current_load || 0}
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
           <Button variant="contained" onClick={handleFormSubmit}>
-            {editId ? 'Update' : 'Save'}
+            {editId ? 'Update Bin' : 'Create Bin'}
           </Button>
         </DialogActions>
       </Dialog>
 
+      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteOpen} onClose={handleDeleteClose}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Action cannot be reversed, are you sure you want to continue?
+            Are you sure you want to delete this bin? This action cannot be undone.
           </DialogContentText>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            <WarningIcon sx={{ mr: 1 }} />
+            Ensure the bin is empty before deleting. Bins with stock cannot be removed.
+          </Alert>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleDeleteClose}>Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
-            Delete
+            Delete Bin
           </Button>
         </DialogActions>
       </Dialog>

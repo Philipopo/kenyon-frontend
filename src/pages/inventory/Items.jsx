@@ -1,71 +1,154 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Container, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
-  Button, Box, Modal, Grid, Alert, Pagination, Divider, IconButton, Dialog,
-  DialogTitle, DialogContent, DialogContentText, DialogActions, TextField,
+  Container, Typography, Paper, Box, Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
+  Grid, FormControl, InputLabel, Select, MenuItem, TextField, Accordion, AccordionSummary, AccordionDetails,
+  Table, TableHead, TableRow, TableCell, TableBody, IconButton, Pagination, Collapse
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
-const modalStyle = {
-  position: 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: 800,
-  bgcolor: 'background.paper',
-  boxShadow: 24,
-  p: 4,
-  borderRadius: 2,
-};
+// Expandable row component for Items
+function ItemRow({ item, onEdit, onDelete }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <TableRow sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <TableCell>
+          <IconButton
+            aria-label="expand row"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(!open);
+            }}
+          >
+            {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+          </IconButton>
+        </TableCell>
+        <TableCell>{item.name}</TableCell>
+        <TableCell>{item.part_number}</TableCell>
+        <TableCell>{item.manufacturer}</TableCell>
+        <TableCell>{item.batch || '—'}</TableCell>
+        <TableCell>{item.total_quantity}</TableCell>
+        <TableCell>{item.available_quantity}</TableCell>
+        <TableCell>
+          <IconButton 
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(item);
+            }}
+            color="primary"
+            size="small"
+          >
+            <EditIcon />
+          </IconButton>
+          <IconButton 
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(item.id);
+            }}
+            color="error"
+            size="small"
+          >
+            <DeleteIcon />
+          </IconButton>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+          <Collapse in={open} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 2 }}>
+              <Typography variant="h6" gutterBottom component="div">
+                Item Details
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>ID:</strong> {item.id}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Contact:</strong> {item.contact || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Expiry Date:</strong> {item.expiry_date || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Min Stock Level:</strong> {item.min_stock_level}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Reserved Quantity:</strong> {item.reserved_quantity}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Material:</strong> {item.custom_fields?.Material || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Grade:</strong> {item.custom_fields?.Grade || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Created By:</strong> {item.created_by || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Created At:</strong> {new Date(item.created_at).toLocaleString()}</Typography>
+                </Grid>
+              </Grid>
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </>
+  );
+}
+
+
+
+
 
 export default function ItemMaster() {
   const [items, setItems] = useState([]);
+  const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [formData, setFormData] = useState({
+    name: '', part_number: '', manufacturer: '', contact: '',
+    batch: '', expiry_date: '', min_stock_level: '0', reserved_quantity: '0',
+    custom_fields: { Material: '', Grade: '' }
+  });
+  const [editId, setEditId] = useState(null);
+  const [deleteId, setDeleteId] = useState(null);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [open, setOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState(null);
-  const [page, setPage] = useState(1);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [hasCreatePermission, setHasCreatePermission] = useState(false);
-  const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const context = useSearch();
-  const searchTerm = context ? context.searchTerm : '';
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
-  const prevSearchTermRef = useRef(searchTerm);
 
-  const [newItem, setNewItem] = useState({
-    name: '', quantity: '', part_number: '', manufacturer: '', contact: '',
-    batch: '', expiry_date: '', custom_fields: { Material: '', Grade: '' },
-  });
-
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [openViewModal, setOpenViewModal] = useState(false);
+  const grades = ['Prime', 'Standard', 'Secondary', 'Economy'];
 
   const fetchItems = useCallback(async () => {
     try {
       const res = await API.get('inventory/items/', {
         params: { search: searchTerm, page, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
       });
       setItems(res.data.results || []);
       setTotalPages(Math.ceil(res.data.count / itemsPerPage));
       setError('');
     } catch (err) {
-      console.error('Error fetching items:', err.response?.data || err.message);
-      setError('❌ Failed to fetch items: ' + (err.response?.data?.detail || err.message));
+      setError(`❌ Failed to fetch items: ${err.response?.data?.detail || err.message}`);
       setItems([]);
       setTotalPages(1);
     }
-  }, [searchTerm, page, itemsPerPage]);
+  }, [searchTerm, page]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -77,27 +160,27 @@ export default function ItemMaster() {
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/items/');
-        setHasPermission(pageResponse.data.allowed || false);
-        if (!pageResponse.data.allowed) {
-          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-          setCheckingPermissions(false);
-          return;
-        }
-        const [createResponse, updateResponse, deleteResponse] = await Promise.all([
+        
+        const [pageRes, createRes, deleteRes] = await Promise.all([
+          API.get('/auth/permissions/page/items/'),
           API.get('/auth/permissions/action/create_item/'),
-          API.get('/auth/permissions/action/update_item/'),
-          API.get('/auth/permissions/action/delete_item/'),
+          API.get('/auth/permissions/action/delete_item/')
         ]);
-        setHasCreatePermission(createResponse.data.allowed || false);
-        setHasUpdatePermission(updateResponse.data.allowed || false);
-        setHasDeletePermission(deleteResponse.data.allowed || false);
-        fetchItems();
+        
+        setHasPermission(pageRes.data.allowed || false);
+        setHasCreatePermission(createRes.data.allowed || false);
+        setHasDeletePermission(deleteRes.data.allowed || false);
+        
+        if (!pageRes.data.allowed) {
+          setError(`⚠️ You do not have permission to view Item Master: ${pageRes.data.reason || 'No reason provided'}`);
+        } else {
+          fetchItems();
+        }
       } catch (err) {
-        console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) setError('⚠️ Authentication failed. Please log in again.');
-        else if (err.response?.status === 404) setError('⚠️ Permission endpoint not found. Contact support.');
-        else setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+        const errorMsg = err.response?.data?.reason === 'page_not_configured'
+          ? '⚠️ Permission not configured for Item Master. Contact your administrator.'
+          : `⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`;
+        setError(errorMsg);
         setHasPermission(false);
       } finally {
         setCheckingPermissions(false);
@@ -107,53 +190,53 @@ export default function ItemMaster() {
   }, [fetchItems]);
 
   useEffect(() => {
-    if (hasPermission) {
-      if (searchTerm !== prevSearchTermRef.current) {
-        setPage(1);
-        prevSearchTermRef.current = searchTerm;
-      }
-      fetchItems();
-    }
+    if (hasPermission) fetchItems();
   }, [searchTerm, page, hasPermission, fetchItems]);
 
-  const handleOpen = async (item = null) => {
+  const handleOpenDialog = async (item = null) => {
     if (!hasPermission) {
-      setError('⚠️ You do not have permission to view items.');
+      setError('⚠️ You do not have permission to view Item Master.');
       return;
     }
     try {
       const action = item ? 'update_item' : 'create_item';
-      const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
-      if (!actionResponse.data.allowed) {
-        setError(`⚠️ You do not have permission to ${item ? 'update' : 'create'} items: ${actionResponse.data.reason || 'No reason provided'}`);
+      const actionRes = await API.get(`/auth/permissions/action/${action}/`);
+      if (!actionRes.data.allowed) {
+        setError(`⚠️ You do not have permission to ${item ? 'update' : 'create'} items.`);
         return;
       }
-      if (item) {
-        setNewItem({
-          name: item.name || '', quantity: item.quantity?.toString() || '', part_number: item.part_number || '',
-          manufacturer: item.manufacturer || '', contact: item.contact || '', batch: item.batch || '',
-          expiry_date: item.expiry_date || '', custom_fields: item.custom_fields || { Material: '', Grade: '' },
-        });
-        setEditId(item.id);
-      } else {
-        setNewItem({
-          name: '', quantity: '', part_number: '', manufacturer: '', contact: '',
-          batch: '', expiry_date: '', custom_fields: { Material: '', Grade: '' },
-        });
-        setEditId(null);
-      }
-      setOpen(true);
+      
+      // FIX: When creating new item, reserved_quantity must be 0
+      const reservedQuantity = item ? item.reserved_quantity?.toString() || '0' : '0';
+      
+      setFormData(item ? {
+        name: item.name || '',
+        part_number: item.part_number || '',
+        manufacturer: item.manufacturer || '',
+        contact: item.contact || '',
+        batch: item.batch || '',
+        expiry_date: item.expiry_date || '',
+        min_stock_level: item.min_stock_level?.toString() || '0',
+        reserved_quantity: reservedQuantity,
+        custom_fields: item.custom_fields || { Material: '', Grade: '' }
+      } : {
+        name: '', part_number: '', manufacturer: '', contact: '',
+        batch: '', expiry_date: '', min_stock_level: '0', reserved_quantity: '0', // Fixed: always 0 for new items
+        custom_fields: { Material: '', Grade: '' }
+      });
+      setEditId(item ? item.id : null);
+      setOpenDialog(true);
     } catch (err) {
-      console.error(`Error checking ${item ? 'update' : 'create'} permission:`, err.response?.data || err.message);
       setError(`❌ Failed to check ${item ? 'update' : 'create'} permission: ${err.response?.data?.detail || err.message}`);
     }
   };
 
-  const handleClose = () => {
-    setOpen(false);
-    setNewItem({
-      name: '', quantity: '', part_number: '', manufacturer: '', contact: '',
-      batch: '', expiry_date: '', custom_fields: { Material: '', Grade: '' },
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setFormData({
+      name: '', part_number: '', manufacturer: '', contact: '',
+      batch: '', expiry_date: '', min_stock_level: '0', reserved_quantity: '0',
+      custom_fields: { Material: '', Grade: '' }
     });
     setEditId(null);
     setError('');
@@ -166,11 +249,11 @@ export default function ItemMaster() {
       return;
     }
     setDeleteId(id);
-    setDeleteOpen(true);
+    setOpenDeleteDialog(true);
   };
 
   const handleDeleteClose = () => {
-    setDeleteOpen(false);
+    setOpenDeleteDialog(false);
     setDeleteId(null);
     setError('');
     setSuccess('');
@@ -178,136 +261,340 @@ export default function ItemMaster() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    if (name.includes('custom.')) {
+    if (name.startsWith('custom.')) {
       const field = name.split('.')[1];
-      setNewItem((prev) => ({
+      setFormData((prev) => ({
         ...prev,
-        custom_fields: { ...prev.custom_fields, [field]: value },
+        custom_fields: { ...prev.custom_fields, [field]: value }
       }));
     } else {
-      setNewItem((prev) => ({ ...prev, [name]: value }));
+      setFormData((prev) => ({ ...prev, [name]: value }));
     }
   };
 
-  const handleSaveItem = async () => {
-    const { name, quantity, part_number, manufacturer, contact, batch, expiry_date, custom_fields } = newItem;
-    if (!name || !quantity || !part_number || !manufacturer || !contact || !batch || !expiry_date || !custom_fields.Material || !custom_fields.Grade) {
-      setError('⚠️ Please fill in all fields.');
+  const handleSave = async () => {
+    const { name, part_number, manufacturer, contact, min_stock_level, reserved_quantity, custom_fields } = formData;
+    if (!name || !part_number || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
+      setError('⚠️ Please fill in all required fields.');
       return;
     }
-    if (Number(quantity) <= 0) {
-      setError('⚠️ Quantity must be a positive number.');
+    if (Number(min_stock_level) < 0 || Number(reserved_quantity) < 0) {
+      setError('⚠️ Stock levels cannot be negative.');
       return;
     }
+    
+    // FIX: Validate reserved quantity for new items
+    if (!editId && Number(reserved_quantity) > 0) {
+      setError('⚠️ Reserved quantity must be 0 when creating a new item.');
+      return;
+    }
+    
     try {
-      const payload = { ...newItem, quantity: Number(quantity), custom_fields: JSON.stringify(custom_fields) }; // Ensure JSON string for backend
+      const payload = {
+        name,
+        part_number,
+        manufacturer,
+        contact,
+        batch: formData.batch || null,
+        expiry_date: formData.expiry_date || null,
+        min_stock_level: Number(min_stock_level),
+        reserved_quantity: Number(reserved_quantity),
+        custom_fields
+      };
+      
       if (editId) {
-        await API.patch(`inventory/items/${editId}/`, payload);
+        await API.patch(`inventory/items/${editId}/`, payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        });
         setSuccess('✅ Item updated successfully');
       } else {
-        await API.post('inventory/items/', payload);
+        await API.post('inventory/items/', payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+        });
         setSuccess('✅ Item created successfully');
       }
-      handleClose();
       fetchItems();
+      handleCloseDialog();
     } catch (err) {
-      console.error(`${editId ? 'Updating' : 'Adding'} item error:`, err.response?.data || err.message);
-      let errorMsg = `Failed to ${editId ? 'update' : 'add'} item: Unable to process request.`;
-      if (err.response?.status === 403) errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
-      else if (err.response?.status === 400 && err.response?.data) errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
-      else if (err.response?.data?.detail) errorMsg = err.response.data.detail;
-      setError(`❌ ${errorMsg}`);
+      let errorMsg = `❌ Failed to ${editId ? 'update' : 'create'} item: ${err.response?.data?.detail || err.message}`;
+      if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
+      } else if (err.response?.status === 403) {
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      }
+      setError(errorMsg);
     }
   };
 
   const handleDelete = async () => {
     try {
-      await API.delete(`inventory/items/${deleteId}/`);
+      await API.delete(`inventory/items/${deleteId}/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+      });
       setSuccess('✅ Item deleted successfully');
       handleDeleteClose();
       fetchItems();
     } catch (err) {
-      console.error('Error deleting item:', err.response?.data || err.message);
-      let errorMsg = 'Failed to delete item: Unable to process request.';
-      if (err.response?.status === 403) errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
-      else if (err.response?.data?.detail) errorMsg = err.response.data.detail;
-      setError(`❌ ${errorMsg}`);
+      let errorMsg = `❌ Failed to delete item: ${err.response?.data?.detail || err.message}`;
+      if (err.response?.status === 400 && err.response?.data) {
+        errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
+      } else if (err.response?.status === 403) {
+        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      }
+      setError(errorMsg);
     }
   };
 
-  if (checkingPermissions) return <Container><Typography variant="h6" sx={{ mt: 4 }}>Loading permissions...</Typography></Container>;
-  if (!hasPermission) return <Container><Alert severity="error" sx={{ mt: 4 }} onClose={() => setError('')}>{error || '⚠️ You do not have permission to view this page.'}</Alert></Container>;
+  const chartData = items.map(item => ({
+    name: item.name,
+    total_quantity: item.total_quantity || 0,
+    available_quantity: item.available_quantity || 0
+  }));
+
+  if (checkingPermissions) return <Container><Typography variant="h6" sx={{ mt: 4 }}>Loading...</Typography></Container>;
+  if (!hasPermission) return <Container><Alert severity="error" sx={{ mt: 4 }} onClose={() => setError('')}>{error || '⚠️ You do not have permission to view Item Master.'}</Alert></Container>;
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+      {error && !openDialog && !openDeleteDialog && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
+      {success && !openDialog && !openDeleteDialog && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+          {success}
+        </Alert>
+      )}
+      
       <Typography variant="h4" gutterBottom>Item Master</Typography>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={2}>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpen()} disabled={!hasCreatePermission}>Add New Item</Button>
+      
+      <Accordion sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="h6">Item Master Tutorial & Analytics</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body1" paragraph>
+            <strong>💡 Tip:</strong> Click on any row to expand and see full item details including contact information, expiry dates, and custom fields.
+          </Typography>
+          <Box sx={{ mt: 2, height: 300 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="total_quantity" fill="#8884d8" name="Total Quantity" />
+                <Bar dataKey="available_quantity" fill="#82ca9d" name="Available Quantity" />
+              </BarChart>
+            </ResponsiveContainer>
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+
+      <Box display="flex" justifyContent="space-between" mb={2}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()} disabled={!hasCreatePermission}>
+          Add Item
+        </Button>
+        <Button onClick={() => window.location.href = '/inventory/stock-in-out'} variant="outlined">
+          Manage Stock
+        </Button>
       </Box>
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="h6" gutterBottom>Item Registry</Typography>
+
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+          💡 Click on any row to view complete item details including contact information, expiry dates, and custom fields
+        </Typography>
+
         <Table>
-          <TableHead><TableRow><TableCell><strong>Name</strong></TableCell><TableCell><strong>Part Number</strong></TableCell><TableCell><strong>Manufacturer</strong></TableCell><TableCell><strong>Contact</strong></TableCell><TableCell><strong>Batch</strong></TableCell><TableCell><strong>Expiry Date</strong></TableCell><TableCell><strong>Material</strong></TableCell><TableCell><strong>Grade</strong></TableCell><TableCell><strong>Actions</strong></TableCell></TableRow></TableHead>
+          <TableHead>
+            <TableRow>
+              <TableCell></TableCell>
+              <TableCell><strong>Name</strong></TableCell>
+              <TableCell><strong>Part Number</strong></TableCell>
+              <TableCell><strong>Manufacturer</strong></TableCell>
+              <TableCell><strong>Batch</strong></TableCell>
+              <TableCell><strong>Total Qty</strong></TableCell>
+              <TableCell><strong>Available Qty</strong></TableCell>
+              <TableCell><strong>Actions</strong></TableCell>
+            </TableRow>
+          </TableHead>
           <TableBody>
             {items.length > 0 ? items.map((item) => (
-              <TableRow key={item.id} hover sx={{ cursor: 'pointer', transition: 'background-color 0.2s ease-in-out', '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.name}</TableCell>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.part_number}</TableCell>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.manufacturer}</TableCell>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.contact}</TableCell>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.batch}</TableCell>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.expiry_date || '—'}</TableCell>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.custom_fields?.Material || '—'}</TableCell>
-                <TableCell onClick={() => { setSelectedItem(item); setOpenViewModal(true); }}>{item.custom_fields?.Grade || '—'}</TableCell>
-                <TableCell>
-                  <IconButton onClick={() => handleOpen(item)} disabled={!hasUpdatePermission}><EditIcon /></IconButton>
-                  <IconButton onClick={() => handleDeleteOpen(item.id)} disabled={!hasDeletePermission}><DeleteIcon /></IconButton>
+              <ItemRow 
+                key={item.id} 
+                item={item} 
+                onEdit={handleOpenDialog}
+                onDelete={handleDeleteOpen}
+              />
+            )) : (
+              <TableRow>
+                <TableCell colSpan={8} align="center">
+                  <Typography variant="body2" color="textSecondary">
+                    No items found.
+                  </Typography>
                 </TableCell>
               </TableRow>
-            )) : <TableRow><TableCell colSpan={9} align="center">No items found.</TableCell></TableRow>}
+            )}
           </TableBody>
         </Table>
-        <Box mt={3} display="flex" justifyContent="center"><Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" /></Box>
+
+        <Box mt={3} display="flex" justifyContent="center">
+          <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
+        </Box>
       </Paper>
-      <Modal open={openViewModal} onClose={() => setOpenViewModal(false)}>
-        <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 400, bgcolor: 'background.paper', borderRadius: 2, boxShadow: 24, p: 4, outline: 'none' }}>
-          {selectedItem && (
-            <>
-              <Typography variant="h6" gutterBottom>Item Details: {selectedItem.name}</Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Typography variant="body2" gutterBottom><strong>Quantity:</strong> {selectedItem.quantity}</Typography>
-              <Typography variant="body2" gutterBottom><strong>Part Number:</strong> {selectedItem.part_number}</Typography>
-              <Typography variant="body2" gutterBottom><strong>Manufacturer:</strong> {selectedItem.manufacturer}</Typography>
-              <Typography variant="body2" gutterBottom><strong>Contact:</strong> {selectedItem.contact}</Typography>
-              <Typography variant="body2" gutterBottom><strong>Batch:</strong> {selectedItem.batch}</Typography>
-              <Typography variant="body2" gutterBottom><strong>Expiry Date:</strong> {selectedItem.expiry_date || '—'}</Typography>
-              <Typography variant="body2" gutterBottom><strong>Material:</strong> {selectedItem.custom_fields?.Material || '—'}</Typography>
-              <Typography variant="body2" gutterBottom><strong>Grade:</strong> {selectedItem.custom_fields?.Grade || '—'}</Typography>
-              <Box sx={{ mt: 3, textAlign: 'right' }}><Button onClick={() => setOpenViewModal(false)} variant="contained">Close</Button></Box>
-            </>
+
+      {/* Enhanced Form Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+        <DialogTitle>
+          {editId ? '✏️ Update Item' : '➕ Add New Item'}
+          {editId && ` (ID: ${editId})`}
+        </DialogTitle>
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
           )}
-        </Box>
-      </Modal>
-      <Modal open={open} onClose={handleClose}>
-        <Box sx={modalStyle}>
-          <Typography variant="h6" gutterBottom>{editId ? 'Update Item' : 'Add New Item'}</Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={4}><TextField label="Item Name" name="name" value={newItem.name} onChange={handleChange} fullWidth required error={newItem.name === '' && error.includes('fill in all fields')} helperText={newItem.name === '' && error.includes('fill in all fields') ? 'Item name is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Quantity" name="quantity" type="number" value={newItem.quantity} onChange={handleChange} fullWidth required error={newItem.quantity === '' && error.includes('fill in all fields')} helperText={newItem.quantity === '' && error.includes('fill in all fields') ? 'Quantity is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Part Number" name="part_number" value={newItem.part_number} onChange={handleChange} fullWidth required error={newItem.part_number === '' && error.includes('fill in all fields')} helperText={newItem.part_number === '' && error.includes('fill in all fields') ? 'Part number is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Manufacturer" name="manufacturer" value={newItem.manufacturer} onChange={handleChange} fullWidth required error={newItem.manufacturer === '' && error.includes('fill in all fields')} helperText={newItem.manufacturer === '' && error.includes('fill in all fields') ? 'Manufacturer is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Contact" name="contact" value={newItem.contact} onChange={handleChange} fullWidth required error={newItem.contact === '' && error.includes('fill in all fields')} helperText={newItem.contact === '' && error.includes('fill in all fields') ? 'Contact is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Batch Number" name="batch" value={newItem.batch} onChange={handleChange} fullWidth required error={newItem.batch === '' && error.includes('fill in all fields')} helperText={newItem.batch === '' && error.includes('fill in all fields') ? 'Batch number is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Expiry Date" name="expiry_date" type="date" value={newItem.expiry_date} onChange={handleChange} fullWidth InputLabelProps={{ shrink: true }} required error={newItem.expiry_date === '' && error.includes('fill in all fields')} helperText={newItem.expiry_date === '' && error.includes('fill in all fields') ? 'Expiry date is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Material" name="custom.Material" value={newItem.custom_fields.Material} onChange={handleChange} fullWidth required error={newItem.custom_fields.Material === '' && error.includes('fill in all fields')} helperText={newItem.custom_fields.Material === '' && error.includes('fill in all fields') ? 'Material is required' : ''} /></Grid>
-            <Grid item xs={12} md={4}><TextField label="Grade" name="custom.Grade" value={newItem.custom_fields.Grade} onChange={handleChange} fullWidth required error={newItem.custom_fields.Grade === '' && error.includes('fill in all fields')} helperText={newItem.custom_fields.Grade === '' && error.includes('fill in all fields') ? 'Grade is required' : ''} /></Grid>
-            <Grid item xs={12}><Box sx={{ mt: 2, textAlign: 'right' }}><Button onClick={handleClose} sx={{ mr: 1 }}>Cancel</Button><Button variant="contained" onClick={handleSaveItem}>{editId ? 'Update Item' : 'Save Item'}</Button></Box></Grid>
+          
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Name *"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Part Number *"
+                name="part_number"
+                value={formData.part_number}
+                onChange={handleChange}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Manufacturer *"
+                name="manufacturer"
+                value={formData.manufacturer}
+                onChange={handleChange}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Contact *"
+                name="contact"
+                value={formData.contact}
+                onChange={handleChange}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Batch"
+                name="batch"
+                value={formData.batch}
+                onChange={handleChange}
+                fullWidth
+                placeholder="Optional batch number"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Expiry Date"
+                name="expiry_date"
+                type="date"
+                value={formData.expiry_date}
+                onChange={handleChange}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Min Stock Level *"
+                name="min_stock_level"
+                type="number"
+                value={formData.min_stock_level}
+                onChange={handleChange}
+                fullWidth
+                required
+                inputProps={{ min: 0 }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Reserved Quantity *"
+                name="reserved_quantity"
+                type="number"
+                value={formData.reserved_quantity}
+                onChange={handleChange}
+                fullWidth
+                required
+                inputProps={{ min: 0 }}
+                disabled={!editId} // Disable for new items, enable for updates
+                helperText={!editId ? "Set to 0 for new items" : "Can be adjusted for existing items"}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Material *"
+                name="custom.Material"
+                value={formData.custom_fields.Material}
+                onChange={handleChange}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required>
+                <InputLabel>Grade *</InputLabel>
+                <Select
+                  name="custom.Grade"
+                  value={formData.custom_fields.Grade}
+                  onChange={handleChange}
+                  label="Grade *"
+                >
+                  {grades.map((grade) => (
+                    <MenuItem key={grade} value={grade}>{grade}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
           </Grid>
-        </Box>
-      </Modal>
-      <Dialog open={deleteOpen} onClose={handleDeleteClose}><DialogTitle>Confirm Delete</DialogTitle><DialogContent><DialogContentText>Action cannot be reversed, are you sure you want to continue?</DialogContentText></DialogContent><DialogActions><Button onClick={handleDeleteClose}>Cancel</Button><Button onClick={handleDelete} color="error" variant="contained">Delete</Button></DialogActions></Dialog>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog}>Cancel</Button>
+          <Button variant="contained" onClick={handleSave} size="large">
+            {editId ? 'Update Item' : 'Create Item'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openDeleteDialog} onClose={handleDeleteClose}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          <Typography>Are you sure you want to delete this item? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteClose}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Grid,
   Typography,
   Paper,
   Container,
-  Stack,
   Chip,
   Button,
   Dialog,
@@ -17,6 +16,10 @@ import {
   Menu,
   MenuItem,
   IconButton,
+  LinearProgress,
+  Skeleton,
+  useTheme,
+  alpha
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
@@ -24,8 +27,17 @@ import {
   Lock as LockIcon,
   Edit as EditIcon,
   MoreHoriz as MoreHorizIcon,
+  TrendingUp as TrendingUpIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  Storage as StorageIcon,
+  LocalShipping as LocalShippingIcon,
+  Receipt as ReceiptIcon,
+  BarChart as BarChartIcon,
+  PieChart as PieChartIcon,
+  Timeline as TimelineIcon
 } from '@mui/icons-material';
-import { Line } from 'react-chartjs-2';
+import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import api from '../api';
 import {
   Chart as ChartJS,
@@ -33,15 +45,30 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
+  ArcElement,
   Title,
   Tooltip,
   Legend,
+  Filler
 } from 'chart.js';
 
-// Register ChartJS components
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+// Register all ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
-export default function Dashboard() {
+const Dashboard = () => {
+  const theme = useTheme();
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openPasswordModal, setOpenPasswordModal] = useState(false);
@@ -57,26 +84,35 @@ export default function Dashboard() {
   const [locationError, setLocationError] = useState('');
   const [anchorEl, setAnchorEl] = useState(null);
   const [stockData, setStockData] = useState({ labels: [], datasets: [] });
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [alerts, setAlerts] = useState([]);
 
+  // Quick actions with icons
   const quickActions = [
-    { label: 'Create Order', link: '/dashboard/procurement/orders' },
-    { label: 'Receive Stock', link: '/dashboard/inventory/stock' },
-    { label: 'Generate Report', link: '/dashboard/analytics/stock' },
-    { label: 'New Audit', link: '/dashboard/audit' },
+    { label: 'Create Order', link: '/dashboard/procurement/orders', icon: <LocalShippingIcon /> },
+    { label: 'Receive Stock', link: '/dashboard/inventory/stock', icon: <ReceiptIcon /> },
+    { label: 'Generate Report', link: '/dashboard/analytics/stock', icon: <BarChartIcon /> },
+    { label: 'New Audit', link: '/dashboard/audit', icon: <InventoryIcon /> },
   ];
+
+  // Metric configuration with icons and colors
+  const metricConfig = {
+    1: { icon: <InventoryIcon />, color: '#4361ee', title: 'Total Items' },
+    2: { icon: <StorageIcon />, color: '#3f37c9', title: 'Total Bins' },
+    4: { icon: <TimelineIcon />, color: '#4895ef', title: 'Total Movements' },
+    5: { icon: <WarningIcon />, color: '#f72585', title: 'Expired Items' },
+  };
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const res = await api.get('/inventory/metrics/', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
-        });
-        const filteredMetrics = res.data.filter(metric => metric.id !== 3);
+        // Fetch metrics
+        const metricsRes = await api.get('/inventory/metrics/');
+        const filteredMetrics = metricsRes.data.filter(metric => metric.id !== 3);
         setMetrics(filteredMetrics || []);
 
-        const stockRes = await api.get('/inventory/stocks/', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
-        });
+        // Fetch stock data
+        const stockRes = await api.get('/inventory/stocks/');
         const records = stockRes.data.results || [];
         const groupedData = records.reduce((acc, record) => {
           const date = new Date(record.created_at).toLocaleDateString();
@@ -92,12 +128,24 @@ export default function Dashboard() {
             {
               label: 'Stock Level',
               data,
-              fill: false,
-              borderColor: 'rgb(75, 192, 192)',
-              tension: 0.1,
+              fill: true,
+              borderColor: theme.palette.primary.main,
+              backgroundColor: alpha(theme.palette.primary.main, 0.1),
+              tension: 0.4,
+              pointRadius: 3,
+              pointBackgroundColor: theme.palette.primary.main,
             },
           ],
         });
+
+        // Fetch analytics data
+        const analyticsRes = await api.get('/inventory/analytics/');
+        setAnalyticsData(analyticsRes.data);
+
+        // Fetch alerts
+        const alertsRes = await api.get('/inventory/alerts/');
+        setAlerts(alertsRes.data.results || []);
+
       } catch (err) {
         setLocationError('Failed to fetch dashboard metrics.');
       } finally {
@@ -111,11 +159,7 @@ export default function Dashboard() {
           async (position) => {
             const { latitude, longitude } = position.coords;
             try {
-              const res = await api.post(
-                '/auth/update_location/',
-                { latitude, longitude },
-                { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
-              );
+              const res = await api.post('/auth/update_location/', { latitude, longitude });
               setProfileData((prev) => ({ ...prev, state: res.data.state || 'Lagos' }));
             } catch (err) {
               setLocationError('Please allow location access or select state manually.');
@@ -139,9 +183,7 @@ export default function Dashboard() {
     if (openProfileModal) {
       const fetchProfileData = async () => {
         try {
-          const res = await api.get('/auth/profile/', {
-            headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
-          });
+          const res = await api.get('/auth/profile/');
           setProfileData({
             full_name: res.data.full_name || '',
             state: res.data.state || 'Lagos',
@@ -185,9 +227,7 @@ export default function Dashboard() {
 
     try {
       setProfileLoading(true);
-      await api.patch('/auth/profile/', { full_name: profileData.full_name }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
-      });
+      await api.patch('/auth/profile/', { full_name: profileData.full_name });
       setProfileSuccess('✅ Profile updated successfully.');
       setProfileError('');
       setOpenProfileModal(false);
@@ -213,30 +253,159 @@ export default function Dashboard() {
     handleMenuClose();
   };
 
-  if (loading) return <p style={{ padding: 20 }}>Loading dashboard metrics...</p>;
+  // Chart options
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { 
+        position: 'top',
+        labels: {
+          padding: 20,
+          usePointStyle: true,
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        titleFont: { size: 14 },
+        bodyFont: { size: 12 },
+        padding: 12,
+        displayColors: true,
+      }
+    },
+    interaction: {
+      intersect: false,
+      mode: 'index',
+    }
+  };
+
+  // Stock chart options
+  const stockChartOptions = {
+    ...chartOptions,
+    scales: {
+      x: { 
+        grid: { 
+          color: alpha(theme.palette.divider, 0.2) 
+        },
+        ticks: { 
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 10 
+        }
+      },
+      y: { 
+        beginAtZero: true,
+        grid: { 
+          color: alpha(theme.palette.divider, 0.2) 
+        }
+      }
+    }
+  };
+
+  // Analytics charts
+  const turnoverData = useMemo(() => ({
+    labels: ['Turnover Rate'],
+    datasets: [{
+      label: 'Current',
+      data: [analyticsData?.turnover_rate || 0],
+      backgroundColor: [theme.palette.primary.main],
+      borderColor: [theme.palette.primary.dark],
+      borderWidth: 1,
+    }]
+  }), [analyticsData]);
+
+  const binUsageData = useMemo(() => ({
+    labels: analyticsData?.most_used_bins?.map(bin => bin.bin_id) || [],
+    datasets: [{
+      label: 'Movement Count',
+      data: analyticsData?.most_used_bins?.map(bin => bin.movement_count) || [],
+      backgroundColor: theme.palette.primary.main,
+      borderColor: theme.palette.primary.dark,
+      borderWidth: 1,
+    }]
+  }), [analyticsData]);
+
+  const alertsData = useMemo(() => {
+    if (!analyticsData?.alerts_over_time) return { labels: [], datasets: [] };
+    
+    const alertTypes = analyticsData.alerts_over_time.reduce((acc, alert) => {
+      acc[alert.alert_type] = alert.count;
+      return acc;
+    }, {});
+    
+    return {
+      labels: Object.keys(alertTypes),
+      datasets: [{
+        data: Object.values(alertTypes),
+        backgroundColor: [
+          theme.palette.warning.main,
+          theme.palette.error.main
+        ],
+        borderColor: [
+          theme.palette.warning.dark,
+          theme.palette.error.dark
+        ],
+        borderWidth: 1,
+      }]
+    };
+  }, [analyticsData]);
+
+  if (loading) {
+    return (
+      <Container maxWidth="xl" sx={{ mt: 4, px: 0 }}>
+        <Box sx={{ mb: 4, px: 3 }}>
+          <Skeleton variant="text" width={300} height={40} />
+          <Skeleton variant="text" width={200} height={20} />
+        </Box>
+        <Grid container spacing={3} sx={{ mb: 3, px: 3 }}>
+          {[1, 2, 3, 4].map((i) => (
+            <Grid item xs={12} md={3} key={i}>
+              <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 2 }} />
+            </Grid>
+          ))}
+        </Grid>
+        <Grid container spacing={3} sx={{ px: 3 }}>
+          <Grid item xs={12} md={8}>
+            <Skeleton variant="rectangular" height={400} sx={{ borderRadius: 2 }} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Skeleton variant="rectangular" height={400} sx={{ borderRadius: 2, mb: 3 }} />
+            <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 2 }} />
+          </Grid>
+        </Grid>
+      </Container>
+    );
+  }
 
   return (
-    <Container sx={{ mt: 4, mb: 4, px: 0, width: '100vw', maxWidth: '100%' }}>
-      <Box sx={{ mb: 4, px: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <Container maxWidth="xl" sx={{ mt: 4, px: 0 }}>
+      {/* Header */}
+      <Box sx={{ mb: 4, px: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Box>
-          <Typography variant="h6" fontWeight={500} gutterBottom>
-            Inventory Overview
+          <Typography variant="h4" fontWeight={700} gutterBottom>
+            Inventory Dashboard
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Real-time monitoring and analytics
+          <Typography variant="body1" color="text.secondary">
+            Real-time monitoring and analytics for optimal inventory management
           </Typography>
           {locationError && (
-            <Alert severity="warning" sx={{ mt: 2 }}>
+            <Alert severity="warning" sx={{ mt: 2, maxWidth: 600 }}>
               {locationError}
             </Alert>
           )}
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            color="primary"
-            sx={{ textTransform: 'none', mr: 2 }}
+            sx={{ 
+              textTransform: 'none',
+              borderRadius: 2,
+              px: 3,
+              py: 1.5,
+              boxShadow: 3,
+              '&:hover': { boxShadow: 6 }
+            }}
             onClick={() => window.location.href = '/receipt/create'}
           >
             Create Receipt
@@ -245,7 +414,7 @@ export default function Dashboard() {
             variant="outlined"
             startIcon={<LockIcon />}
             onClick={() => setOpenPasswordModal(true)}
-            sx={{ mr: 2 }}
+            sx={{ borderRadius: 2, px: 2, py: 1.5 }}
           >
             Change Password
           </Button>
@@ -253,12 +422,22 @@ export default function Dashboard() {
             variant="outlined"
             startIcon={<EditIcon />}
             onClick={() => setOpenProfileModal(true)}
+            sx={{ borderRadius: 2, px: 2, py: 1.5 }}
           >
-            Edit User Profile
+            Edit Profile
           </Button>
           <IconButton
             onClick={handleMenuOpen}
-            sx={{ color: '#757575', ml: 1 }}
+            sx={{ 
+              color: theme.palette.text.secondary,
+              borderRadius: 2,
+              p: 1.5,
+              border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+              '&:hover': { 
+                backgroundColor: alpha(theme.palette.action.hover, 0.1),
+                borderColor: theme.palette.divider
+              }
+            }}
           >
             <MoreHorizIcon />
           </IconButton>
@@ -267,107 +446,262 @@ export default function Dashboard() {
             open={Boolean(anchorEl)}
             onClose={handleMenuClose}
             PaperProps={{
-              sx: { width: 200, mt: 1 },
+              sx: { 
+                width: 220, 
+                mt: 1,
+                borderRadius: 2,
+                boxShadow: 3
+              },
             }}
           >
             {quickActions.map((action) => (
               <MenuItem
                 key={action.label}
                 onClick={() => handleActionSelect(action.link)}
+                sx={{ 
+                  py: 1.5,
+                  '&:hover': { 
+                    backgroundColor: alpha(theme.palette.primary.main, 0.08) 
+                  }
+                }}
               >
-                {action.label}
+                {action.icon}
+                <Typography sx={{ ml: 2 }}>{action.label}</Typography>
               </MenuItem>
             ))}
           </Menu>
         </Box>
       </Box>
 
-      <Grid container spacing={3} sx={{ mb: 3, px: 3 }}>
-        {metrics.map((metric) => (
-          <Grid item xs={12} md={3} key={metric.id}>
-            <Paper
-              elevation={2}
-              sx={{
-                p: 3,
-                height: '100%',
-                width: '100%',
-                minWidth: '250px',
-                borderRadius: 8,
-                transition: 'transform 0.2s',
-                '&:hover': { transform: 'translateY(-4px)' },
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={2} mb={2}>
-                <Box sx={{
-                  p: 1.5,
-                  borderRadius: '50%',
-                  border: '1px solid',
-                  color: 'text.primary',
-                  display: 'flex',
-                }}>
-                  <InventoryIcon />
+      {/* Metrics Cards */}
+      <Grid container spacing={3} sx={{ mb: 4, px: 3 }}>
+        {metrics.map((metric) => {
+          const config = metricConfig[metric.id] || { icon: <InventoryIcon />, color: '#6c757d' };
+          return (
+            <Grid item xs={12} sm={6} md={3} key={metric.id}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 3,
+                  height: '100%',
+                  borderRadius: 3,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+                  transition: 'all 0.3s ease',
+                  '&:hover': { 
+                    transform: 'translateY(-4px)',
+                    boxShadow: 4,
+                    borderColor: alpha(config.color, 0.3)
+                  },
+                  background: `linear-gradient(135deg, ${alpha(config.color, 0.05)} 0%, ${alpha(config.color, 0.02)} 100%)`
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <Box sx={{
+                    p: 1.5,
+                    borderRadius: '12px',
+                    backgroundColor: alpha(config.color, 0.15),
+                    color: config.color,
+                    display: 'flex',
+                    mr: 2
+                  }}>
+                    {config.icon}
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                    {config.title}
+                  </Typography>
                 </Box>
-                <Typography variant="body2" color="text.secondary">
-                  {metric.title}
-                </Typography>
-              </Stack>
-              <Stack direction="row" alignItems="baseline" spacing={1}>
-                <Typography variant="h4" fontWeight={700}>
-                  {metric.value}
-                </Typography>
-                <Chip
-                  label={metric.change}
-                  size="small"
-                  color={
-                    metric.trend === 'up' ? 'success' :
+                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                  <Typography variant="h3" fontWeight={700} sx={{ color: config.color }}>
+                    {metric.value}
+                  </Typography>
+                  <Chip
+                    label={metric.change}
+                    size="small"
+                    color={
+                      metric.trend === 'up' ? 'success' :
                       metric.trend === 'down' ? 'error' : 'default'
-                  }
-                  variant="outlined"
-                />
-              </Stack>
-            </Paper>
-          </Grid>
-        ))}
+                    }
+                    variant="filled"
+                    sx={{ 
+                      fontWeight: 600,
+                      height: 24,
+                      fontSize: '0.75rem'
+                    }}
+                  />
+                </Box>
+              </Paper>
+            </Grid>
+          );
+        })}
       </Grid>
 
-      <Grid container spacing={3} sx={{ width: '100%', mb: 3 }}>
-        <Grid item xs={12}>
-          <Paper elevation={3} sx={{
+      {/* Charts Section */}
+      <Grid container spacing={3} sx={{ px: 3, mb: 4 }}>
+        {/* Stock Tracking Chart */}
+        <Grid item xs={12} md={8}>
+          <Paper elevation={0} sx={{
             p: 3,
-            borderRadius: 8,
-            backgroundColor: '#fff',
-            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
             height: '100%',
             display: 'flex',
-            flexDirection: 'column',
-            width: '100%',
+            flexDirection: 'column'
           }}>
-            <Typography variant="h6" fontWeight={500} gutterBottom>
-              Stock Tracking
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h6" fontWeight={600}>
+                Stock Levels Over Time
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Chip 
+                  icon={<TrendingUpIcon />} 
+                  label="30 Days" 
+                  size="small" 
+                  color="primary" 
+                  variant="filled" 
+                />
+              </Box>
+            </Box>
+            <Box sx={{ flexGrow: 1, minHeight: 400 }}>
+              <Line data={stockData} options={stockChartOptions} />
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Alerts Summary */}
+        <Grid item xs={12} md={4}>
+          <Paper elevation={0} sx={{
+            p: 3,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <Typography variant="h6" fontWeight={600} gutterBottom>
+              Active Alerts
             </Typography>
-            <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 900, width: '100%' }}>
-              <Line
-                data={stockData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { position: 'top' },
-                    title: { display: true, text: 'Stock Levels Over Time' },
-                  },
-                  scales: {
-                    x: { title: { display: true, text: 'Date' } },
-                    y: { title: { display: true, text: 'Quantity' }, beginAtZero: true },
-                  },
-                }}
-              />
+            <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+              {alerts.length > 0 ? (
+                <Box sx={{ overflow: 'auto', maxHeight: 300 }}>
+                  {alerts.slice(0, 5).map((alert, index) => (
+                    <Box 
+                      key={index} 
+                      sx={{ 
+                        p: 2, 
+                        mb: 1, 
+                        borderRadius: 2, 
+                        backgroundColor: alpha(
+                          alert.alert_type === 'CRITICAL' ? theme.palette.error.main : theme.palette.warning.main, 
+                          0.1
+                        ),
+                        borderLeft: `4px solid ${
+                          alert.alert_type === 'CRITICAL' ? theme.palette.error.main : theme.palette.warning.main
+                        }`
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        {alert.alert_type === 'CRITICAL' ? (
+                          <WarningIcon sx={{ color: theme.palette.error.main, mr: 1 }} />
+                        ) : (
+                          <CheckCircleIcon sx={{ color: theme.palette.warning.main, mr: 1 }} />
+                        )}
+                        <Typography variant="subtitle2" fontWeight={600}>
+                          {alert.alert_type}
+                        </Typography>
+                      </Box>
+                      <Typography variant="body2" color="text.secondary">
+                        {alert.message}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexGrow: 1, py: 2 }}>
+                  <CheckCircleIcon sx={{ fontSize: 40, color: theme.palette.success.main, mb: 1 }} />
+                  <Typography variant="body2" color="text.secondary">
+                    No active alerts
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Analytics Charts */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={0} sx={{
+            p: 3,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <Typography variant="h6" fontWeight={600} gutterBottom>
+              Bin Usage Distribution
+            </Typography>
+            <Box sx={{ flexGrow: 1, minHeight: 300 }}>
+              {binUsageData.labels.length > 0 ? (
+                <Bar data={binUsageData} options={chartOptions} />
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No bin usage data available
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Paper elevation={0} sx={{
+            p: 3,
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <Typography variant="h6" fontWeight={600} gutterBottom>
+              Alert Types Distribution
+            </Typography>
+            <Box sx={{ flexGrow: 1, minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {alertsData.labels.length > 0 ? (
+                <Doughnut 
+                  data={alertsData} 
+                  options={{
+                    ...chartOptions,
+                    cutout: '60%',
+                    plugins: {
+                      ...chartOptions.plugins,
+                      legend: {
+                        ...chartOptions.plugins.legend,
+                        position: 'right'
+                      }
+                    }
+                  }} 
+                />
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No alert data available
+                  </Typography>
+                </Box>
+              )}
             </Box>
           </Paper>
         </Grid>
       </Grid>
 
-      <Dialog open={openPasswordModal} onClose={() => setOpenPasswordModal(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Change Password</DialogTitle>
+      {/* Password Modal */}
+      <Dialog 
+        open={openPasswordModal} 
+        onClose={() => setOpenPasswordModal(false)} 
+        maxWidth="xs"
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Change Password</DialogTitle>
         <DialogContent sx={{ mt: 1 }}>
           <TextField
             fullWidth
@@ -387,16 +721,29 @@ export default function Dashboard() {
           {passwordError && <Alert severity="error" sx={{ mt: 2 }}>{passwordError}</Alert>}
           {passwordSuccess && <Alert severity="success" sx={{ mt: 2 }}>{passwordSuccess}</Alert>}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenPasswordModal(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handlePasswordChange} disabled={passwordLoading}>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setOpenPasswordModal(false)} sx={{ borderRadius: 2 }}>
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handlePasswordChange} 
+            disabled={passwordLoading}
+            sx={{ borderRadius: 2, px: 3 }}
+          >
             {passwordLoading ? 'Changing...' : 'Change Password'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openProfileModal} onClose={() => setOpenProfileModal(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Edit User Profile</DialogTitle>
+      {/* Profile Modal */}
+      <Dialog 
+        open={openProfileModal} 
+        onClose={() => setOpenProfileModal(false)} 
+        maxWidth="xs"
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Edit User Profile</DialogTitle>
         <DialogContent sx={{ mt: 1 }}>
           <TextField
             fullWidth
@@ -409,13 +756,22 @@ export default function Dashboard() {
           {profileError && <Alert severity="error" sx={{ mt: 2 }}>{profileError}</Alert>}
           {profileSuccess && <Alert severity="success" sx={{ mt: 2 }}>{profileSuccess}</Alert>}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenProfileModal(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleProfileUpdate} disabled={profileLoading}>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setOpenProfileModal(false)} sx={{ borderRadius: 2 }}>
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleProfileUpdate} 
+            disabled={profileLoading}
+            sx={{ borderRadius: 2, px: 3 }}
+          >
             {profileLoading ? 'Updating...' : 'Update Profile'}
           </Button>
         </DialogActions>
       </Dialog>
     </Container>
   );
-}
+};
+
+export default Dashboard;

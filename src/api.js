@@ -51,18 +51,55 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
+// 🔑 Response Interceptor - FIXED VERSION
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 // 🔑 Response Interceptor
 API.interceptors.response.use(
   res => res,
   async error => {
     const originalRequest = error.config;
 
-    if (
-      error.response?.status === 401 &&
-      !originalRequest._retry &&
-      localStorage.getItem('refreshToken')
-    ) {
+    if (error.response?.status === 401) {
+      // Handle logout endpoints separately
+      if (originalRequest.url.includes('auth/logout/')) {
+        handleLogout();
+        return Promise.reject(error);
+      }
+
+      // If already retrying or no refresh token, force logout
+      if (originalRequest._retry || !localStorage.getItem('refreshToken')) {
+        handleLogout();
+        return Promise.reject(error);
+      }
+
+      if (isRefreshing) {
+        // Queue requests while refreshing
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return API(originalRequest);
+        }).catch(err => {
+          return Promise.reject(err);
+        });
+      }
+
       originalRequest._retry = true;
+      isRefreshing = true;
+
       try {
         const refreshRes = await API.post('token/refresh/', {
           refresh: localStorage.getItem('refreshToken'),
@@ -70,13 +107,20 @@ API.interceptors.response.use(
 
         const newAccessToken = refreshRes.data.access;
         localStorage.setItem('accessToken', newAccessToken);
+        
+        // Process queued requests
+        processQueue(null, newAccessToken);
+        isRefreshing = false;
 
+        // Retry original request
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return API(originalRequest);
       } catch (refreshError) {
         console.error('🔒 Token refresh failed:', refreshError);
-        localStorage.clear();
-        window.location.href = '/login';
+        processQueue(refreshError, null);
+        isRefreshing = false;
+        handleLogout();
+        return Promise.reject(refreshError);
       }
     }
 

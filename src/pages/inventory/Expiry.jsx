@@ -1,15 +1,22 @@
-// src/pages/inventory/ExpiryTracking.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Container, Typography, Paper, Table, TableHead, TableBody, TableRow, TableCell,
-  Chip, Button, TextField, InputAdornment, Pagination, Box, Alert, Dialog, DialogTitle,
-  DialogContent, DialogContentText, DialogActions, Grid, IconButton,
+  Chip, TextField, InputAdornment, Pagination, Box, Alert, Grid, Accordion, AccordionSummary, AccordionDetails,
+  LinearProgress
 } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
+import {
+  Search as SearchIcon,
+  Info as InfoIcon,
+  ExpandMore as ExpandMoreIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  LocalPharmacy as LocalPharmacyIcon,
+  CalendarToday as CalendarTodayIcon,
+  BatchPrediction as BatchPredictionIcon,
+  TrendingDown as TrendingDownIcon
+} from '@mui/icons-material';
 import { format, differenceInDays } from 'date-fns';
-import { debounce } from 'lodash'; // Add lodash for debouncing
+import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
@@ -22,16 +29,8 @@ export default function ExpiryTracking() {
   const [success, setSuccess] = useState('');
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
-  const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
-  const [hasDeletePermission, setHasDeletePermission] = useState(false);
-  const [openEditDialog, setOpenEditDialog] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState(null);
-  const [editId, setEditId] = useState(null);
-  const [formData, setFormData] = useState({
-    part_number: '', batch: '', quantity: '', expiry_date: '',
-  });
-  const { searchTerm } = useSearch(); // Use global searchTerm
+  const [loading, setLoading] = useState(false);
+  const { searchTerm } = useSearch();
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
   const prevLocalSearchRef = useRef(localSearch);
@@ -49,13 +48,18 @@ export default function ExpiryTracking() {
   );
 
   const fetchItems = useCallback(async () => {
+    setLoading(true);
     try {
-      const search = localSearch || searchTerm; // Prefer localSearch, fallback to global searchTerm
-      const res = await API.get('inventory/expiries/', {
-        params: { search, page, page_size: itemsPerPage },
+      const search = localSearch || searchTerm;
+      const res = await API.get('inventory/items/', {
+        params: { 
+          search, 
+          page, 
+          page_size: itemsPerPage,
+          expired_only: true
+        },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('[EXPIRY ITEMS FETCHED]', res.data);
       setItems(res.data.results || []);
       setTotalPages(Math.ceil(res.data.count / itemsPerPage));
       setError('');
@@ -64,60 +68,43 @@ export default function ExpiryTracking() {
       setError('❌ Failed to fetch expired items: ' + (err.response?.data?.detail || err.message));
       setItems([]);
       setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   }, [searchTerm, localSearch, page, itemsPerPage]);
 
-
-
-    useEffect(() => {
+  useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
-        console.log('Access token:', token);
         if (!token) {
           setError('⚠️ No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
+        
         const pageResponse = await API.get('/auth/permissions/page/expired_items/');
-        console.log('Page permission response:', pageResponse.data);
+        
         setHasPermission(pageResponse.data.allowed || false);
+        
         if (!pageResponse.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-          setCheckingPermissions(false);
-          return;
+        } else {
+          fetchItems();
         }
-        const [updateResponse, deleteResponse] = await Promise.all([
-          API.get('/auth/permissions/action/update_expiry_item/'),
-          API.get('/auth/permissions/action/delete_expiry_item/'),
-        ]);
-        setHasUpdatePermission(updateResponse.data.allowed || false);
-        setHasDeletePermission(deleteResponse.data.allowed || false);
-        console.log('Update permission:', updateResponse.data);
-        console.log('Delete permission:', deleteResponse.data);
-        fetchItems();
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else if (err.response?.status === 404) {
-          setError('⚠️ Permission endpoint not found. Contact support.');
-        } else {
-          setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
-        }
+        setError(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPermission(false);
       } finally {
         setCheckingPermissions(false);
       }
     };
     checkPermissions();
-  }, [fetchItems]); // Already includes fetchItems, so no change needed
+  }, [fetchItems]);
 
-
-
-
-   useEffect(() => {
+  useEffect(() => {
     if (hasPermission) {
       if (searchTerm !== prevSearchTermRef.current || localSearch !== prevLocalSearchRef.current) {
         setPage(1);
@@ -126,150 +113,41 @@ export default function ExpiryTracking() {
       }
       fetchItems();
     }
-  }, [searchTerm, localSearch, page, hasPermission, fetchItems]); // Already includes fetchItems
-
-  const handleRecall = async (batchId) => {
-    try {
-      await API.post(`/inventory/recall/${batchId}/`, {});
-      setSuccess(`✅ Recall initiated for batch: ${batchId}`);
-      fetchItems();
-    } catch (err) {
-      console.error('Error initiating recall:', err.response?.data || err.message);
-      setError(`❌ Failed to initiate recall: ${err.response?.data?.detail || err.message}`);
-    }
-  };
-
-  const handleEditOpen = (item) => {
-    if (!hasUpdatePermission) {
-      setError('⚠️ You do not have permission to update expired items.');
-      return;
-    }
-    setFormData({
-      part_number: item.part_number,
-      batch: item.batch,
-      quantity: item.quantity.toString(),
-      expiry_date: item.expiry_date,
-    });
-    setEditId(item.id);
-    setOpenEditDialog(true);
-  };
-
-  const handleEditClose = () => {
-    setOpenEditDialog(false);
-    setFormData({ part_number: '', batch: '', quantity: '', expiry_date: '' });
-    setEditId(null);
-    setError('');
-    setSuccess('');
-  };
-
-  const handleDeleteOpen = (id) => {
-    if (!hasDeletePermission) {
-      setError('⚠️ You do not have permission to delete expired items.');
-      return;
-    }
-    setDeleteId(id);
-    setDeleteOpen(true);
-  };
-
-  const handleDeleteClose = () => {
-    setDeleteOpen(false);
-    setDeleteId(null);
-    setError('');
-    setSuccess('');
-  };
-
-  const handleFormChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleFormSubmit = async () => {
-    const { part_number, batch, quantity, expiry_date } = formData;
-    if (!part_number || !batch || !quantity || !expiry_date) {
-      setError('⚠️ Please fill in all required fields.');
-      return;
-    }
-    if (Number(quantity) <= 0) {
-      setError('⚠️ Quantity must be a positive number.');
-      return;
-    }
-    try {
-      const payload = {
-        part_number: part_number.trim(),
-        batch: batch.trim(),
-        quantity: Number(quantity),
-        expiry_date,
-      };
-      await API.patch(`inventory/expiries/${editId}/`, payload);
-      setSuccess('✅ Item updated successfully');
-      setOpenEditDialog(false);
-      setFormData({ part_number: '', batch: '', quantity: '', expiry_date: '' });
-      setEditId(null);
-      fetchItems();
-    } catch (err) {
-      console.error('Updating item error:', err.response?.data || err.message);
-      let errorMsg = 'Failed to update item: Unable to process request.';
-      if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to perform this action.'}`;
-      } else if (err.response?.status === 400 && err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || 'Failed to update item: Network error.';
-      }
-      setError(`❌ ${errorMsg}`);
-    }
-  };
-
-  const handleDelete = async () => {
-    try {
-      await API.delete(`inventory/expiries/${deleteId}/`);
-      setSuccess('✅ Item deleted successfully');
-      setDeleteOpen(false);
-      setDeleteId(null);
-      fetchItems();
-    } catch (err) {
-      console.error('Error deleting item:', err.response?.data || err.message);
-      let errorMsg = 'Failed to delete item: Unable to process request.';
-      if (err.response?.status === 403) {
-        errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission to delete items.'}`;
-      } else if (err.response?.data?.detail) {
-        errorMsg = err.response.data.detail;
-      } else {
-        errorMsg = err.message || 'Failed to delete item: Network error.';
-      }
-      setError(`❌ ${errorMsg}`);
-    }
-  };
+  }, [searchTerm, localSearch, page, hasPermission, fetchItems]);
 
   const getExpiryStatus = (dateStr) => {
     const today = new Date();
     const expiry = new Date(dateStr);
     const daysLeft = differenceInDays(expiry, today);
-    return {
-      label: 'Expired',
-      color: 'error',
-      daysLeft,
-    };
+    
+    if (daysLeft < 0) {
+      return { label: 'Expired', color: 'error', icon: <WarningIcon />, severity: 'critical' };
+    } else if (daysLeft === 0) {
+      return { label: 'Expiring Today', color: 'warning', icon: <CalendarTodayIcon />, severity: 'warning' };
+    } else if (daysLeft <= 7) {
+      return { label: `Expiring in ${daysLeft} days`, color: 'warning', icon: <TrendingDownIcon />, severity: 'warning' };
+    } else {
+      return { label: `Valid for ${daysLeft} days`, color: 'success', icon: <CheckCircleIcon />, severity: 'good' };
+    }
   };
 
   if (checkingPermissions) {
     return (
-      <Container>
-        <Typography variant="h6" sx={{ mt: 4 }}>
-          Loading permissions...
-        </Typography>
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <Paper elevation={3} sx={{ p: 4, textAlign: 'center' }}>
+          <Typography variant="h6" gutterBottom>
+            Loading permissions...
+          </Typography>
+          <LinearProgress sx={{ mt: 2, maxWidth: 300, mx: 'auto' }} />
+        </Paper>
       </Container>
     );
   }
 
   if (!hasPermission) {
     return (
-      <Container>
-        <Alert severity="error" sx={{ mt: 4 }} onClose={() => setError('')}>
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error || '⚠️ You do not have permission to view this page.'}
         </Alert>
       </Container>
@@ -288,17 +166,74 @@ export default function ExpiryTracking() {
           {success}
         </Alert>
       )}
-      <Typography variant="h4" gutterBottom>
-        Expired Items
-      </Typography>
-      <Typography variant="subtitle1" sx={{ mb: 3 }}>
-        These items have already passed their expiry date.
-      </Typography>
 
-      <Box display="flex" justifyContent="flex-end" sx={{ mb: 2 }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <LocalPharmacyIcon sx={{ fontSize: 36, mr: 2, color: 'primary.main' }} />
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            Expiry Tracking Dashboard
+          </Typography>
+          <Typography variant="subtitle1" color="text.secondary">
+            Monitor and manage items approaching or past their expiry dates
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Tutorial Accordion */}
+      <Accordion sx={{ mb: 3, borderRadius: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <InfoIcon sx={{ mr: 1, color: 'info.main' }} />
+            <Typography variant="h6">Expiry Tracking Tutorial & Best Practices</Typography>
+          </Box>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body1" paragraph>
+            <strong>Welcome to the Expiry Tracking System! 🕒</strong> This critical module helps you prevent losses from expired inventory and ensure product safety compliance.
+          </Typography>
+
+          <Typography variant="h6" gutterBottom>Why Track Expiry Dates?</Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <ul>
+                <li><strong>Prevent Financial Loss:</strong> Identify expiring items before they become worthless</li>
+                <li><strong>Ensure Safety Compliance:</strong> Maintain regulatory standards for perishable goods</li>
+                <li><strong>Optimize Stock Rotation:</strong> Implement FIFO (First-In-First-Out) inventory practices</li>
+                <li><strong>Reduce Waste:</strong> Minimize disposal costs and environmental impact</li>
+              </ul>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <ul>
+                <li><strong>Improve Customer Trust:</strong> Deliver fresh, safe products consistently</li>
+                <li><strong>Automated Alerts:</strong> Get notified about items expiring within 7 days</li>
+                <li><strong>Batch Recall:</strong> Quickly initiate recalls for compromised batches</li>
+                <li><strong>Audit Ready:</strong> Maintain complete expiry records for inspections</li>
+              </ul>
+            </Grid>
+          </Grid>
+
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <strong>Pro Tip:</strong> Always scan batch numbers during receiving to automatically track expiry dates. 
+            Items with expiry dates within 7 days are highlighted in <Chip label="warning" color="warning" size="small" /> 
+            and expired items in <Chip label="critical" color="error" size="small" />.
+          </Alert>
+        </AccordionDetails>
+      </Accordion>
+
+      {/* Search and Stats */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
+        <Box>
+          <Typography variant="h6">
+            {items.length} Expired/Expiring Items
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Items past or approaching expiry date
+          </Typography>
+        </Box>
         <TextField
           size="small"
-          placeholder="Search..."
+          placeholder="Search by part number or item name..."
           value={localSearch}
           onChange={(e) => debouncedSetLocalSearch(e.target.value)}
           InputProps={{
@@ -308,156 +243,100 @@ export default function ExpiryTracking() {
               </InputAdornment>
             ),
           }}
+          sx={{ width: { xs: '100%', sm: 300 } }}
         />
       </Box>
 
-      <Paper elevation={3} sx={{ p: 3, overflowX: 'auto' }}>
+      {/* Loading State */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+          <LinearProgress sx={{ width: '100%', maxWidth: 400 }} />
+        </Box>
+      )}
+
+      {/* Items Table - READ ONLY */}
+      <Paper elevation={3} sx={{ p: 3, overflowX: 'auto', borderRadius: 2 }}>
         <Table>
           <TableHead>
             <TableRow>
               <TableCell><strong>Part Number</strong></TableCell>
+              <TableCell><strong>Item Name</strong></TableCell>
               <TableCell><strong>Batch</strong></TableCell>
-              <TableCell><strong>Quantity</strong></TableCell>
               <TableCell><strong>Expiry Date</strong></TableCell>
               <TableCell><strong>Status</strong></TableCell>
-              <TableCell><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {items.length > 0 ? (
               items.map((item) => {
                 const status = getExpiryStatus(item.expiry_date);
+                const isExpired = status.severity === 'critical';
+                const isExpiringSoon = status.severity === 'warning';
+                
                 return (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.part_number}</TableCell>
-                    <TableCell>{item.batch}</TableCell>
-                    <TableCell>{item.quantity}</TableCell>
-                    <TableCell>{format(new Date(item.expiry_date), 'yyyy-MM-dd')}</TableCell>
+                  <TableRow 
+                    key={item.id} 
+                    sx={{ 
+                      backgroundColor: isExpired ? 'error.light' : isExpiringSoon ? 'warning.light' : 'inherit',
+                      '&:hover': { backgroundColor: isExpired ? 'error.lighter' : isExpiringSoon ? 'warning.lighter' : 'action.hover' }
+                    }}
+                  >
+                    <TableCell>{item.part_number || '—'}</TableCell>
+                    <TableCell>{item.name || '—'}</TableCell>
                     <TableCell>
-                      <Chip label={status.label} color={status.color} size="small" />
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <BatchPredictionIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                        {item.batch || '—'}
+                      </Box>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => handleRecall(item.batch)}
-                        sx={{ mr: 1 }}
-                      >
-                        Recall Batch
-                      </Button>
-                      <IconButton onClick={() => handleEditOpen(item)} disabled={!hasUpdatePermission}>
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton onClick={() => handleDeleteOpen(item.id)} disabled={!hasDeletePermission}>
-                        <DeleteIcon />
-                      </IconButton>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CalendarTodayIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                        {format(new Date(item.expiry_date), 'dd MMM yyyy')}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        icon={status.icon}
+                        label={status.label} 
+                        color={status.color} 
+                        size="small" 
+                        sx={{ fontWeight: 600 }}
+                      />
                     </TableCell>
                   </TableRow>
                 );
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={6}>No expired items found.</TableCell>
+                <TableCell colSpan={5} sx={{ textAlign: 'center', py: 4 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <CheckCircleIcon sx={{ fontSize: 40, color: 'success.main' }} />
+                    <Typography variant="h6" color="text.secondary">
+                      No expired or expiring items found
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      All your inventory is within safe expiry dates
+                    </Typography>
+                  </Box>
+                </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
 
-        <Box mt={4} display="flex" justifyContent="center">
-          <Pagination
-            count={totalPages}
-            page={page}
-            onChange={(_, value) => setPage(value)}
-            color="primary"
-          />
-        </Box>
+        {items.length > 0 && (
+          <Box mt={3} display="flex" justifyContent="center">
+            <Pagination
+              count={totalPages}
+              page={page}
+              onChange={(_, value) => setPage(value)}
+              color="primary"
+              size="medium"
+            />
+          </Box>
+        )}
       </Paper>
-
-      <Dialog open={openEditDialog} onClose={handleEditClose}>
-        <DialogTitle>Update Expired Item</DialogTitle>
-        <DialogContent>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-              {error}
-            </Alert>
-          )}
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Part Number"
-                name="part_number"
-                value={formData.part_number}
-                onChange={handleFormChange}
-                required
-                error={formData.part_number === '' && error.includes('required')}
-                helperText={formData.part_number === '' && error.includes('required') ? 'Part number is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Batch"
-                name="batch"
-                value={formData.batch}
-                onChange={handleFormChange}
-                required
-                error={formData.batch === '' && error.includes('required')}
-                helperText={formData.batch === '' && error.includes('required') ? 'Batch is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Quantity"
-                name="quantity"
-                type="number"
-                value={formData.quantity}
-                onChange={handleFormChange}
-                required
-                error={formData.quantity === '' && error.includes('required')}
-                helperText={formData.quantity === '' && error.includes('required') ? 'Quantity is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Expiry Date"
-                name="expiry_date"
-                type="date"
-                value={formData.expiry_date}
-                onChange={handleFormChange}
-                InputLabelProps={{ shrink: true }}
-                required
-                error={formData.expiry_date === '' && error.includes('required')}
-                helperText={formData.expiry_date === '' && error.includes('required') ? 'Expiry date is required' : ''}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleEditClose}>Cancel</Button>
-          <Button variant="contained" onClick={handleFormSubmit}>
-            Update
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={deleteOpen} onClose={handleDeleteClose}>
-        <DialogTitle>Confirm Delete</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Action cannot be reversed, are you sure you want to continue?
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteClose}>Cancel</Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Container>
   );
 }
