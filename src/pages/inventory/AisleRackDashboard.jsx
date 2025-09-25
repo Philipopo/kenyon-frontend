@@ -68,7 +68,7 @@ export default function AisleRackDashboard() {
   });
   const [selectedWarehouseId, setSelectedWarehouseId] = useState(null);
   const [warehouseBins, setWarehouseBins] = useState([]);
-  const [loadingBins, setLoadingBins] = useState(false);
+  const [setLoadingBins] = useState(false); // Corrected useState declaration
 
   // Search handler
   const handleSearch = useCallback((value) => {
@@ -124,7 +124,7 @@ export default function AisleRackDashboard() {
     } finally {
       setLoadingBins(false);
     }
-  }, []);
+  }, [setLoadingBins]); // Added setLoadingBins to dependency array
 
   // Check permissions
   useEffect(() => {

@@ -288,7 +288,6 @@ export default function BinLocations() {
       return;
     }
     
-    const action = bin ? 'update_storage_bin' : 'create_storage_bin';
     const hasActionPermission = bin ? hasUpdatePermission : hasCreatePermission;
     
     if (!hasActionPermission) {
@@ -296,28 +295,31 @@ export default function BinLocations() {
       return;
     }
 
-    if (bin) {
-      setFormData({
-        row: bin.row || '',
-        rack: bin.rack || '',
-        shelf: bin.shelf || '',
-        type: bin.type || '',
-        capacity: bin.capacity?.toString() || '',
-        description: bin.description || '',
-      });
-      setEditId(bin.id);
-    } else {
-      setFormData({ 
-        row: '', 
-        rack: '', 
-        shelf: '', 
-        type: '', 
-        capacity: '', 
-        description: '' 
-      });
-      setEditId(null);
+    // Only proceed if the user has the appropriate permission
+    if (hasActionPermission) {
+      if (bin) {
+        setFormData({
+          row: bin.row || '',
+          rack: bin.rack || '',
+          shelf: bin.shelf || '',
+          type: bin.type || '',
+          capacity: bin.capacity?.toString() || '',
+          description: bin.description || '',
+        });
+        setEditId(bin.id);
+      } else {
+        setFormData({ 
+          row: '', 
+          rack: '', 
+          shelf: '', 
+          type: '', 
+          capacity: '', 
+          description: '' 
+        });
+        setEditId(null);
+      }
+      setOpenDialog(true);
     }
-    setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {

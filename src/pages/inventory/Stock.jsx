@@ -3,7 +3,7 @@ import {
   Container, Typography, Paper, Box, Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
   Grid, FormControl, InputLabel, Select, MenuItem, TextField, Accordion, AccordionSummary, AccordionDetails,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, Pagination, Chip, Collapse,
-  Card, CardContent, Divider
+  Card, CardContent
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -182,12 +182,11 @@ export default function StockInOut() {
           return;
         }
         
-        const [pageRes, stockInRes, stockOutRes, _updateRes, _deleteRes] = await Promise.all([
+        // eslint-disable-next-line no-unused-vars
+        const [pageRes, stockInRes, stockOutRes] = await Promise.all([
           API.get('/auth/permissions/page/stock_movements/'),
           API.get('/auth/permissions/action/stock_in/'),
-          API.get('/auth/permissions/action/stock_out/'),
-          API.get('/auth/permissions/action/update_stock_movement/'),
-          API.get('/auth/permissions/action/delete_stock_movement/')
+          API.get('/auth/permissions/action/stock_out/')
         ]);
         
         setHasPermission(pageRes.data.allowed || false);
@@ -384,8 +383,8 @@ export default function StockInOut() {
   }, []);
 
   // Get selected item and bin details for display
-  const selectedItem = items.find(item => item.id == formData.item_id);
-  const selectedBin = bins.find(bin => bin.id == formData.storage_bin_id);
+  const selectedItem = items.find(item => item.id === formData.item_id);
+  const selectedBin = bins.find(bin => bin.id === formData.storage_bin_id);
 
   if (checkingPermissions) {
     return <Container><Typography variant="h6" sx={{ mt: 4 }}>Loading permissions...</Typography></Container>;
