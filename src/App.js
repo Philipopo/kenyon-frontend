@@ -37,6 +37,7 @@ import PurchaseOrders from './pages/procurement/Orders';
 import Requisitions from './pages/procurement/Requisitions';
 import Receiving from './pages/procurement/Receiving';
 import POApproval from './pages/procurement/Approvals';
+import Vendor from './pages/procurement/vendormanagement';
 
 // Analytics
 import StockAnalytics from './pages/analytics/Stock';
@@ -113,6 +114,7 @@ function App() {
                 <Route path="/dashboard/procurement/requisitions" element={<Requisitions />} />
                 <Route path="/dashboard/procurement/receiving" element={<Receiving />} />
                 <Route path="/dashboard/procurement/approval" element={<POApproval />} />
+                <Route path="/dashboard/procurement/Vendor" element={<Vendor />} />
 
                 {/* Finance */}
                 <Route path="/dashboard/finance/overview" element={<FinanceOverview />} />

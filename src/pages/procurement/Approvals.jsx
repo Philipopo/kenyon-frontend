@@ -1,72 +1,220 @@
-// src/pages/procurement/Approvals.jsx
+// src/pages/procurement/Approval.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Container, Typography, Paper, Box, TextField, InputAdornment, Table,
-  TableHead, TableRow, TableCell, TableBody, TableContainer, Pagination,
-  Button, Dialog, DialogTitle, DialogContent, DialogActions, Collapse,
-  IconButton, Alert, CircularProgress,
+  Container,
+  Paper,
+  Typography,
+  Button,
+  Box,
+  Grid,
+  Alert,
+  AlertTitle,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  TableContainer,
+  Pagination,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
+  InputAdornment,
+  Chip,
+  TextField,
+  Autocomplete,
+  Tooltip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Tabs,
+  Tab,
 } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import {
+  Search as SearchIcon,
+  ExpandMore as ExpandMoreIcon,
+  ThumbUp as ThumbUpIcon,
+  ThumbDown as ThumbDownIcon,
+  Delete as DeleteIcon,
+  PersonAdd as PersonAddIcon,
+  HowToReg as HowToRegIcon,
+  Assignment as AssignmentIcon,
+  Group as GroupIcon,
+} from '@mui/icons-material';
 import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
-export default function POApproval() {
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [openModal, setOpenModal] = useState(false);
-  const [modalType, setModalType] = useState('');
-  const [selectedPO, setSelectedPO] = useState(null);
-  const [reason, setReason] = useState('');
-  const [expandedRows, setExpandedRows] = useState([]);
-  const [poList, setPoList] = useState([]);
+const PRIORITY_COLORS = {
+  low: 'default',
+  medium: 'info',
+  high: 'warning',
+  urgent: 'error',
+};
+
+export default function Approval() {
+  const [tabValue, setTabValue] = useState(0); // 0 = Requisitions, 1 = Approval Board
+  const [submittedRequisitions, setSubmittedRequisitions] = useState([]);
+  const [approvalBoard, setApprovalBoard] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
-  const [actionPermissions, setActionPermissions] = useState({
-    approve_purchase_order: false,
-    reject_purchase_order: false,
-    counter_purchase_order: false,
+  const [permissions, setPermissions] = useState({
+    view_approval_board: false,
+    add_approval_board_member: false,
+    delete_approval_board_member: false,
   });
+
+  // Modal-specific alerts
+  const [modalAlert, setModalAlert] = useState(null);
+
+  // Pagination
+  const [requisitionPage, setRequisitionPage] = useState(1);
+  const [requisitionTotalPages, setRequisitionTotalPages] = useState(1);
+  const [boardPage, setBoardPage] = useState(1);
+  const [boardTotalPages, setBoardTotalPages] = useState(1);
+
+  // Search
+  const [requisitionSearch, setRequisitionSearch] = useState('');
+  const [boardSearch, setBoardSearch] = useState('');
   const { searchTerm } = useSearch();
   const itemsPerPage = 10;
-  const prevSearchTermRef = useRef(searchTerm);
-  const prevSearchRef = useRef(search);
 
-  const debouncedSetSearch = useCallback(
-    (value) => {
-      const debounced = debounce(() => {
-        setSearch(value);
-        setPage(1);
-      }, 500);
-      debounced();
-    },
+  // Modal states
+  const [approveModalOpen, setApproveModalOpen] = useState(false);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [addUserModalOpen, setAddUserModalOpen] = useState(false);
+  const [deleteUserModalOpen, setDeleteUserModalOpen] = useState(false);
+
+  // Selected items
+  const [selectedRequisition, setSelectedRequisition] = useState(null);
+  const [selectedBoardMember, setSelectedBoardMember] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+
+  // Form states
+  const [newUser, setNewUser] = useState(null);
+  const [availableUsers, setAvailableUsers] = useState([]);
+
+  // Tutorial state
+  const [showTutorial, setShowTutorial] = useState(true);
+
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevRequisitionSearchRef = useRef(requisitionSearch);
+  const prevBoardSearchRef = useRef(boardSearch);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const debouncedSetRequisitionSearch = useCallback(
+    debounce((value) => {
+      setRequisitionSearch(value);
+      setRequisitionPage(1);
+    }, 500),
     []
   );
 
-  const fetchPOs = useCallback(async () => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const debouncedSetBoardSearch = useCallback(
+    debounce((value) => {
+      setBoardSearch(value);
+      setBoardPage(1);
+    }, 500),
+    []
+  );
+
+  // Fetch submitted requisitions
+  const fetchSubmittedRequisitions = useCallback(async () => {
     try {
-      setAlert(null);
-      console.log('📦 Fetching POs for approval...');
-      const searchValue = search || searchTerm;
-      const res = await API.get('procurement/purchase-orders/', {
-        params: { search: searchValue, page, page_size: itemsPerPage, status: 'Pending' },
+      setLoading(true);
+      const searchValue = requisitionSearch || searchTerm;
+      const res = await API.get('procurement/requisitions/', {
+        params: {
+          search: searchValue,
+          status: 'submitted',
+          page: requisitionPage,
+          page_size: itemsPerPage,
+        },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('[APPROVALS FETCHED]', res.data);
-      setPoList(res.data.results || []);
-      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setSubmittedRequisitions(res.data.results || []);
+      setRequisitionTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
     } catch (err) {
-      console.error('Error fetching purchase orders:', err.response?.data || err.message);
-      setAlert(`❌ Failed to fetch purchase orders: ${err.response?.data?.detail || err.message}`);
-      setPoList([]);
-      setTotalPages(1);
+      console.error('Error fetching submitted requisitions:', err.response?.data || err.message);
+      setAlert('❌ Failed to fetch submitted requisitions: ' + (err.response?.data?.detail || err.message));
+      setSubmittedRequisitions([]);
+      setRequisitionTotalPages(1);
+    } finally {
+      setLoading(false);
     }
-  }, [search, searchTerm, page]);
+  }, [requisitionSearch, searchTerm, requisitionPage, itemsPerPage]);
 
+  // Fetch approval board
+  const fetchApprovalBoard = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = boardSearch || searchTerm;
+      const res = await API.get('procurement/approval-board/', {
+        params: {
+          search: searchValue,
+          page: boardPage,
+          page_size: itemsPerPage,
+          is_active: true,
+        },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setApprovalBoard(res.data.results || []);
+      setBoardTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setAlert(null);
+    } catch (err) {
+      console.error('Error fetching approval board:', err.response?.data || err.message);
+      setAlert('❌ Failed to fetch approval board: ' + (err.response?.data?.detail || err.message));
+      setApprovalBoard([]);
+      setBoardTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [boardSearch, searchTerm, boardPage, itemsPerPage]);
+
+  // Fetch available users for adding to approval board
+  const fetchAvailableUsers = useCallback(async () => {
+    try {
+      setModalAlert(null);
+      const res = await API.get('auth/users/', {
+        params: { page_size: 1000 },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+
+      // Debug logging
+      console.log('Available users fetched:', res.data.results);
+
+      // Extract user IDs from approval board (handle both nested object and ID cases)
+      const boardUserIds = approvalBoard
+        .map((member) => {
+          if (typeof member.user === 'object' && member.user !== null) {
+            return member.user.id;
+          } else if (typeof member.user === 'number') {
+            return member.user;
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      // Filter out users already in approval board
+      const available = res.data.results.filter((user) => !boardUserIds.includes(user.id));
+
+      console.log('Filtered available users:', available);
+      setAvailableUsers(available || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      const errorMsg = '❌ Failed to load users for approval board.';
+      setModalAlert(errorMsg);
+    }
+  }, [approvalBoard]);
+
+  // Check permissions and fetch data
   useEffect(() => {
     const checkPermissions = async () => {
       try {
@@ -77,27 +225,27 @@ export default function POApproval() {
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/purchase_orders/');
-        console.log('Page permission response:', pageResponse.data);
+
+        // Check page permission
+        const pageResponse = await API.get('/auth/permissions/page/approval_board/');
         setHasPermission(pageResponse.data.allowed || false);
+
         if (!pageResponse.data.allowed) {
           setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-          setCheckingPermissions(false);
-          return;
-        }
-        const actions = ['approve_purchase_order', 'reject_purchase_order', 'counter_purchase_order'];
-        const actionPerms = {};
-        for (const action of actions) {
-          try {
+        } else {
+          // Check action permissions
+          const actions = ['view_approval_board', 'add_approval_board_member', 'delete_approval_board_member'];
+          const actionPerms = {};
+          for (const action of actions) {
             const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
             actionPerms[action] = actionResponse.data.allowed || false;
-          } catch (err) {
-            console.error(`Error checking ${action} permission:`, err.response?.data || err.message);
-            actionPerms[action] = false;
           }
+          setPermissions(actionPerms);
+
+          // Fetch data
+          fetchSubmittedRequisitions();
+          fetchApprovalBoard();
         }
-        setActionPermissions(actionPerms);
-        fetchPOs();
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
         setAlert(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
@@ -106,83 +254,207 @@ export default function POApproval() {
         setCheckingPermissions(false);
       }
     };
+
     checkPermissions();
-  }, [fetchPOs]);
+  }, [fetchSubmittedRequisitions, fetchApprovalBoard]);
 
+  // Handle search and pagination for requisitions
   useEffect(() => {
-    if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
-      setPage(1);
-      prevSearchRef.current = search;
-      prevSearchTermRef.current = searchTerm;
-    }
-    if (hasPermission) fetchPOs();
-  }, [search, searchTerm, page, hasPermission, fetchPOs]);
-
-  const toggleRow = (id) => {
-    setExpandedRows((prev) =>
-      prev.includes(id) ? prev.filter((rowId) => rowId !== id) : [...prev, id]
-    );
-  };
-
-  const handleAction = (po, type) => {
-    const actionMap = {
-      approve: 'approve_purchase_order',
-      reject: 'reject_purchase_order',
-      counter: 'counter_purchase_order',
-    };
-    const action = actionMap[type];
-    if (!actionPermissions[action]) {
-      setAlert(`⚠️ You do not have permission to ${type} purchase orders.`);
-      return;
-    }
-    setSelectedPO(po);
-    setModalType(type);
-    setReason('');
-    setOpenModal(true);
-  };
-
-  const handleConfirm = async () => {
-    if (!selectedPO) return;
-    const actionMap = {
-      approve: 'approve_purchase_order',
-      reject: 'reject_purchase_order',
-      counter: 'counter_purchase_order',
-    };
-    const action = actionMap[modalType];
-    if (!actionPermissions[action]) {
-      setAlert(`⚠️ You do not have permission to ${modalType} purchase orders.`);
-      setOpenModal(false);
-      return;
-    }
-    const data = {
-      status: modalType === 'reject' ? 'Rejected' : modalType === 'counter' ? 'Counter' : 'Approved',
-      ...(modalType !== 'approve' && { notes: reason }),
-    };
-    try {
-      await API.patch(`procurement/purchase-orders/${selectedPO.id}/`, data);
-      setAlert(`✅ Purchase order ${modalType}d successfully.`);
-      setOpenModal(false);
-      setSelectedPO(null);
-      setReason('');
-      fetchPOs();
-    } catch (err) {
-      console.error(`Error updating PO:`, err.response?.data || err.message);
-      let errorMsg = `❌ Failed to ${modalType} purchase order.`;
-      if (err.response?.data) {
-        if (typeof err.response.data === 'object' && !Array.isArray(err.response.data)) {
-          errorMsg = Object.entries(err.response.data)
-            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-            .join('; ');
-        } else if (err.response.data.detail) {
-          errorMsg = err.response.data.detail;
-        } else {
-          errorMsg = JSON.stringify(err.response.data);
-        }
-      } else {
-        errorMsg = err.message || `❌ Failed to ${modalType} purchase order: Network error.`;
+    if (hasPermission && tabValue === 0) {
+      if (requisitionSearch !== prevRequisitionSearchRef.current || searchTerm !== prevSearchTermRef.current) {
+        setRequisitionPage(1);
+        prevRequisitionSearchRef.current = requisitionSearch;
+        prevSearchTermRef.current = searchTerm;
       }
-      setAlert(errorMsg);
+      fetchSubmittedRequisitions();
     }
+  }, [requisitionSearch, searchTerm, requisitionPage, hasPermission, fetchSubmittedRequisitions, tabValue]);
+
+  // Handle search and pagination for approval board
+  useEffect(() => {
+    if (hasPermission && tabValue === 1) {
+      if (boardSearch !== prevBoardSearchRef.current || searchTerm !== prevSearchTermRef.current) {
+        setBoardPage(1);
+        prevBoardSearchRef.current = boardSearch;
+        prevSearchTermRef.current = searchTerm;
+      }
+      fetchApprovalBoard();
+    }
+  }, [boardSearch, searchTerm, boardPage, hasPermission, fetchApprovalBoard, tabValue]);
+
+  // Handle tab change
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
+  };
+
+  // Open approve modal
+  const handleOpenApproveModal = (requisition) => {
+    setSelectedRequisition(requisition);
+    setApproveModalOpen(true);
+    setModalAlert(null);
+  };
+
+  // Open reject modal
+  const handleOpenRejectModal = (requisition) => {
+    setSelectedRequisition(requisition);
+    setRejectionReason('');
+    setRejectModalOpen(true);
+    setModalAlert(null);
+  };
+
+  // Open add user modal
+  const handleOpenAddUserModal = () => {
+    if (!permissions.add_approval_board_member) {
+      setAlert('⚠️ You do not have permission to add approval board members.');
+      return;
+    }
+    fetchAvailableUsers();
+    setNewUser(null);
+    setAddUserModalOpen(true);
+    setModalAlert(null);
+  };
+
+  // Open delete user modal
+  const handleOpenDeleteUserModal = (member) => {
+    if (!permissions.delete_approval_board_member) {
+      setAlert('⚠️ You do not have permission to remove approval board members.');
+      return;
+    }
+    setSelectedBoardMember(member);
+    setDeleteUserModalOpen(true);
+    setModalAlert(null);
+  };
+
+  // Approve requisition
+  const handleApprove = async () => {
+    if (!selectedRequisition) return;
+
+    try {
+      setLoading(true);
+      setModalAlert(null);
+
+      await API.post(`procurement/requisitions/${selectedRequisition.id}/approve/`);
+
+      setModalAlert('✅ Requisition approved successfully!');
+      setApproveModalOpen(false);
+      fetchSubmittedRequisitions();
+      // Auto-refresh approval board to reflect changes
+      fetchApprovalBoard();
+    } catch (err) {
+      let errorMsg = '❌ Failed to approve requisition.';
+      if (err.response?.data) {
+        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
+      setModalAlert(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reject requisition
+  const handleReject = async () => {
+    if (!selectedRequisition || !rejectionReason.trim()) {
+      setModalAlert('⚠️ Please provide a rejection reason.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setModalAlert(null);
+
+      await API.post(`procurement/requisitions/${selectedRequisition.id}/reject/`);
+
+      setModalAlert('✅ Requisition rejected successfully!');
+      setRejectModalOpen(false);
+      setRejectionReason('');
+      fetchSubmittedRequisitions();
+    } catch (err) {
+      let errorMsg = '❌ Failed to reject requisition.';
+      if (err.response?.data) {
+        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
+      setModalAlert(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Add user to approval board
+  const handleAddUser = async () => {
+    if (!newUser || !permissions.add_approval_board_member) {
+      setModalAlert('⚠️ Please select a user to add.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setModalAlert(null);
+
+      await API.post('procurement/approval-board/', {
+        user: newUser.id,
+        can_approve_requisitions: true,
+        can_approve_purchase_orders: false,
+      });
+
+      setModalAlert('✅ User added to approval board successfully!');
+      setAddUserModalOpen(false);
+      fetchApprovalBoard();
+      // Clear the selection
+      setNewUser(null);
+    } catch (err) {
+      let errorMsg = '❌ Failed to add user to approval board.';
+      if (err.response?.data) {
+        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
+      setModalAlert(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Remove user from approval board
+  const handleRemoveUser = async () => {
+    if (!selectedBoardMember || !permissions.delete_approval_board_member) {
+      setModalAlert('⚠️ Invalid selection.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setModalAlert(null);
+
+      // Soft delete by setting is_active=false
+      await API.patch(`procurement/approval-board/${selectedBoardMember.id}/`, {
+        is_active: false,
+      });
+
+      setModalAlert('✅ User removed from approval board successfully!');
+      setDeleteUserModalOpen(false);
+      fetchApprovalBoard();
+    } catch (err) {
+      let errorMsg = '❌ Failed to remove user from approval board.';
+      if (err.response?.data) {
+        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
+      setModalAlert(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Calculate total cost for requisition
+  const calculateTotalCost = (items) => {
+    return items.reduce((total, item) => {
+      return total + (item.quantity * (item.unit_cost || 0));
+    }, 0);
   };
 
   if (checkingPermissions) {
@@ -207,164 +479,536 @@ export default function POApproval() {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Purchase Order Approvals
-        </Typography>
-        <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          Review and approve pending purchase orders.
-        </Typography>
+    <Container maxWidth="lg">
+      {alert && (
+        <Alert
+          sx={{ mt: 2, mb: 2 }}
+          severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
+          onClose={() => setAlert(null)}
+        >
+          {alert}
+        </Alert>
+      )}
 
-        {alert && (
-          <Alert
-            severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
-            sx={{ mb: 2 }}
-            onClose={() => setAlert(null)}
-          >
-            {alert}
-          </Alert>
-        )}
-
-        <Box display="flex" justifyContent="flex-end" mb={2}>
-          <TextField
-            placeholder="Search by vendor..."
-            variant="outlined"
-            size="small"
-            value={search}
-            onChange={(e) => debouncedSetSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
+      <Paper elevation={3} sx={{ p: 4, mt: 4 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Typography variant="h5">Approval Management</Typography>
+          {tabValue === 1 && permissions.add_approval_board_member && (
+            <Button
+              variant="contained"
+              startIcon={<PersonAddIcon />}
+              onClick={handleOpenAddUserModal}
+              disabled={loading}
+            >
+              Add Approval User
+            </Button>
+          )}
         </Box>
 
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell />
-                <TableCell>Code</TableCell>
-                <TableCell>Vendor</TableCell>
-                <TableCell>Amount</TableCell>
-                <TableCell>Date</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="center">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {poList.length > 0 ? (
-                poList.map((po) => (
-                  <React.Fragment key={po.id}>
-                    <TableRow>
-                      <TableCell>
-                        <IconButton size="small" onClick={() => toggleRow(po.id)}>
-                          {expandedRows.includes(po.id) ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-                        </IconButton>
-                      </TableCell>
-                      <TableCell>{po.code}</TableCell>
-                      <TableCell>{po.vendor?.name || '—'}</TableCell>
-                      <TableCell>₦{parseFloat(po.amount).toLocaleString()}</TableCell>
-                      <TableCell>{new Date(po.date).toLocaleDateString()}</TableCell>
-                      <TableCell>{po.status}</TableCell>
-                      <TableCell align="center">
-                        <Button
-                          variant="contained"
-                          size="small"
-                          color="success"
-                          sx={{ mr: 1 }}
-                          onClick={() => handleAction(po, 'approve')}
-                          disabled={!actionPermissions.approve_purchase_order}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          color="error"
-                          sx={{ mr: 1 }}
-                          onClick={() => handleAction(po, 'reject')}
-                          disabled={!actionPermissions.reject_purchase_order}
-                        >
-                          Reject
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          color="warning"
-                          onClick={() => handleAction(po, 'counter')}
-                          disabled={!actionPermissions.counter_purchase_order}
-                        >
-                          Counter
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell colSpan={7} sx={{ py: 0 }}>
-                        <Collapse in={expandedRows.includes(po.id)} timeout="auto" unmountOnExit>
-                          <Box sx={{ margin: 2 }}>
-                            <Typography variant="subtitle1" gutterBottom>Items in this Purchase Order:</Typography>
-                            <Typography variant="body2">Not available (API not yet linked)</Typography>
-                          </Box>
-                        </Collapse>
-                      </TableCell>
-                    </TableRow>
-                  </React.Fragment>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={7} align="center">
-                    No pending purchase orders found.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        {/* Tutorial Section */}
+        <Accordion expanded={showTutorial} onChange={() => setShowTutorial(!showTutorial)} sx={{ mb: 4 }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <HowToRegIcon sx={{ mr: 1, color: 'primary.main' }} />
+              <Typography variant="h6">Approval Management</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Typography paragraph>
+              This page allows authorized users to approve or reject submitted requisitions and manage the approval board.
+            </Typography>
 
-        {totalPages > 1 && (
-          <Box display="flex" justifyContent="center" mt={3}>
-            <Pagination
-              count={totalPages}
-              page={page}
-              onChange={(_, value) => setPage(value)}
-              color="primary"
-            />
-          </Box>
+            <Typography variant="subtitle1" gutterBottom>
+              Key Features:
+            </Typography>
+            <ul>
+              <li>
+                <strong>Approve/Reject Requisitions:</strong> Review and take action on submitted requisitions
+              </li>
+              <li>
+                <strong>Approval Board Management:</strong> View and manage users who can approve requisitions
+              </li>
+              <li>
+                <strong>Admin Controls:</strong> Only administrators can add or remove approval board members
+              </li>
+              <li>
+                <strong>Audit Trail:</strong> All approval actions are logged for compliance and tracking
+              </li>
+            </ul>
+
+            <Typography variant="subtitle1" gutterBottom>
+              Workflow:
+            </Typography>
+            <ol>
+              <li>Review submitted requisitions in the table below</li>
+              <li>Click "Approve" to convert to Purchase Order or "Reject" with reason</li>
+              <li>Manage approval board members (Admin only)</li>
+              <li>Track all approval activities in the audit logs</li>
+            </ol>
+
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <strong>Note:</strong> Only users in the approval board can see and approve submitted requisitions. Contact your administrator if you need approval permissions.
+            </Alert>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* Tab Navigation */}
+        <Tabs value={tabValue} onChange={handleTabChange} variant="fullWidth" sx={{ mb: 3 }}>
+          <Tab icon={<AssignmentIcon />} label="Requisitions to Approve" iconPosition="start" />
+          <Tab icon={<GroupIcon />} label="Approval Board" iconPosition="start" />
+        </Tabs>
+
+        {/* Tab Content */}
+        {tabValue === 0 && (
+          <>
+            {/* Submitted Requisitions Section */}
+            <Typography variant="h6" gutterBottom>
+              Submitted Requisitions
+            </Typography>
+
+            <Grid container spacing={2} mb={3}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body1" color="text.secondary">
+                  Review and approve/reject requisitions that have been submitted for approval.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} display="flex" justifyContent="flex-end">
+                <TextField
+                  size="small"
+                  placeholder="Search requisitions..."
+                  value={requisitionSearch}
+                  onChange={(e) => debouncedSetRequisitionSearch(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            </Grid>
+
+            {submittedRequisitions.length > 0 ? (
+              <>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Code</TableCell>
+                        <TableCell>Department</TableCell>
+                        <TableCell>Priority</TableCell>
+                        <TableCell>Created By</TableCell>
+                        <TableCell>Created</TableCell>
+                        <TableCell>Total Cost</TableCell>
+                        <TableCell>Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {submittedRequisitions.map((req) => (
+                        <TableRow key={req.id}>
+                          <TableCell>
+                            <Tooltip title="Requisition Code">
+                              <strong>{req.code}</strong>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell>{req.department}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label={req.priority.charAt(0).toUpperCase() + req.priority.slice(1)}
+                              size="small"
+                              color={PRIORITY_COLORS[req.priority] || 'default'}
+                            />
+                          </TableCell>
+                          <TableCell>{req.created_by_name || req.created_by?.name || req.created_by?.email || 'System'}</TableCell>
+                          <TableCell>{new Date(req.created_at).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            {req.items.length > 0 && (
+                              <Typography variant="body2">
+                                {calculateTotalCost(req.items).toLocaleString('en-US', {
+                                  style: 'currency',
+                                  currency: 'USD',
+                                  minimumFractionDigits: 2,
+                                })}
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Box display="flex" gap={1}>
+                              <Button
+                                variant="contained"
+                                color="error"
+                                size="small"
+                                startIcon={<ThumbDownIcon />}
+                                onClick={() => handleOpenRejectModal(req)}
+                              >
+                                Reject
+                              </Button>
+                              <Button
+                                variant="contained"
+                                color="success"
+                                size="small"
+                                startIcon={<ThumbUpIcon />}
+                                onClick={() => handleOpenApproveModal(req)}
+                              >
+                                Approve
+                              </Button>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+
+                {requisitionTotalPages > 1 && (
+                  <Box mt={3} display="flex" justifyContent="center">
+                    <Pagination
+                      count={requisitionTotalPages}
+                      page={requisitionPage}
+                      onChange={(_, value) => setRequisitionPage(value)}
+                      color="primary"
+                    />
+                  </Box>
+                )}
+              </>
+            ) : (
+              <Box textAlign="center" py={4}>
+                <Typography variant="body1" color="text.secondary">
+                  No submitted requisitions found.
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Requisitions will appear here once they are submitted for approval.
+                </Typography>
+              </Box>
+            )}
+          </>
+        )}
+
+        {tabValue === 1 && (
+          <>
+            {/* Approval Board Section */}
+            <Typography variant="h6" gutterBottom>
+              Approval Board Management
+            </Typography>
+
+            <Grid container spacing={2} mb={3}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body1" color="text.secondary">
+                  Users who can approve requisitions. Only administrators can modify this list.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} display="flex" justifyContent="flex-end">
+                <TextField
+                  size="small"
+                  placeholder="Search approval board..."
+                  value={boardSearch}
+                  onChange={(e) => debouncedSetBoardSearch(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            </Grid>
+
+            {approvalBoard.length > 0 ? (
+              <>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>User</TableCell>
+                        <TableCell>Email</TableCell>
+                        <TableCell>Added By</TableCell>
+                        <TableCell>Added</TableCell>
+                        <TableCell>Permissions</TableCell>
+                        <TableCell>Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {approvalBoard.map((member) => (
+                        <TableRow key={member.id}>
+                          <TableCell>
+                            <Box display="flex" alignItems="center">
+                              <HowToRegIcon color="primary" sx={{ mr: 1 }} />
+                              <strong>{member.user.name || member.user.email}</strong>
+                            </Box>
+                          </TableCell>
+                          <TableCell>{member.user.email}</TableCell>
+                          <TableCell>{member.added_by?.name || member.added_by?.email || 'System'}</TableCell>
+                          <TableCell>{new Date(member.added_at).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label="Requisitions"
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ mr: 1 }}
+                            />
+                            {member.can_approve_purchase_orders && (
+                              <Chip
+                                label="Purchase Orders"
+                                size="small"
+                                color="info"
+                                variant="outlined"
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {permissions.delete_approval_board_member && (
+                              <IconButton
+                                onClick={() => handleOpenDeleteUserModal(member)}
+                                color="error"
+                                title="Remove from approval board"
+                                size="small"
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+
+                {boardTotalPages > 1 && (
+                  <Box mt={3} display="flex" justifyContent="center">
+                    <Pagination
+                      count={boardTotalPages}
+                      page={boardPage}
+                      onChange={(_, value) => setBoardPage(value)}
+                      color="primary"
+                    />
+                  </Box>
+                )}
+              </>
+            ) : (
+              <Box textAlign="center" py={4}>
+                <Typography variant="body1" color="text.secondary">
+                  No approval board members configured.
+                </Typography>
+                {permissions.add_approval_board_member && (
+                  <Button
+                    variant="contained"
+                    startIcon={<PersonAddIcon />}
+                    onClick={handleOpenAddUserModal}
+                    sx={{ mt: 2 }}
+                    disabled={loading}
+                  >
+                    Add First Approval User
+                  </Button>
+                )}
+              </Box>
+            )}
+          </>
         )}
       </Paper>
 
-      <Dialog open={openModal} onClose={() => setOpenModal(false)} fullWidth maxWidth="sm">
+      {/* Approve Confirmation Modal */}
+      <Dialog open={approveModalOpen} onClose={() => setApproveModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          {modalType === 'reject' ? 'Reject Purchase Order' :
-           modalType === 'counter' ? 'Counter Purchase Order' : 'Approve Purchase Order'}
+          <Box display="flex" alignItems="center" color="success.main">
+            <ThumbUpIcon sx={{ mr: 1 }} />
+            Confirm Approval
+          </Box>
         </DialogTitle>
         <DialogContent>
-          <Typography mb={2}>PO Code: {selectedPO?.code}</Typography>
-          {(modalType !== 'approve') && (
-            <TextField
-              multiline
-              rows={4}
-              label="Enter reason"
-              fullWidth
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              disabled={!actionPermissions[`${modalType}_purchase_order`]}
-            />
+          {modalAlert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
+              onClose={() => setModalAlert(null)}
+            >
+              {modalAlert}
+            </Alert>
           )}
+          <Alert severity="info">
+            <AlertTitle>Are you sure you want to approve this requisition?</AlertTitle>
+            <Typography variant="body2">
+              <strong>Requisition Code:</strong> {selectedRequisition?.code}
+              <br />
+              <strong>Department:</strong> {selectedRequisition?.department}
+              <br />
+              <strong>Total Cost:</strong>{' '}
+              {selectedRequisition?.items?.reduce((total, item) => total + item.quantity * (item.unit_cost || 0), 0).toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2,
+              })}
+            </Typography>
+            <br />
+            <Typography variant="body2">
+              Once approved, this requisition will be converted to a Purchase Order and cannot be modified.
+            </Typography>
+          </Alert>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenModal(false)}>Cancel</Button>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setApproveModalOpen(false)} disabled={loading}>
+            Cancel
+          </Button>
           <Button
             variant="contained"
-            onClick={handleConfirm}
-            disabled={!actionPermissions[`${modalType}_purchase_order`]}
+            color="success"
+            onClick={handleApprove}
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={20} /> : <ThumbUpIcon />}
           >
-            Submit
+            {loading ? 'Approving...' : 'Approve Requisition'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reject Confirmation Modal */}
+      <Dialog open={rejectModalOpen} onClose={() => setRejectModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box display="flex" alignItems="center" color="error.main">
+            <ThumbDownIcon sx={{ mr: 1 }} />
+            Reject Requisition
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {modalAlert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
+              onClose={() => setModalAlert(null)}
+            >
+              {modalAlert}
+            </Alert>
+          )}
+          <Alert severity="warning">
+            <AlertTitle>Are you sure you want to reject this requisition?</AlertTitle>
+            <Typography variant="body2" paragraph>
+              <strong>Requisition Code:</strong> {selectedRequisition?.code}
+              <br />
+              <strong>Department:</strong> {selectedRequisition?.department}
+            </Typography>
+            <Typography variant="body2" paragraph>
+              Please provide a reason for rejection. This will be recorded in the audit log and communicated to the requester.
+            </Typography>
+          </Alert>
+
+          <TextField
+            label="Rejection Reason *"
+            multiline
+            minRows={3}
+            fullWidth
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            placeholder="Please explain why this requisition is being rejected..."
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setRejectModalOpen(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleReject}
+            disabled={loading || !rejectionReason.trim()}
+            startIcon={loading ? <CircularProgress size={20} /> : <ThumbDownIcon />}
+          >
+            {loading ? 'Rejecting...' : 'Reject Requisition'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add User Modal */}
+      <Dialog open={addUserModalOpen} onClose={() => setAddUserModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box display="flex" alignItems="center">
+            <PersonAddIcon sx={{ mr: 1, color: 'primary.main' }} />
+            Add Approval Board Member
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {modalAlert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
+              onClose={() => setModalAlert(null)}
+            >
+              {modalAlert}
+            </Alert>
+          )}
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Select a user to add to the approval board. Only administrators can perform this action.
+          </Alert>
+
+          <Autocomplete
+            options={availableUsers}
+            getOptionLabel={(option) => `${option.name || option.email} (${option.email})`}
+            value={newUser}
+            onChange={(event, newValue) => setNewUser(newValue)}
+            renderInput={(params) => <TextField {...params} label="Select User *" required />}
+            noOptionsText="No users available or all users are already in approval board"
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setAddUserModalOpen(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAddUser}
+            disabled={loading || !newUser}
+            startIcon={loading ? <CircularProgress size={20} /> : null}
+          >
+            {loading ? 'Adding...' : 'Add User'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete User Modal */}
+      <Dialog open={deleteUserModalOpen} onClose={() => setDeleteUserModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box display="flex" alignItems="center" color="error.main">
+            <DeleteIcon sx={{ mr: 1 }} />
+            Remove Approval Board Member
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {modalAlert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
+              onClose={() => setModalAlert(null)}
+            >
+              {modalAlert}
+            </Alert>
+          )}
+          <Alert severity="warning">
+            <AlertTitle>Are you sure you want to remove this user?</AlertTitle>
+            <Typography variant="body2">
+              <strong>User:</strong> {selectedBoardMember?.user?.name || selectedBoardMember?.user?.email}
+              <br />
+              <strong>Email:</strong> {selectedBoardMember?.user?.email}
+            </Typography>
+            <br />
+            <Typography variant="body2">
+              This user will no longer be able to approve requisitions. This action cannot be undone.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setDeleteUserModalOpen(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleRemoveUser}
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={20} /> : <DeleteIcon />}
+          >
+            {loading ? 'Removing...' : 'Remove User'}
           </Button>
         </DialogActions>
       </Dialog>

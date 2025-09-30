@@ -1,5 +1,4 @@
-// src/pages/ReceiptCreate.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -10,105 +9,155 @@ import {
   Alert,
   Grid,
   CircularProgress,
+  FormControl,
+  InputLabel,
+  Select,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import api from '../../api';
 
-const locations = ['Warehouse A', 'Warehouse B', 'Site A', 'Site B'];
-
-export default function ReceiptCreate() {
+export default function StockReceiptCreate() {
   const [hasPageAccess, setHasPageAccess] = useState(false);
   const [canCreateStockReceipt, setCanCreateStockReceipt] = useState(false);
   const [error, setError] = useState('');
   const [checkingPermissions, setCheckingPermissions] = useState(true);
-  const [form, setForm] = useState({
-    item: '',
-    quantity: '',
-    location: '',
-    date: '',
-    notes: '',
-  });
   const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const checkPermissions = async () => {
-      try {
-        const token = localStorage.getItem('accessToken');
-        console.log('Access token:', token ? 'Present' : 'Missing');
-        if (!token) {
-          setError('⚠️ No authentication token found. Please log in.');
-          setHasPageAccess(false);
-          setCanCreateStockReceipt(false);
-          setCheckingPermissions(false);
-          return;
-        }
-        console.log('Fetching page permission from /auth/permissions/page/stock_receipts/');
-        const pageResponse = await api.get('/auth/permissions/page/stock_receipts/');
-        console.log('Page permission response:', pageResponse.data);
-        setHasPageAccess(pageResponse.data.allowed || false);
-        if (!pageResponse.data.allowed) {
-          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-        }
+  // Form state
+  const [form, setForm] = useState({
+    purchase_order: '',
+    item: '',
+    quantity_received: '',
+    quantity_accepted: '',
+    quantity_rejected: '0',
+    rejection_reason: '',
+    storage_bin: '',
+    batch_number: '',
+    expiry_date: '',
+    notes: '',
+  });
 
-        console.log('Fetching action permission from /auth/permissions/action/create_stock_receipt/');
-        const actionResponse = await api.get('/auth/permissions/action/create_stock_receipt/');
-        console.log('Action permission response:', actionResponse.data);
-        setCanCreateStockReceipt(actionResponse.data.allowed || false);
-        if (!actionResponse.data.allowed) {
-  setError(
-    `⚠️ You do not have permission to create a receipt: ${
-      actionResponse.data.reason || 'No reason provided'
-    }`
-  );
-}
-      } catch (err) {
-        console.error('Error checking permissions:', err.response?.data || err.message);
-        if (err.response?.status === 401) {
-          setError('⚠️ Authentication failed. Please log in again.');
-        } else if (err.response?.status === 404) {
-          setError('⚠️ Permission endpoint not found. Check backend routing.');
-        } else {
-          setError(`⚠️ Failed to check permissions: ${err.response?.data?.reason || err.message}`);
-        }
-        setHasPageAccess(false);
-        setCanCreateStockReceipt(false);
-      } finally {
-        setCheckingPermissions(false);
-      }
-    };
+  // Options from API
+  const [items, setItems] = useState([]);
+  const [bins, setBins] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
 
-    checkPermissions();
+  // Fetch dropdown options
+  const fetchOptions = useCallback(async () => {
+    try {
+      const [itemRes, binRes, poRes] = await Promise.all([
+        api.get('/inventory/items/', { params: { page_size: 1000 } }),
+        api.get('/inventory/bins/', { params: { page_size: 1000 } }),
+        api.get('/procurement/purchase_orders/', { params: { status: 'approved', page_size: 100 } }),
+      ]);
+      setItems(itemRes.data.results || []);
+      setBins(binRes.data.results || []);
+      setPurchaseOrders(poRes.data.results || []);
+    } catch (err) {
+      console.error('Failed to fetch options:', err);
+    }
   }, []);
 
+  // Handle form changes
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+
+    // Auto-calculate accepted/rejected
+    if (name === 'quantity_received') {
+      const received = parseInt(value) || 0;
+      const accepted = form.quantity_accepted ? parseInt(form.quantity_accepted) : received;
+      const rejected = Math.max(0, received - accepted);
+      setForm((prev) => ({
+        ...prev,
+        quantity_received: value,
+        quantity_rejected: rejected.toString(),
+      }));
+    }
+
+    if (name === 'quantity_accepted') {
+      const received = parseInt(form.quantity_received) || 0;
+      const accepted = parseInt(value) || 0;
+      const rejected = Math.max(0, received - accepted);
+      setForm((prev) => ({
+        ...prev,
+        quantity_accepted: value,
+        quantity_rejected: rejected.toString(),
+      }));
+    }
   };
 
-  const handleSubmit = async () => {
-    const { item, quantity, location, date } = form;
+  // Handle rejection reason toggle
+  const handleRejectionChange = (e) => {
+    const rejected = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      quantity_rejected: rejected,
+      rejection_reason: rejected && parseInt(rejected) > 0 ? prev.rejection_reason : '',
+    }));
+  };
 
-    if (!item || !quantity || !location || !date) {
-      setSuccess(null);
+  // Submit handler
+  const handleSubmit = async () => {
+    const {
+      purchase_order,
+      item,
+      quantity_received,
+      quantity_accepted,
+      storage_bin,
+      batch_number,
+      expiry_date,
+      notes,
+      rejection_reason,
+    } = form;
+
+    if (!item || !quantity_received || !storage_bin) {
       setError('⚠ Please fill all required fields.');
       return;
     }
 
     if (!canCreateStockReceipt) {
-      setSuccess(null);
       setError('⚠ You do not have permission to create a stock receipt.');
+      return;
+    }
+
+    if (parseInt(quantity_accepted) > parseInt(quantity_received)) {
+      setError('⚠ Accepted quantity cannot exceed received quantity.');
+      return;
+    }
+
+    if (parseInt(form.quantity_rejected) > 0 && !rejection_reason.trim()) {
+      setError('⚠ Rejection reason is required when rejecting items.');
       return;
     }
 
     try {
       setLoading(true);
       setError('');
-      await api.post('/receipts/stock/', form);
-      setSuccess(`✅ Receipt for "${form.item}" successfully created.`);
+      await api.post('/receipts/stock/', {
+        purchase_order: purchase_order || null,
+        item: parseInt(item),
+        quantity_received: parseInt(quantity_received),
+        quantity_accepted: parseInt(quantity_accepted),
+        quantity_rejected: parseInt(form.quantity_rejected),
+        rejection_reason: rejection_reason.trim() || null,
+        storage_bin: parseInt(storage_bin),
+        batch_number: batch_number || null,
+        expiry_date: expiry_date || null,
+        notes: notes || null,
+      });
+      setSuccess(`✅ Stock receipt created successfully.`);
       setForm({
+        purchase_order: '',
         item: '',
-        quantity: '',
-        location: '',
-        date: '',
+        quantity_received: '',
+        quantity_accepted: '',
+        quantity_rejected: '0',
+        rejection_reason: '',
+        storage_bin: '',
+        batch_number: '',
+        expiry_date: '',
         notes: '',
       });
     } catch (err) {
@@ -123,10 +172,50 @@ export default function ReceiptCreate() {
     }
   };
 
+  // Permission & data fetch
+  useEffect(() => {
+    const checkPermissions = async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+          setError('⚠️ No authentication token found. Please log in.');
+          setHasPageAccess(false);
+          setCanCreateStockReceipt(false);
+          setCheckingPermissions(false);
+          return;
+        }
+
+        const [pageRes, actionRes] = await Promise.all([
+          api.get('/auth/permissions/page/stock_receipts/'),
+          api.get('/auth/permissions/action/create_stock_receipt/'),
+        ]);
+
+        setHasPageAccess(pageRes.data.allowed || false);
+        setCanCreateStockReceipt(actionRes.data.allowed || false);
+
+        if (pageRes.data.allowed) {
+          fetchOptions();
+        } else {
+          setError(`⚠️ Access denied: ${pageRes.data.reason || 'No reason provided'}`);
+        }
+      } catch (err) {
+        console.error('Error checking permissions:', err);
+        setError(`⚠️ Failed to check permissions: ${err.message}`);
+        setHasPageAccess(false);
+        setCanCreateStockReceipt(false);
+      } finally {
+        setCheckingPermissions(false);
+      }
+    };
+
+    checkPermissions();
+  }, [fetchOptions]);
+
   if (checkingPermissions) {
     return (
       <Container maxWidth="md" sx={{ mt: 4 }}>
         <Typography variant="h6">Loading permissions...</Typography>
+        <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
   }
@@ -134,7 +223,7 @@ export default function ReceiptCreate() {
   if (!hasPageAccess) {
     return (
       <Container maxWidth="md" sx={{ mt: 4 }}>
-        <Alert severity="error">{error || 'Access Denied: You do not have permission to view this page.'}</Alert>
+        <Alert severity="error">{error || 'Access Denied'}</Alert>
       </Container>
     );
   }
@@ -146,7 +235,7 @@ export default function ReceiptCreate() {
           Create Stock Receipt
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Log new items received into inventory.
+          Log received inventory items with full traceability to Purchase Orders, Bins, and Items.
         </Typography>
 
         {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
@@ -154,69 +243,144 @@ export default function ReceiptCreate() {
 
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
-            <TextField
-              label="Item Name"
-              name="item"
-              fullWidth
-              value={form.item}
-              onChange={handleChange}
-              required
-              disabled={!canCreateStockReceipt}
-            />
+            <FormControl fullWidth>
+              <InputLabel>Purchase Order (Optional)</InputLabel>
+              <Select
+                name="purchase_order"
+                value={form.purchase_order}
+                onChange={handleChange}
+                label="Purchase Order (Optional)"
+              >
+                <MenuItem value="">None</MenuItem>
+                {purchaseOrders.map((po) => (
+                  <MenuItem key={po.id} value={po.id}>
+                    {po.code} - {po.vendor?.name || 'Unknown Vendor'}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
-            <TextField
-              label="Quantity"
-              name="quantity"
-              type="number"
-              fullWidth
-              value={form.quantity}
-              onChange={handleChange}
-              required
-              disabled={!canCreateStockReceipt}
-            />
+
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth required>
+              <InputLabel>Item *</InputLabel>
+              <Select
+                name="item"
+                value={form.item}
+                onChange={handleChange}
+                label="Item *"
+              >
+                {items.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>
+                    {item.name} ({item.part_number})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
-            <TextField
-              select
-              label="Location"
-              name="location"
-              fullWidth
-              value={form.location}
-              onChange={handleChange}
-              required
-              disabled={!canCreateStockReceipt}
-            >
-              {locations.map((loc) => (
-                <MenuItem key={loc} value={loc}>
-                  {loc}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Grid>
+
           <Grid item xs={12} md={4}>
             <TextField
-              label="Receipt Date"
-              name="date"
+              label="Quantity Received *"
+              name="quantity_received"
+              type="number"
+              fullWidth
+              value={form.quantity_received}
+              onChange={handleChange}
+              inputProps={{ min: 1 }}
+              required
+            />
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <TextField
+              label="Quantity Accepted *"
+              name="quantity_accepted"
+              type="number"
+              fullWidth
+              value={form.quantity_accepted}
+              onChange={handleChange}
+              inputProps={{ min: 0 }}
+              required
+            />
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <TextField
+              label="Quantity Rejected"
+              name="quantity_rejected"
+              type="number"
+              fullWidth
+              value={form.quantity_rejected}
+              onChange={handleRejectionChange}
+              inputProps={{ min: 0 }}
+            />
+          </Grid>
+
+          {parseInt(form.quantity_rejected) > 0 && (
+            <Grid item xs={12}>
+              <TextField
+                label="Rejection Reason *"
+                name="rejection_reason"
+                fullWidth
+                multiline
+                rows={2}
+                value={form.rejection_reason}
+                onChange={handleChange}
+                required
+              />
+            </Grid>
+          )}
+
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth required>
+              <InputLabel>Storage Bin *</InputLabel>
+              <Select
+                name="storage_bin"
+                value={form.storage_bin}
+                onChange={handleChange}
+                label="Storage Bin *"
+              >
+                {bins.map((bin) => (
+                  <MenuItem key={bin.id} value={bin.id}>
+                    {bin.bin_id} ({bin.warehouse_name || 'No Warehouse'})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} md={3}>
+            <TextField
+              label="Batch Number"
+              name="batch_number"
+              fullWidth
+              value={form.batch_number}
+              onChange={handleChange}
+            />
+          </Grid>
+
+          <Grid item xs={12} md={3}>
+            <TextField
+              label="Expiry Date"
+              name="expiry_date"
               type="date"
               fullWidth
               InputLabelProps={{ shrink: true }}
-              value={form.date}
+              value={form.expiry_date}
               onChange={handleChange}
-              required
-              disabled={!canCreateStockReceipt}
             />
           </Grid>
-          <Grid item xs={12} md={8}>
+
+          <Grid item xs={12}>
             <TextField
-              label="Notes (optional)"
+              label="Notes (Optional)"
               name="notes"
               fullWidth
               multiline
               rows={2}
               value={form.notes}
               onChange={handleChange}
-              disabled={!canCreateStockReceipt}
             />
           </Grid>
         </Grid>
@@ -228,8 +392,9 @@ export default function ReceiptCreate() {
             sx={{ mt: 3 }}
             onClick={handleSubmit}
             disabled={loading}
+            startIcon={loading ? <CircularProgress size={20} /> : <AddIcon />}
           >
-            {loading ? <CircularProgress size={24} color="inherit" /> : 'Submit Receipt'}
+            {loading ? 'Creating...' : 'Create Stock Receipt'}
           </Button>
         )}
       </Paper>

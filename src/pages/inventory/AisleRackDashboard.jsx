@@ -61,14 +61,18 @@ export default function AisleRackDashboard() {
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
 
-  // NEW: Bin management states
+  // NEW: Bin management states - FIXED useState declaration
   const [binDialog, setBinDialog] = useState(false);
   const [binFormData, setBinFormData] = useState({
     bin_id: '', row: '', rack: '', shelf: '', type: '', capacity: ''
   });
   const [selectedWarehouseId, setSelectedWarehouseId] = useState(null);
   const [warehouseBins, setWarehouseBins] = useState([]);
-  const [setLoadingBins] = useState(false); // Corrected useState declaration
+  const [loadingBins, setLoadingBins] = useState(false); // ✅ CORRECTED: loadingBins, not setLoadingBins
+
+  // Modal-specific alerts
+  const [modalError, setModalError] = useState('');
+  const [modalSuccess, setModalSuccess] = useState('');
 
   // Search handler
   const handleSearch = useCallback((value) => {
@@ -113,6 +117,8 @@ export default function AisleRackDashboard() {
   const fetchWarehouseBins = useCallback(async (warehouseId) => {
     if (!warehouseId) return;
     setLoadingBins(true);
+    setModalError('');
+    setModalSuccess('');
     try {
       const token = localStorage.getItem('accessToken');
       const res = await API.get(`/inventory/warehouses/${warehouseId}/bins/`, {
@@ -120,11 +126,12 @@ export default function AisleRackDashboard() {
       });
       setWarehouseBins(res.data);
     } catch (err) {
-      setError('❌ Failed to fetch warehouse bins: ' + (err.response?.data?.detail || err.message));
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to fetch warehouse bins';
+      setModalError(`❌ ${errorMsg}`);
     } finally {
       setLoadingBins(false);
     }
-  }, [setLoadingBins]); // Added setLoadingBins to dependency array
+  }, []); // ✅ Removed setLoadingBins from dependency array
 
   // Check permissions
   useEffect(() => {
@@ -203,16 +210,6 @@ export default function AisleRackDashboard() {
     });
   };
 
-  const handleDeleteOpen = (warehouse) => {
-    setSelectedItem(warehouse);
-    setDeleteDialog(true);
-  };
-
-  const handleDeleteClose = () => {
-    setDeleteDialog(false);
-    setSelectedItem(null);
-  };
-
   const handleFormChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -251,8 +248,24 @@ export default function AisleRackDashboard() {
       fetchData();
       handleCloseDialog();
     } catch (err) {
-      setError(`❌ Failed to ${selectedItem ? 'update' : 'create'} warehouse: ${err.response?.data?.detail || err.message}`);
+      const errorMsg = err.response?.data?.detail || 
+                      err.response?.data?.name || 
+                      err.response?.data?.code || 
+                      err.response?.data?.capacity || 
+                      err.message || 
+                      'Failed to save warehouse';
+      setError(`❌ ${selectedItem ? 'Update' : 'Create'} failed: ${errorMsg}`);
     }
+  };
+
+  const handleDeleteOpen = (warehouse) => {
+    setSelectedItem(warehouse);
+    setDeleteDialog(true);
+  };
+
+  const handleDeleteClose = () => {
+    setDeleteDialog(false);
+    setSelectedItem(null);
   };
 
   const handleDelete = async () => {
@@ -262,7 +275,8 @@ export default function AisleRackDashboard() {
       handleDeleteClose();
       fetchData();
     } catch (err) {
-      setError(`❌ Failed to delete warehouse: ${err.response?.data?.detail || err.message}`);
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to delete warehouse';
+      setError(`❌ Delete failed: ${errorMsg}`);
     }
   };
 
@@ -286,12 +300,16 @@ export default function AisleRackDashboard() {
     }
     setSelectedWarehouseId(warehouseId);
     setBinDialog(true);
+    setModalError('');
+    setModalSuccess('');
   };
 
   const handleCloseBinDialog = () => {
     setBinDialog(false);
     setSelectedItem(null);
     setBinFormData({ bin_id: '', row: '', rack: '', shelf: '', type: '', capacity: '' });
+    setModalError('');
+    setModalSuccess('');
   };
 
   const handleBinFormChange = (e) => {
@@ -302,11 +320,11 @@ export default function AisleRackDashboard() {
   const handleBinSubmit = async () => {
     const { bin_id, row, rack, shelf, type, capacity } = binFormData;
     if (!bin_id || !row || !rack || !capacity) {
-      setError('⚠️ Please fill all required fields (Bin ID, Row, Rack, Capacity).');
+      setModalError('⚠️ Please fill all required fields (Bin ID, Row, Rack, Capacity).');
       return;
     }
     if (Number(capacity) <= 0) {
-      setError('⚠️ Capacity must be a positive number.');
+      setModalError('⚠️ Capacity must be a positive number.');
       return;
     }
 
@@ -321,21 +339,43 @@ export default function AisleRackDashboard() {
         await API.patch(`/inventory/bins/${selectedItem.id}/`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setSuccess('✅ Bin updated successfully');
+        setModalSuccess('✅ Bin updated successfully');
       } else {
         // Create new bin in warehouse
         await API.post(`/inventory/warehouses/${selectedWarehouseId}/add_bin/`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setSuccess('✅ Bin added to warehouse successfully');
+        setModalSuccess('✅ Bin added to warehouse successfully');
       }
 
       fetchData();
       fetchWarehouseBins(selectedWarehouseId);
-      handleCloseBinDialog();
+      setTimeout(() => {
+        setModalSuccess('');
+        handleCloseBinDialog();
+      }, 1500);
     } catch (err) {
-      const errorMsg = err.response?.data?.warehouse || err.response?.data?.detail || err.message;
-      setError(`❌ ${selectedItem ? 'Update' : 'Add'} failed: ${errorMsg}`);
+      // Handle specific error messages
+      let errorMsg = 'Failed to save bin';
+      if (err.response?.data) {
+        const data = err.response.data;
+        if (data.bin_id) {
+          errorMsg = `Bin ID error: ${Array.isArray(data.bin_id) ? data.bin_id[0] : data.bin_id}`;
+        } else if (data.location) {
+          errorMsg = `Location error: ${Array.isArray(data.location) ? data.location[0] : data.location}`;
+        } else if (data.warehouse) {
+          errorMsg = `Warehouse error: ${Array.isArray(data.warehouse) ? data.warehouse[0] : data.warehouse}`;
+        } else if (data.detail) {
+          errorMsg = data.detail;
+        } else if (data.capacity) {
+          errorMsg = `Capacity error: ${Array.isArray(data.capacity) ? data.capacity[0] : data.capacity}`;
+        } else {
+          errorMsg = JSON.stringify(data);
+        }
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      setModalError(`❌ ${selectedItem ? 'Update' : 'Add'} failed: ${errorMsg}`);
     }
   };
 
@@ -348,7 +388,8 @@ export default function AisleRackDashboard() {
       setSuccess('✅ Bin removed from warehouse');
       fetchWarehouseBins(selectedWarehouseId);
     } catch (err) {
-      setError(`❌ Failed to remove bin: ${err.response?.data?.detail || err.message}`);
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to remove bin';
+      setError(`❌ Remove failed: ${errorMsg}`);
     }
   };
 
@@ -491,10 +532,10 @@ export default function AisleRackDashboard() {
               <Card>
                 <CardContent>
                   <Typography color="textSecondary" gutterBottom>Overall Usage</Typography>
-                  <Typography variant="h4">{analyticsData?.overall_usage_percentage || 0}%</Typography>
+                  <Typography variant="h4">{analyticsData?.utilization_percentage || 0}%</Typography>
                   <LinearProgress 
                     variant="determinate" 
-                    value={analyticsData?.overall_usage_percentage || 0} 
+                    value={analyticsData?.utilization_percentage || 0} 
                     sx={{ mt: 1 }}
                   />
                 </CardContent>
@@ -871,6 +912,9 @@ export default function AisleRackDashboard() {
           </Box>
         </DialogTitle>
         <DialogContent>
+          {modalError && <Alert severity="error" sx={{ mb: 2 }}>{modalError}</Alert>}
+          {modalSuccess && <Alert severity="success" sx={{ mb: 2 }}>{modalSuccess}</Alert>}
+          
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <TextField
@@ -937,8 +981,8 @@ export default function AisleRackDashboard() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseBinDialog}>Cancel</Button>
-          <Button onClick={handleBinSubmit} variant="contained">
-            {selectedItem ? 'Update' : 'Add to Warehouse'}
+          <Button onClick={handleBinSubmit} variant="contained" disabled={loadingBins}>
+            {loadingBins ? 'Saving...' : (selectedItem ? 'Update' : 'Add to Warehouse')}
           </Button>
         </DialogActions>
       </Dialog>

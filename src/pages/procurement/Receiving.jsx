@@ -1,37 +1,67 @@
 // src/pages/procurement/Receiving.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Container, Paper, Typography, TextField, Button, Box, Grid, Divider, Alert,
-  Table, TableHead, TableRow, TableCell, TableBody, TableContainer, Pagination,
-  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress,
+  Container,
+  Paper,
+  Typography,
+  Button,
+  Box,
+  Grid,
+  Divider,
+  Alert,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  TableContainer,
+  Pagination,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
   InputAdornment,
+  Chip,
+  TextField,
+  Autocomplete,
+  Collapse,
+  Card,
+  CardContent,
+  CardHeader,
+  Tooltip,
 } from '@mui/material';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SearchIcon from '@mui/icons-material/Search';
+import {
+  Add as AddIcon,
+  Search as SearchIcon,
+  Close as CloseIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  Inventory as InventoryIcon,
+  CheckCircle as CheckCircleIcon,
+} from '@mui/icons-material';
 import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
+const STATUS_COLORS = {
+  pending: 'default',
+  partial: 'warning',
+  complete: 'success',
+  rejected: 'error',
+};
+
 export default function Receiving() {
-  const [scanCode, setScanCode] = useState('');
-  const [matchResult, setMatchResult] = useState(null);
-  const [file, setFile] = useState(null);
-  const [goodsReceipts, setGoodsReceipts] = useState([]);
-  const [submitSuccess, setSubmitSuccess] = useState(null);
-  const [alert, setAlert] = useState(null);
+  const [receivings, setReceivings] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [alert, setAlert] = useState(null);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [permissions, setPermissions] = useState({
-    create_goods_receipt: false,
-    update_goods_receipt: false,
-    delete_goods_receipt: false,
+    create_receiving: false,
+    update_receiving: false,
   });
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
@@ -39,6 +69,25 @@ export default function Receiving() {
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
+
+  // Modal states
+  const [openModal, setOpenModal] = useState(false);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    po: null,
+    invoice_number: '',
+    invoice_date: '',
+    notes: '',
+    items: [],
+  });
+
+  // Data for dropdowns
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [storageBins, setStorageBins] = useState([]);
+
+  // Tutorial state
+  const [showTutorial, setShowTutorial] = useState(false);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
@@ -49,28 +98,62 @@ export default function Receiving() {
     []
   );
 
-  const fetchGoodsReceipts = useCallback(async () => {
+  // Fetch receivings
+  const fetchReceivings = useCallback(async () => {
     try {
       setLoading(true);
       const searchValue = search || searchTerm;
-      const res = await API.get('procurement/goods-receipts/', {
-        params: { search: searchValue, page, page_size: itemsPerPage },
+      const res = await API.get('procurement/receivings/', {
+        params: {
+          search: searchValue,
+          page,
+          page_size: itemsPerPage,
+        },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('[GOODS RECEIPTS FETCHED]', res.data);
-      setGoodsReceipts(res.data.results || []);
+      setReceivings(res.data.results || []);
       setTotalPages(Math.ceil(res.data.count / itemsPerPage));
       setAlert(null);
     } catch (err) {
-      console.error('Error fetching goods receipts:', err.response?.data || err.message);
-      setAlert('❌ Failed to fetch goods receipts: ' + (err.response?.data?.detail || err.message));
-      setGoodsReceipts([]);
+      console.error('Error fetching receivings:', err.response?.data || err.message);
+      setAlert('❌ Failed to fetch receivings: ' + (err.response?.data?.detail || err.message));
+      setReceivings([]);
       setTotalPages(1);
     } finally {
       setLoading(false);
     }
   }, [search, searchTerm, page, itemsPerPage]);
 
+  // Fetch approved purchase orders for dropdown
+  const fetchApprovedPOs = useCallback(async () => {
+    try {
+      const res = await API.get('procurement/purchase-orders/', {
+        params: {
+          status: 'approved',
+          page_size: 1000,
+        },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setPurchaseOrders(res.data.results || []);
+    } catch (err) {
+      console.error('Error fetching approved POs:', err);
+    }
+  }, []);
+
+  // Fetch storage bins for dropdown
+  const fetchStorageBins = useCallback(async () => {
+    try {
+      const res = await API.get('inventory/storage-bins/', {
+        params: { page_size: 1000 },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setStorageBins(res.data.results || []);
+    } catch (err) {
+      console.error('Error fetching storage bins:', err);
+    }
+  }, []);
+
+  // Check permissions and fetch data
   useEffect(() => {
     const checkPermissions = async () => {
       try {
@@ -81,20 +164,27 @@ export default function Receiving() {
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/goods_receipts/');
-        console.log('Page permission response:', pageResponse.data);
+
+        // Check page permission
+        const pageResponse = await API.get('/auth/permissions/page/receiving/');
         setHasPermission(pageResponse.data.allowed || false);
+
         if (!pageResponse.data.allowed) {
           setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
         } else {
-          const actions = ['create_goods_receipt', 'update_goods_receipt', 'delete_goods_receipt'];
+          // Check action permissions
+          const actions = ['create_receiving', 'update_receiving'];
           const actionPerms = {};
           for (const action of actions) {
             const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
             actionPerms[action] = actionResponse.data.allowed || false;
           }
           setPermissions(actionPerms);
-          fetchGoodsReceipts();
+
+          // Fetch data
+          fetchReceivings();
+          fetchApprovedPOs();
+          fetchStorageBins();
         }
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
@@ -104,154 +194,189 @@ export default function Receiving() {
         setCheckingPermissions(false);
       }
     };
-    checkPermissions();
-  }, [fetchGoodsReceipts]);
 
+    checkPermissions();
+  }, [fetchReceivings, fetchApprovedPOs, fetchStorageBins]);
+
+  // Handle search and pagination
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
       setPage(1);
       prevSearchRef.current = search;
       prevSearchTermRef.current = searchTerm;
     }
-    if (hasPermission) fetchGoodsReceipts();
-  }, [search, searchTerm, page, hasPermission, fetchGoodsReceipts]);
+    if (hasPermission) fetchReceivings();
+  }, [search, searchTerm, page, hasPermission, fetchReceivings]);
 
-  const handleScan = async () => {
-    const code = scanCode.trim();
-    if (!code) {
-      setAlert('⚠️ Please enter a PO code.');
-      return;
-    }
-    if (!/PO-\d+/.test(code)) {
-      setAlert('⚠️ PO code must be in format PO-<number>.');
-      return;
-    }
-    try {
-      setLoading(true);
-      setAlert(null);
-      const res = await API.get(`procurement/purchase-orders/?code=${code}`);
-      const match = res.data.results?.length > 0 ? res.data.results[0] : null;
-      if (match) {
-        const poCode = match.code;
-        const grn = `GRN-${Math.floor(Math.random() * 1000000)}`;
-        const invoice = `INV-${Math.floor(Math.random() * 1000000)}`;
-        setMatchResult({
-          po_code: poCode,
-          grn_code: grn,
-          invoice_code: invoice,
-          match_success: true,
-        });
-      } else {
-        setMatchResult({ match_success: false });
-        setAlert(`❌ No match found for PO code: ${code}`);
+  // Handle PO selection
+  const handlePOChange = (newValue) => {
+    setFormData((prev) => ({
+      ...prev,
+      po: newValue,
+      items: newValue
+        ? newValue.items.map((item) => ({
+            po_item: item.id,
+            received_quantity: 0,
+            accepted_quantity: 0,
+            rejected_quantity: 0,
+            rejection_reason: '',
+            storage_bin: null,
+            batch_number: '',
+            expiry_date: '',
+          }))
+        : [],
+    }));
+  };
+
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  // Handle item quantity changes
+  const handleItemQuantityChange = (index, field, value) => {
+    setFormData((prev) => {
+      const newItems = [...prev.items];
+      const numValue = value === '' ? 0 : parseInt(value);
+
+      if (field === 'received_quantity') {
+        // Ensure received quantity doesn't exceed remaining PO quantity
+        const poItem = purchaseOrders
+          .find((po) => po.id === prev.po?.id)
+          ?.items.find((item) => item.id === newItems[index].po_item);
+
+        const maxAllowed = poItem ? poItem.quantity - poItem.received_quantity : 0;
+        const clampedValue = Math.min(Math.max(0, numValue), maxAllowed);
+
+        newItems[index] = {
+          ...newItems[index],
+          received_quantity: clampedValue,
+          accepted_quantity: Math.min(newItems[index].accepted_quantity, clampedValue),
+          rejected_quantity: clampedValue - Math.min(newItems[index].accepted_quantity, clampedValue),
+        };
+      } else if (field === 'accepted_quantity') {
+        const received = newItems[index].received_quantity;
+        const clampedValue = Math.min(Math.max(0, numValue), received);
+        newItems[index] = {
+          ...newItems[index],
+          accepted_quantity: clampedValue,
+          rejected_quantity: received - clampedValue,
+        };
       }
-    } catch (err) {
-      console.error('Error scanning PO:', err.response?.data || err.message);
-      setMatchResult({ match_success: false });
-      setAlert(`❌ Scan failed: ${err.response?.data?.detail || err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleFileUpload = (e) => {
-    const uploaded = e.target.files[0];
-    if (uploaded) {
-      setFile(uploaded);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!matchResult?.match_success) {
-      setAlert('⚠️ No valid match to submit.');
-      return;
-    }
-    if (!permissions.create_goods_receipt) {
-      setAlert('⚠️ You do not have permission to create goods receipts.');
-      return;
-    }
-    try {
-      setLoading(true);
-      setAlert(null);
-      const formData = new FormData();
-      formData.append('po_code', matchResult.po_code);
-      formData.append('grn_code', matchResult.grn_code);
-      formData.append('invoice_code', matchResult.invoice_code);
-      formData.append('match_success', true);
-      if (file) formData.append('attachment', file);
-      const res = await API.post('procurement/goods-receipts/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setSubmitSuccess('✅ Goods receipt successfully saved.');
-      setGoodsReceipts([res.data, ...goodsReceipts]);
-      setScanCode('');
-      setMatchResult(null);
-      setFile(null);
-      fetchGoodsReceipts();
-    } catch (err) {
-      let errorMsg = '❌ Failed to save goods receipt.';
-      if (err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
-      setSubmitSuccess(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEdit = (receipt) => {
-    if (!permissions.update_goods_receipt) {
-      setAlert('⚠️ You do not have permission to update goods receipts.');
-      return;
-    }
-    setSelectedReceipt(receipt);
-    setMatchResult({
-      po_code: receipt.po_code,
-      grn_code: receipt.grn_code,
-      invoice_code: receipt.invoice_code,
-      match_success: receipt.match_success,
+      return { ...prev, items: newItems };
     });
-    setFile(null);
-    setEditOpen(true);
   };
 
-  const handleUpdate = async () => {
-    if (!permissions.update_goods_receipt) {
-      setAlert('⚠️ You do not have permission to update goods receipts.');
+  // Handle item field changes
+  const handleItemFieldChange = (index, field, value) => {
+    setFormData((prev) => {
+      const newItems = [...prev.items];
+      newItems[index] = {
+        ...newItems[index],
+        [field]: value,
+      };
+      return { ...prev, items: newItems };
+    });
+  };
+
+  // Open modal for creating new receiving
+  const handleOpenCreateModal = () => {
+    if (!permissions.create_receiving) {
+      setAlert('⚠️ You do not have permission to create receiving records.');
       return;
     }
-    if (!matchResult?.po_code || !matchResult.grn_code || !matchResult.invoice_code) {
-      setAlert('⚠️ All fields are required.');
+
+    setFormData({
+      po: null,
+      invoice_number: '',
+      invoice_date: '',
+      notes: '',
+      items: [],
+    });
+    setOpenModal(true);
+  };
+
+  // Submit receiving record
+  const handleSubmit = async () => {
+    // Validate form
+    if (!formData.po || !formData.invoice_number || !formData.invoice_date || formData.items.length === 0) {
+      setAlert('⚠️ Please fill all required fields and add at least one item.');
       return;
     }
+
+    // Validate each item
+    for (let i = 0; i < formData.items.length; i++) {
+      const item = formData.items[i];
+
+      if (item.received_quantity <= 0) {
+        setAlert(`⚠️ Item ${i + 1}: Received quantity must be positive.`);
+        return;
+      }
+
+      if (item.accepted_quantity < 0) {
+        setAlert(`⚠️ Item ${i + 1}: Accepted quantity cannot be negative.`);
+        return;
+      }
+
+      if (item.accepted_quantity > item.received_quantity) {
+        setAlert(`⚠️ Item ${i + 1}: Accepted quantity cannot exceed received quantity.`);
+        return;
+      }
+
+      if (item.accepted_quantity > 0 && !item.storage_bin) {
+        setAlert(`⚠️ Item ${i + 1}: Storage bin is required for accepted items.`);
+        return;
+      }
+
+      if (item.rejected_quantity > 0 && !item.rejection_reason) {
+        setAlert(`⚠️ Item ${i + 1}: Rejection reason is required when rejecting items.`);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       setAlert(null);
-      const formData = new FormData();
-      formData.append('po_code', matchResult.po_code);
-      formData.append('grn_code', matchResult.grn_code);
-      formData.append('invoice_code', matchResult.invoice_code);
-      formData.append('match_success', matchResult.match_success);
-      if (file) formData.append('attachment', file);
-      const res = await API.patch(`procurement/goods-receipts/${selectedReceipt.id}/`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setGoodsReceipts(goodsReceipts.map((r) => (r.id === selectedReceipt.id ? res.data : r)));
-      setAlert('✅ Goods receipt updated successfully.');
-      setEditOpen(false);
-      setMatchResult(null);
-      setFile(null);
-      fetchGoodsReceipts();
+
+      const payload = {
+        po: formData.po.id,
+        invoice_number: formData.invoice_number,
+        invoice_date: formData.invoice_date,
+        notes: formData.notes,
+        items: formData.items.map((item) => ({
+          po_item: item.po_item,
+          received_quantity: item.received_quantity,
+          accepted_quantity: item.accepted_quantity,
+          rejection_reason: item.rejection_reason,
+          storage_bin: item.storage_bin ? item.storage_bin.id : null,
+          batch_number: item.batch_number,
+          expiry_date: item.expiry_date || null,
+        })),
+      };
+
+      const response = await API.post('procurement/receivings/', payload);
+      setReceivings([response.data, ...receivings]);
+      setAlert('✅ Receiving record created successfully!');
+
+      setOpenModal(false);
+      fetchReceivings();
     } catch (err) {
-      let errorMsg = '❌ Failed to update goods receipt.';
+      let errorMsg = '❌ Failed to save receiving record.';
       if (err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
+        // Format validation errors
+        const errors = err.response.data;
+        if (typeof errors === 'object') {
+          errorMsg = Object.entries(errors)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
+        } else {
+          errorMsg = errors.detail || errorMsg;
+        }
       } else {
         errorMsg = err.message || '❌ Network error.';
       }
@@ -261,38 +386,10 @@ export default function Receiving() {
     }
   };
 
-  const handleDelete = (receipt) => {
-    if (!permissions.delete_goods_receipt) {
-      setAlert('⚠️ You do not have permission to delete goods receipts.');
-      return;
-    }
-    setSelectedReceipt(receipt);
-    setDeleteOpen(true);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!permissions.delete_goods_receipt) {
-      setAlert('⚠️ You do not have permission to delete goods receipts.');
-      return;
-    }
-    try {
-      setLoading(true);
-      setAlert(null);
-      await API.delete(`procurement/goods-receipts/${selectedReceipt.id}/`);
-      setAlert('✅ Goods receipt deleted successfully.');
-      setDeleteOpen(false);
-      fetchGoodsReceipts();
-    } catch (err) {
-      let errorMsg = '❌ Failed to delete goods receipt.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
-      setAlert(errorMsg);
-    } finally {
-      setLoading(false);
-    }
+  // Get PO item details
+  const getPOItemDetails = (poItemId) => {
+    if (!formData.po) return null;
+    return formData.po.items.find((item) => item.id === poItemId);
   };
 
   if (checkingPermissions) {
@@ -327,163 +424,178 @@ export default function Receiving() {
           {alert}
         </Alert>
       )}
+
       <Paper elevation={3} sx={{ p: 4, mt: 4 }}>
-        <Typography variant="h5" gutterBottom>
-          Receiving — Goods Receipt Process
-        </Typography>
-        <Typography sx={{ mb: 3 }} color="text.secondary">
-          Scan goods to confirm delivery, attach documents, and verify records using three-way match logic.
-        </Typography>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Typography variant="h5">Receiving Management</Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={handleOpenCreateModal}
+            disabled={!permissions.create_receiving}
+          >
+            Create Receiving Record
+          </Button>
+        </Box>
 
-        <Grid container spacing={4}>
-          <Grid item xs={12} md={6}>
-            <Typography variant="subtitle1" gutterBottom>
-              Step 1: Scan or Enter PO Code
-            </Typography>
-            <TextField
-              label="PO Code"
-              variant="outlined"
-              fullWidth
-              value={scanCode}
-              onChange={(e) => setScanCode(e.target.value)}
-              error={scanCode === '' && alert?.includes('required')}
-              helperText={scanCode === '' && alert?.includes('required') ? 'PO code is required' : ''}
-            />
-            <Button
-              onClick={handleScan}
-              variant="contained"
-              sx={{ mt: 2 }}
-              disabled={!hasPermission || !scanCode.trim() || loading}
-            >
-              {loading ? 'Scanning...' : 'Scan & Match'}
-            </Button>
-
-            {matchResult && (
-              <Box mt={3}>
-                {matchResult.match_success ? (
-                  <Alert severity="success">
-                    ✅ Match Successful — PO: <strong>{matchResult.po_code}</strong>, GRN:{' '}
-                    <strong>{matchResult.grn_code}</strong>, Invoice: <strong>{matchResult.invoice_code}</strong>
-                  </Alert>
-                ) : (
-                  <Alert severity="error">
-                    ❌ No match found for PO code: <strong>{scanCode}</strong>
-                  </Alert>
-                )}
+        {/* Tutorial Section */}
+        <Card variant="outlined" sx={{ mb: 4, borderColor: 'primary.main', bgcolor: 'background.paper' }}>
+          <CardHeader
+            title={
+              <Box display="flex" alignItems="center" gap={1}>
+                <InventoryIcon color="primary" />
+                <Typography variant="h6" color="primary">
+                  Page 3 of 4: Receiving Management
+                </Typography>
               </Box>
-            )}
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Typography variant="subtitle1" gutterBottom>
-              Step 2: Attach Delivery Document
-            </Typography>
-            <Button variant="outlined" component="label" startIcon={<UploadFileIcon />}>
-              Upload File
-              <input type="file" hidden accept=".pdf,.png,.jpg" onChange={handleFileUpload} />
-            </Button>
-            {file && (
-              <Typography variant="caption" display="block" mt={1} color="text.secondary">
-                Attached: {file.name}
+            }
+            action={
+              <IconButton onClick={() => setShowTutorial(!showTutorial)}>
+                {showTutorial ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              </IconButton>
+            }
+          />
+          <Collapse in={showTutorial}>
+            <CardContent>
+              <Typography paragraph>
+                This page allows warehouse staff to record goods received against approved purchase orders. When goods arrive from vendors, you create a receiving record to document what was delivered, what was accepted into inventory, and what was rejected.
               </Typography>
-            )}
+
+              <Typography variant="subtitle1" gutterBottom>
+                Key Validation Rules:
+              </Typography>
+              <ul>
+                <li>
+                  <strong>Cannot receive more than PO quantity:</strong> The system prevents you from receiving more items than what was ordered in the purchase order. If a PO item has 100 units ordered and 20 already received, you can only receive up to 80 more units.
+                </li>
+                <li>
+                  <strong>Accepted items require storage bin:</strong> Any items you accept into inventory must be assigned to a specific storage location (storage bin). This ensures proper inventory tracking.
+                </li>
+                <li>
+                  <strong>Rejected items require reason:</strong> If you reject any portion of the delivery, you must provide a reason for rejection (e.g., "Damaged", "Wrong item", "Expired").
+                </li>
+              </ul>
+
+              <Typography variant="subtitle1" gutterBottom>
+                Workflow:
+              </Typography>
+              <ol>
+                <li>Select an approved Purchase Order (PO) that goods are being delivered against</li>
+                <li>Enter invoice details (number and date)</li>
+                <li>
+                  For each PO item:
+                  <ul>
+                    <li>Enter the quantity actually received</li>
+                    <li>Specify how much to accept into inventory (must assign storage bin)</li>
+                    <li>Specify how much to reject (must provide rejection reason)</li>
+                  </ul>
+                </li>
+                <li>Submit the receiving record</li>
+                <li>
+                  The system automatically:
+                  <ul>
+                    <li>Updates PO status (to "Partially Received" or "Received")</li>
+                    <li>Updates inventory stock for accepted items</li>
+                    <li>Generates a Goods Receipt Note (GRN)</li>
+                  </ul>
+                </li>
+              </ol>
+
+              <Typography variant="subtitle1" gutterBottom>
+                Important Notes:
+              </Typography>
+              <ul>
+                <li>You can only receive against approved POs</li>
+                <li>Accepted quantity + Rejected quantity must equal Received quantity</li>
+                <li>Storage bins are required for all accepted items</li>
+                <li>Rejection reasons are mandatory when rejecting items</li>
+                <li>Once submitted, receiving records cannot be edited</li>
+              </ul>
+            </CardContent>
+          </Collapse>
+        </Card>
+
+        <Grid container spacing={2} mb={3}>
+          <Grid item xs={12} md={6}>
+            <Typography variant="body1" color="text.secondary">
+              Record goods received against purchase orders. Document what was delivered, what was accepted into inventory, and what was rejected.
+            </Typography>
+          </Grid>
+          <Grid item xs={12} md={6} display="flex" justifyContent="flex-end">
+            <TextField
+              size="small"
+              placeholder="Search receiving records..."
+              value={search}
+              onChange={(e) => debouncedSetSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
           </Grid>
         </Grid>
 
-        <Divider sx={{ my: 4 }} />
-
-        {matchResult?.match_success && (
-          <Button
-            variant="contained"
-            color="primary"
-            fullWidth
-            onClick={editOpen ? handleUpdate : handleSubmit}
-            disabled={loading || !permissions.create_goods_receipt}
-          >
-            {editOpen ? 'Update GRN' : 'Submit GRN to System'}
-          </Button>
-        )}
-
-        {submitSuccess && (
-          <Alert
-            sx={{ mt: 3 }}
-            severity={submitSuccess.startsWith('✅') ? 'success' : 'error'}
-            onClose={() => setSubmitSuccess(null)}
-          >
-            {submitSuccess}
-          </Alert>
-        )}
-
         <Divider sx={{ my: 3 }} />
 
-        <Box display="flex" justifyContent="flex-end" mb={2}>
-          <TextField
-            size="small"
-            placeholder="Search Goods Receipts..."
-            value={search}
-            onChange={(e) => debouncedSetSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Box>
+        <Typography variant="h6" gutterBottom>
+          Receiving Records
+        </Typography>
 
-        <Typography variant="h6" gutterBottom>Goods Receipts</Typography>
-        {goodsReceipts.length > 0 ? (
+        {receivings.length > 0 ? (
           <>
             <TableContainer>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>GRN Code</TableCell>
+                    <TableCell>GRN</TableCell>
                     <TableCell>PO Code</TableCell>
-                    <TableCell>Invoice Code</TableCell>
-                    <TableCell>Match Success</TableCell>
-                    <TableCell>Timestamp</TableCell>
-                    <TableCell>Attachment</TableCell>
+                    <TableCell>Vendor</TableCell>
+                    <TableCell>Invoice</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Created</TableCell>
                     <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {goodsReceipts.map((receipt) => (
-                    <TableRow key={receipt.id}>
-                      <TableCell>{receipt.grn_code}</TableCell>
-                      <TableCell>{receipt.po_code}</TableCell>
-                      <TableCell>{receipt.invoice_code}</TableCell>
-                      <TableCell>{receipt.match_success ? 'Yes' : 'No'}</TableCell>
-                      <TableCell>{new Date(receipt.timestamp).toLocaleDateString()}</TableCell>
+                  {receivings.map((receiving) => (
+                    <TableRow key={receiving.id}>
                       <TableCell>
-                        {receipt.attachment ? (
-                          <a href={receipt.attachment} target="_blank" rel="noopener noreferrer">
-                            View
-                          </a>
-                        ) : (
-                          'None'
-                        )}
+                        <Tooltip title="Goods Receipt Note">
+                          <strong>{receiving.grn}</strong>
+                        </Tooltip>
                       </TableCell>
+                      <TableCell>{receiving.po?.code || 'N/A'}</TableCell>
+                      <TableCell>{receiving.po?.vendor?.name || 'N/A'}</TableCell>
+                      <TableCell>{receiving.invoice_number}</TableCell>
                       <TableCell>
-                        <IconButton
-                          onClick={() => handleEdit(receipt)}
-                          disabled={!permissions.update_goods_receipt}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-                          onClick={() => handleDelete(receipt)}
-                          disabled={!permissions.delete_goods_receipt}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
+                        <Chip
+                          label={receiving.status.charAt(0).toUpperCase() + receiving.status.slice(1)}
+                          size="small"
+                          color={STATUS_COLORS[receiving.status] || 'default'}
+                        />
+                      </TableCell>
+                      <TableCell>{new Date(receiving.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        <Tooltip title="View details">
+                          <IconButton
+                            onClick={() => {
+                              // In a real app, this would open a details modal
+                              alert('View details functionality would be implemented here');
+                            }}
+                          >
+                            <CheckCircleIcon />
+                          </IconButton>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </TableContainer>
+
             {totalPages > 1 && (
               <Box mt={3} display="flex" justifyContent="center">
                 <Pagination
@@ -496,81 +608,235 @@ export default function Receiving() {
             )}
           </>
         ) : (
-          <Typography>No goods receipts found.</Typography>
+          <Box textAlign="center" py={4}>
+            <Typography variant="body1" color="text.secondary">
+              No receiving records found.
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleOpenCreateModal}
+              sx={{ mt: 2 }}
+              disabled={!permissions.create_receiving}
+            >
+              Create Your First Receiving Record
+            </Button>
+          </Box>
         )}
       </Paper>
 
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Delete Goods Receipt</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete GRN {selectedReceipt?.grn_code}? This action cannot be reversed.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleConfirmDelete}
-            disabled={loading || !permissions.delete_goods_receipt}
-          >
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Receiving Modal */}
+      <Dialog
+        open={openModal}
+        onClose={() => setOpenModal(false)}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{
+          sx: {
+            minHeight: '80vh',
+          },
+        }}
+      >
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            Create Receiving Record
+            <IconButton onClick={() => setOpenModal(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
 
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Edit Goods Receipt</DialogTitle>
-        <DialogContent>
-          <TextField
-            label="PO Code"
-            variant="outlined"
-            fullWidth
-            margin="normal"
-            value={matchResult?.po_code || ''}
-            onChange={(e) => setMatchResult({ ...matchResult, po_code: e.target.value })}
-            error={matchResult?.po_code === '' && alert?.includes('required')}
-            helperText={matchResult?.po_code === '' && alert?.includes('required') ? 'PO code is required' : ''}
-          />
-          <TextField
-            label="GRN Code"
-            variant="outlined"
-            fullWidth
-            margin="normal"
-            value={matchResult?.grn_code || ''}
-            onChange={(e) => setMatchResult({ ...matchResult, grn_code: e.target.value })}
-            error={matchResult?.grn_code === '' && alert?.includes('required')}
-            helperText={matchResult?.grn_code === '' && alert?.includes('required') ? 'GRN code is required' : ''}
-          />
-          <TextField
-            label="Invoice Code"
-            variant="outlined"
-            fullWidth
-            margin="normal"
-            value={matchResult?.invoice_code || ''}
-            onChange={(e) => setMatchResult({ ...matchResult, invoice_code: e.target.value })}
-            error={matchResult?.invoice_code === '' && alert?.includes('required')}
-            helperText={matchResult?.invoice_code === '' && alert?.includes('required') ? 'Invoice code is required' : ''}
-          />
-          <Button variant="outlined" component="label" startIcon={<UploadFileIcon />} sx={{ mt: 2 }}>
-            Upload New File
-            <input type="file" hidden accept=".pdf,.png,.jpg" onChange={handleFileUpload} />
-          </Button>
-          {file && (
-            <Typography variant="caption" display="block" mt={1} color="text.secondary">
-              Attached: {file.name}
-            </Typography>
-          )}
+        <DialogContent dividers>
+          <Grid container spacing={3}>
+            {/* Purchase Order Selection */}
+            <Grid item xs={12}>
+              <Autocomplete
+                required
+                options={purchaseOrders}
+                getOptionLabel={(option) => `${option.code} - ${option.vendor?.name || 'N/A'}`}
+                value={formData.po}
+                onChange={(event, newValue) => handlePOChange(newValue)}
+                renderInput={(params) => <TextField {...params} label="Select Purchase Order *" required />}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+              />
+              <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                Select an approved purchase order to receive goods against
+              </Typography>
+            </Grid>
+
+            {/* Invoice Details */}
+            <Grid item xs={12} md={6}>
+              <TextField
+                required
+                label="Invoice Number *"
+                name="invoice_number"
+                value={formData.invoice_number}
+                onChange={handleInputChange}
+                fullWidth
+                placeholder="Enter vendor invoice number"
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                required
+                label="Invoice Date *"
+                type="date"
+                name="invoice_date"
+                value={formData.invoice_date}
+                onChange={handleInputChange}
+                fullWidth
+                InputLabelProps={{
+                  shrink: true,
+                }}
+              />
+            </Grid>
+
+            {/* Notes */}
+            <Grid item xs={12}>
+              <TextField
+                label="Notes"
+                name="notes"
+                value={formData.notes}
+                onChange={handleInputChange}
+                fullWidth
+                multiline
+                minRows={2}
+                placeholder="Additional notes about the delivery..."
+              />
+            </Grid>
+
+            {/* Items Section */}
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Receiving Items
+              </Typography>
+
+              {formData.items.length > 0 ? (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Item</TableCell>
+                        <TableCell>PO Qty</TableCell>
+                        <TableCell>Received</TableCell>
+                        <TableCell>Accepted</TableCell>
+                        <TableCell>Rejected</TableCell>
+                        <TableCell>Storage Bin</TableCell>
+                        <TableCell>Rejection Reason</TableCell>
+                        <TableCell>Batch/Expiry</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {formData.items.map((item, index) => {
+                        const poItem = getPOItemDetails(item.po_item);
+                        const remainingQty = poItem ? poItem.quantity - poItem.received_quantity : 0;
+
+                        return (
+                          <TableRow key={index}>
+                            <TableCell>{poItem ? poItem.item?.name : 'Unknown Item'}</TableCell>
+                            <TableCell>{poItem ? `${poItem.quantity} (${remainingQty} remaining)` : 'N/A'}</TableCell>
+                            <TableCell>
+                              <TextField
+                                type="number"
+                                value={item.received_quantity}
+                                onChange={(e) => handleItemQuantityChange(index, 'received_quantity', e.target.value)}
+                                inputProps={{ min: 0, max: remainingQty }}
+                                size="small"
+                                sx={{ width: '100px' }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                type="number"
+                                value={item.accepted_quantity}
+                                onChange={(e) => handleItemQuantityChange(index, 'accepted_quantity', e.target.value)}
+                                inputProps={{ min: 0, max: item.received_quantity }}
+                                size="small"
+                                sx={{ width: '100px' }}
+                                error={item.accepted_quantity > 0 && !item.storage_bin}
+                                helperText={item.accepted_quantity > 0 && !item.storage_bin ? 'Required' : ''}
+                              />
+                            </TableCell>
+                            <TableCell>{item.rejected_quantity}</TableCell>
+                            <TableCell>
+                              <Autocomplete
+                                options={storageBins}
+                                getOptionLabel={(option) => option.name}
+                                value={item.storage_bin}
+                                onChange={(event, newValue) => handleItemFieldChange(index, 'storage_bin', newValue)}
+                                renderInput={(params) => (
+                                  <TextField
+                                    {...params}
+                                    size="small"
+                                    error={item.accepted_quantity > 0 && !item.storage_bin}
+                                    helperText={item.accepted_quantity > 0 && !item.storage_bin ? 'Required' : ''}
+                                  />
+                                )}
+                                isOptionEqualToValue={(option, value) => option.id === value.id}
+                                disabled={item.accepted_quantity === 0}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                value={item.rejection_reason}
+                                onChange={(e) => handleItemFieldChange(index, 'rejection_reason', e.target.value)}
+                                size="small"
+                                fullWidth
+                                error={item.rejected_quantity > 0 && !item.rejection_reason}
+                                helperText={item.rejected_quantity > 0 && !item.rejection_reason ? 'Required' : ''}
+                                disabled={item.rejected_quantity === 0}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Grid container spacing={1}>
+                                <Grid item xs={6}>
+                                  <TextField
+                                    size="small"
+                                    placeholder="Batch"
+                                    value={item.batch_number}
+                                    onChange={(e) => handleItemFieldChange(index, 'batch_number', e.target.value)}
+                                    fullWidth
+                                  />
+                                </Grid>
+                                <Grid item xs={6}>
+                                  <TextField
+                                    size="small"
+                                    type="date"
+                                    value={item.expiry_date}
+                                    onChange={(e) => handleItemFieldChange(index, 'expiry_date', e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                    fullWidth
+                                  />
+                                </Grid>
+                              </Grid>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography color="text.secondary" textAlign="center" py={2}>
+                  Select a purchase order to see items available for receiving.
+                </Typography>
+              )}
+            </Grid>
+          </Grid>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setOpenModal(false)} disabled={loading}>
+            Cancel
+          </Button>
           <Button
             variant="contained"
-            onClick={handleUpdate}
-            disabled={loading || !permissions.update_goods_receipt}
+            onClick={handleSubmit}
+            disabled={loading || !formData.po || formData.items.length === 0}
+            startIcon={loading ? <CircularProgress size={20} /> : null}
           >
-            Update
+            {loading ? 'Creating...' : 'Create Receiving Record'}
           </Button>
         </DialogActions>
       </Dialog>

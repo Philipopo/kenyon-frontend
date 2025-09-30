@@ -1,130 +1,356 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
+// src/pages/procurement/Orders.jsx
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Container, Typography, Paper, Grid, Button, TextField, Select, MenuItem,
-  FormControl, InputLabel, Table, TableHead, TableRow, TableCell, TableBody,
-  IconButton, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
-  Box, Pagination, CircularProgress, Alert, Rating, InputAdornment,
+  Container,
+  Paper,
+  Typography,
+  Button,
+  Box,
+  Grid,
+  Divider,
+  Alert,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  TableContainer,
+  Pagination,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
+  InputAdornment,
+  Chip,
+  TextField,
+  Autocomplete,
+  Collapse,
+  Card,
+  CardContent,
+  CardHeader,
+  Tooltip,
+  MenuItem,
 } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
-import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
-import StarIcon from '@mui/icons-material/Star';
-import StarBorderIcon from '@mui/icons-material/StarBorder';
+import {
+  Add as AddIcon,
+  Search as SearchIcon,
+  Edit as EditIcon,
+  Send as SendIcon,
+  Info as InfoIcon,
+  Close as CloseIcon,
+  Cancel as CancelIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  PictureAsPdf as PictureAsPdfIcon,
+  ThumbUp as ThumbUpIcon,
+  ThumbDown as ThumbDownIcon,
+  Delete as DeleteIcon,
+} from '@mui/icons-material';
 import { debounce } from 'lodash';
 import API from '../../api';
+import { useSearch } from '../../context/SearchContext';
+
+const STATUS_COLORS = {
+  draft: 'default',
+  submitted: 'info',
+  approved: 'success',
+  rejected: 'error',
+  partially_received: 'warning',
+  received: 'success',
+  cancelled: 'error',
+};
+
+function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove, onReject, onExportPDF, permissions, loading, formatCurrency }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <TableRow sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <TableCell>
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
+            {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </IconButton>
+        </TableCell>
+        <TableCell>
+          <Tooltip title="Purchase Order Code">
+            <strong>{po.code}</strong>
+          </Tooltip>
+        </TableCell>
+        <TableCell>{po.vendor?.name || 'N/A'}</TableCell>
+        <TableCell>{po.department}</TableCell>
+        <TableCell>
+          <Chip
+            label={po.status.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+            size="small"
+            color={STATUS_COLORS[po.status] || 'default'}
+          />
+        </TableCell>
+        <TableCell>{formatCurrency(po.total_amount)}</TableCell>
+        <TableCell>{new Date(po.created_at).toLocaleDateString()}</TableCell>
+        <TableCell>
+          <IconButton
+            onClick={(e) => { e.stopPropagation(); onEdit(po); }}
+            disabled={!permissions.update_purchase_order || po.status !== 'draft' || loading}
+            title="Edit PO (only for drafts)"
+          >
+            <EditIcon />
+          </IconButton>
+          {po.status === 'draft' && (
+            <IconButton
+              onClick={(e) => { e.stopPropagation(); onSubmitForApproval(po.id); }}
+              disabled={loading}
+              title="Submit for approval"
+            >
+              <SendIcon />
+            </IconButton>
+          )}
+          {po.status === 'submitted' && (
+            <>
+              <IconButton
+                onClick={(e) => { e.stopPropagation(); onApprove(po.id); }}
+                disabled={loading}
+                title="Approve PO"
+                color="success"
+              >
+                <ThumbUpIcon />
+              </IconButton>
+              <IconButton
+                onClick={(e) => { e.stopPropagation(); onReject(po.id); }}
+                disabled={loading}
+                title="Reject PO"
+                color="error"
+              >
+                <ThumbDownIcon />
+              </IconButton>
+            </>
+          )}
+          <IconButton
+            onClick={(e) => { e.stopPropagation(); onExportPDF(po.id); }}
+            disabled={loading}
+            title="Export as PDF"
+          >
+            <PictureAsPdfIcon />
+          </IconButton>
+          <IconButton
+            onClick={(e) => { e.stopPropagation(); onDelete(po.id); }}
+            disabled={!permissions.delete_purchase_order || po.status !== 'draft' || loading}
+            title="Delete PO (only for drafts)"
+            color="error"
+          >
+            <DeleteIcon />
+          </IconButton>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={8} style={{ paddingBottom: 0, paddingTop: 0 }}>
+          <Collapse in={open} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 2 }}>
+              <Typography variant="h6">Purchase Order Details</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Requisition:</strong> {po.requisition?.code || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Delivery Address:</strong> {po.delivery_address || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Expected Delivery:</strong> {po.expected_delivery_date || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Payment Terms:</strong> {po.payment_terms || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography><strong>Notes:</strong> {po.notes || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography><strong>Items:</strong></Typography>
+                  {po.items?.length ? (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Item</TableCell>
+                          <TableCell>Quantity</TableCell>
+                          <TableCell>Unit Price</TableCell>
+                          <TableCell>Total</TableCell>
+                          <TableCell>Notes</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {po.items.map((item, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{item.item?.name || 'Unknown Item'}</TableCell>
+                            <TableCell>{item.quantity}</TableCell>
+                            <TableCell>{formatCurrency(item.unit_price)}</TableCell>
+                            <TableCell>{formatCurrency(item.quantity * item.unit_price)}</TableCell>
+                            <TableCell>{item.notes || '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <Typography>—</Typography>
+                  )}
+                </Grid>
+              </Grid>
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </>
+  );
+}
 
 export default function PurchaseOrders() {
-  const [formData, setFormData] = useState({
-    itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending',
-  });
   const [purchaseOrders, setPurchaseOrders] = useState([]);
-  const [vendorList, setVendorList] = useState([]);
-  const [poTotalPages, setPoTotalPages] = useState(1);
-  const [vendorTotalPages, setVendorTotalPages] = useState(1);
-  const [poPage, setPoPage] = useState(1);
-  const [vendorPage, setVendorPage] = useState(1);
-  const [poSearch, setPoSearch] = useState('');
-  const [vendorSearch, setVendorSearch] = useState('');
-  const [open, setOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selectedPO, setSelectedPO] = useState(null);
-  const [vendorOpen, setVendorOpen] = useState(false);
-  const [editVendorOpen, setEditVendorOpen] = useState(false);
-  const [deleteVendorOpen, setDeleteVendorOpen] = useState(false);
-  const [selectedVendor, setSelectedVendor] = useState(null);
-  const [newVendor, setNewVendor] = useState({
-    name: '', details: '', lead_time: '', ratings: 3, document: null,
-  });
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
+  const [modalAlert, setModalAlert] = useState(null);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [permissions, setPermissions] = useState({
     create_purchase_order: false,
     update_purchase_order: false,
     delete_purchase_order: false,
-    add_vendor: false,
-    update_vendor: false,
-    delete_vendor: false,
+  });
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState('');
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
+  const { searchTerm } = useSearch();
+  const itemsPerPage = 10;
+  const prevSearchTermRef = useRef(searchTerm);
+  const prevSearchRef = useRef(search);
+
+  // Modal states
+  const [openModal, setOpenModal] = useState(false);
+  const [modalMode, setModalMode] = useState('create'); // 'create' or 'edit'
+  const [selectedPO, setSelectedPO] = useState(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    requisition: null,
+    vendor: null,
+    department: '',
+    delivery_address: '',
+    expected_delivery_date: '',
+    payment_terms: '',
+    notes: '',
+    items: [],
   });
 
-  // Replace useSearch with local state - you can connect this to your global search context later
-  const [globalSearchTerm] = useState('');
+  // New item form state
+  const [newItem, setNewItem] = useState({
+    item: null,
+    quantity: '',
+    unit_price: '',
+    notes: '',
+  });
 
-  const itemsPerPage = 10;
-  const vendorsPerPage = 5;
-  const prevSearchTermRef = useRef(globalSearchTerm);
-  const prevPoSearchRef = useRef(poSearch);
-  const prevVendorSearchRef = useRef(vendorSearch);
+  // Data for dropdowns
+  const [requisitions, setRequisitions] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
 
-  // Debounced search handlers - fixed to avoid exhaustive-deps warning
+  // Tutorial state
+  const [showTutorial, setShowTutorial] = useState(false);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSetPoSearch = useCallback(
+  const debouncedSetSearch = useCallback(
     debounce((value) => {
-      setPoSearch(value);
-      setPoPage(1);
+      setSearch(value);
+      setPage(1);
     }, 500),
     []
   );
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSetVendorSearch = useCallback(
-    debounce((value) => {
-      setVendorSearch(value);
-      setVendorPage(1);
-    }, 500),
-    []
-  );
+  // Format currency in Naira
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 2,
+    }).format(value);
+  };
+
+  // Calculate total amount for PO
+  const calculateTotalAmount = (items) => {
+    return items.reduce((total, item) => total + (item.quantity * (item.unit_price || 0)), 0);
+  };
 
   // Fetch purchase orders
-  const fetchOrders = useCallback(async () => {
+  const fetchPurchaseOrders = useCallback(async () => {
     try {
       setLoading(true);
-      const search = poSearch || globalSearchTerm;
+      const searchValue = search || searchTerm;
+      console.log('Fetching purchase orders with params:', { search: searchValue, page, page_size: itemsPerPage });
       const res = await API.get('procurement/purchase-orders/', {
-        params: { search, page: poPage, page_size: itemsPerPage },
+        params: { search: searchValue, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('[PURCHASE ORDERS FETCHED]', res.data);
-      setPurchaseOrders(res.data.results || []);
-      setPoTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      console.log('Purchase orders API response:', res.data);
+      setPurchaseOrders(res.data.results || res.data || []);
+      setTotalPages(Math.ceil((res.data.count || res.data.length || 0) / itemsPerPage));
       setAlert(null);
     } catch (err) {
       console.error('Error fetching purchase orders:', err.response?.data || err.message);
-      setAlert('❌ Failed to fetch purchase orders: ' + (err.response?.data?.detail || err.message));
+      setAlert(`❌ Failed to fetch purchase orders: ${err.response?.data?.detail || err.message}`);
       setPurchaseOrders([]);
-      setPoTotalPages(1);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
-  }, [poSearch, globalSearchTerm, poPage, itemsPerPage]);
+  }, [search, searchTerm, page, itemsPerPage]);
 
-  // Fetch vendors
-  const fetchVendors = useCallback(async () => {
+  // Fetch approved requisitions for dropdown
+  const fetchApprovedRequisitions = useCallback(async () => {
     try {
-      setLoading(true);
-      const res = await API.get('procurement/vendors/', {
-        params: { search: vendorSearch, page: vendorPage, page_size: vendorsPerPage },
+      const res = await API.get('procurement/requisitions/', {
+        params: { status: 'approved', page_size: 1000 },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('[VENDORS FETCHED]', res.data);
-      setVendorList(res.data.results || []);
-      setVendorTotalPages(Math.ceil(res.data.count / vendorsPerPage));
-      setAlert(null);
+      console.log('Requisitions API response:', res.data);
+      const approvedReqs = (res.data.results || res.data || []).filter((req) => req.status === 'approved');
+      setRequisitions(approvedReqs);
+    } catch (err) {
+      console.error('Error fetching approved requisitions:', err.response?.data || err.message);
+      setAlert(`❌ Failed to fetch requisitions: ${err.response?.data?.detail || err.message}`);
+    }
+  }, []);
+
+  // Fetch vendors for dropdown
+  const fetchVendors = useCallback(async () => {
+    try {
+      const res = await API.get('procurement/vendors/', {
+        params: { status: 'active', page_size: 1000 },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('Vendors API response:', res.data);
+      setVendors(res.data.results || res.data || []);
     } catch (err) {
       console.error('Error fetching vendors:', err.response?.data || err.message);
-      setAlert('❌ Failed to fetch vendors: ' + (err.response?.data?.detail || err.message));
-      setVendorList([]);
-      setVendorTotalPages(1);
-    } finally {
-      setLoading(false);
+      setAlert(`❌ Failed to fetch vendors: ${err.response?.data?.detail || err.message}`);
     }
-  }, [vendorSearch, vendorPage, vendorsPerPage]);
+  }, []);
 
-  // Permissions check
+  // Fetch inventory items for autocomplete
+  const fetchInventoryItems = useCallback(async () => {
+    try {
+      const res = await API.get('inventory/items/', {
+        params: { page_size: 1000 },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      console.log('Inventory items API response:', res.data);
+      setInventoryItems(res.data.results || res.data || []);
+    } catch (err) {
+      console.error('Error fetching inventory items:', err.response?.data || err.message);
+      setAlert(`❌ Failed to fetch inventory items: ${err.response?.data?.detail || err.message}`);
+    }
+  }, []);
+
+  // Check permissions and fetch data
   useEffect(() => {
     const checkPermissions = async () => {
       try {
@@ -135,29 +361,41 @@ export default function PurchaseOrders() {
           setCheckingPermissions(false);
           return;
         }
-        const pageResponse = await API.get('/auth/permissions/page/purchase_orders/');
-        console.log('Page permission response:', pageResponse.data);
+
+        // Check page-level permission
+        const pageResponse = await API.get('/auth/permissions/page/purchase_orders/', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         setHasPermission(pageResponse.data.allowed || false);
+
         if (!pageResponse.data.allowed) {
           setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-        } else {
-          const actions = [
-            'create_purchase_order',
-            'update_purchase_order',
-            'delete_purchase_order',
-            'add_vendor',
-            'update_vendor',
-            'delete_vendor',
-          ];
-          const actionPerms = {};
-          for (const action of actions) {
-            const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
-            actionPerms[action] = actionResponse.data.allowed || false;
-          }
-          setPermissions(actionPerms);
-          fetchOrders();
-          fetchVendors();
+          setCheckingPermissions(false);
+          return;
         }
+
+        // Fetch all action permissions in parallel
+        const actions = ['create_purchase_order', 'update_purchase_order', 'delete_purchase_order'];
+        const permissionPromises = actions.map((action) =>
+          API.get(`/auth/permissions/action/${action}/`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch((err) => {
+            console.error(`Error checking ${action} permission:`, err.response?.data || err.message);
+            return { data: { allowed: false } }; // Fallback to false
+          })
+        );
+
+        const permissionResponses = await Promise.all(permissionPromises);
+        const actionPerms = actions.reduce((acc, action, index) => {
+          acc[action] = permissionResponses[index].data.allowed || false;
+          return acc;
+        }, {});
+
+        console.log('Permissions fetched:', actionPerms);
+        setPermissions(actionPerms);
+
+        // Fetch data only if page permission is granted
+        await Promise.all([fetchPurchaseOrders(), fetchApprovedRequisitions(), fetchVendors(), fetchInventoryItems()]);
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
         setAlert(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
@@ -166,129 +404,253 @@ export default function PurchaseOrders() {
         setCheckingPermissions(false);
       }
     };
+
     checkPermissions();
-  }, [fetchOrders, fetchVendors]);
+  }, [fetchPurchaseOrders, fetchApprovedRequisitions, fetchVendors, fetchInventoryItems]);
 
-  // Data fetching on search or page change
+  // Handle search and pagination
   useEffect(() => {
-    if (hasPermission) {
-      if (
-        globalSearchTerm !== prevSearchTermRef.current ||
-        poSearch !== prevPoSearchRef.current ||
-        vendorSearch !== prevVendorSearchRef.current
-      ) {
-        setPoPage(1);
-        setVendorPage(1);
-        prevSearchTermRef.current = globalSearchTerm;
-        prevPoSearchRef.current = poSearch;
-        prevVendorSearchRef.current = vendorSearch;
-      }
-      fetchOrders();
-      fetchVendors();
+    if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
+      setPage(1);
+      prevSearchRef.current = search;
+      prevSearchTermRef.current = searchTerm;
     }
-  }, [globalSearchTerm, poSearch, vendorSearch, poPage, vendorPage, hasPermission, fetchOrders, fetchVendors]);
+    if (hasPermission) fetchPurchaseOrders();
+  }, [search, searchTerm, page, hasPermission, fetchPurchaseOrders]);
 
-  const renderStars = (rating) =>
-    [...Array(5)].map((_, i) =>
-      i < rating ? (
-        <StarIcon key={i} fontSize="small" color="warning" />
-      ) : (
-        <StarBorderIcon key={i} fontSize="small" />
-      )
-    );
-
-  const handleOpenPO = () => {
-    if (!permissions.create_purchase_order) {
-      setAlert('⚠️ You do not have permission to create purchase orders.');
-      return;
-    }
-    setFormData({ itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending' });
-    setOpen(true);
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
-  const handleEditPO = (po) => {
-    if (!permissions.update_purchase_order) {
-      setAlert('⚠️ You do not have permission to update purchase orders.');
+  // Handle requisition selection
+  const handleRequisitionChange = (newValue) => {
+    setFormData((prev) => ({
+      ...prev,
+      requisition: newValue,
+      department: newValue ? newValue.department : '',
+      items: newValue
+        ? newValue.items.map((item) => ({
+            item: item.item?.id || null,
+            quantity: item.quantity || 0,
+            unit_price: item.unit_cost || 0,
+            notes: item.notes || '',
+          }))
+        : [],
+    }));
+    setModalAlert(null);
+  };
+
+  // Handle vendor selection
+  const handleVendorChange = (newValue) => {
+    setFormData((prev) => ({
+      ...prev,
+      vendor: newValue,
+    }));
+  };
+
+  // Handle new item input changes
+  const handleNewItemChange = (field, value) => {
+    setNewItem((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  // Add new item to PO
+  const handleAddItem = () => {
+    if (!newItem.item || !newItem.quantity || !newItem.unit_price) {
+      setModalAlert('⚠️ Please fill all required fields for the item (Item, Quantity, Unit Price).');
+      console.log('Missing fields:', { item: newItem.item, quantity: newItem.quantity, unit_price: newItem.unit_price });
       return;
     }
-    setSelectedPO(po);
-    setFormData({
-      itemName: po.item_name,
-      eoq: po.eoq,
-      vendor: po.vendor?.id || '',
-      amount: po.amount,
-      notes: po.notes || '',
-      status: po.status,
+
+    const quantity = parseInt(newItem.quantity, 10);
+    const unitPrice = parseFloat(newItem.unit_price);
+
+    if (isNaN(quantity) || quantity <= 0) {
+      setModalAlert('⚠️ Quantity must be a positive number.');
+      return;
+    }
+
+    if (isNaN(unitPrice) || unitPrice <= 0) {
+      setModalAlert('⚠️ Unit price must be a positive number.');
+      return;
+    }
+
+    const newItemObj = {
+      item: newItem.item.id,
+      quantity,
+      unit_price: unitPrice,
+      notes: newItem.notes || '',
+    };
+
+    console.log('Adding item:', newItemObj);
+
+    setFormData((prev) => ({
+      ...prev,
+      items: [...prev.items, newItemObj],
+    }));
+
+    setNewItem({
+      item: null,
+      quantity: '',
+      unit_price: '',
+      notes: '',
     });
-    setEditOpen(true);
+    setModalAlert(null);
   };
 
-  const handleUpdatePO = async () => {
-    if (!permissions.update_purchase_order) {
-      setAlert('⚠️ You do not have permission to update purchase orders.');
-      return;
-    }
-    if (!formData.itemName || !formData.eoq || !formData.vendor || !formData.amount) {
-      setAlert('⚠️ Please fill all required fields.');
-      return;
-    }
-    if (parseInt(formData.eoq) <= 0 || parseFloat(formData.amount) <= 0) {
-      setAlert('⚠️ EOQ and Amount must be positive numbers.');
-      return;
-    }
+  // Remove item from PO
+  const handleRemoveItem = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
+  };
+
+  // Open modal for creating new PO
+  const handleOpenCreateModal = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      setAlert(null);
-      const res = await API.patch(`procurement/purchase-orders/${selectedPO.id}/`, {
-        item_name: formData.itemName,
-        eoq: parseInt(formData.eoq),
-        vendor_id: parseInt(formData.vendor),
-        amount: parseFloat(formData.amount),
-        notes: formData.notes,
-        status: formData.status,
+      console.log('Checking create_purchase_order permission...');
+      const response = await API.get('/auth/permissions/action/create_purchase_order/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      setPurchaseOrders(purchaseOrders.map((po) => (po.id === selectedPO.id ? res.data : po)));
-      setAlert('✅ Purchase Order updated successfully.');
-      setEditOpen(false);
-      setFormData({ itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending' });
-      fetchOrders();
-    } catch (err) {
-      let errorMsg = '❌ Failed to update purchase order.';
-      if (err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
-      } else {
-        errorMsg = err.message || '❌ Network error.';
+      console.log('Create permission response:', response.data);
+      if (!response.data.allowed) {
+        setAlert('⚠️ You do not have permission to create purchase orders.');
+        return;
       }
-      setAlert(errorMsg);
+
+      setModalMode('create');
+      setFormData({
+        requisition: null,
+        vendor: null,
+        department: '',
+        delivery_address: '',
+        expected_delivery_date: '',
+        payment_terms: '',
+        notes: '',
+        items: [],
+      });
+      setNewItem({
+        item: null,
+        quantity: '',
+        unit_price: '',
+        notes: '',
+      });
+      setModalAlert(null);
+      setOpenModal(true);
+    } catch (err) {
+      console.error('Create permission error:', err.response?.data || err.message);
+      setAlert(`⚠️ Failed to check create permission: ${err.response?.data?.detail || err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeletePO = (po) => {
-    if (!permissions.delete_purchase_order) {
-      setAlert('⚠️ You do not have permission to delete purchase orders.');
-      return;
+  // Open modal for editing PO
+  const handleOpenEditModal = async (po) => {
+    setLoading(true);
+    try {
+      const response = await API.get('/auth/permissions/action/update_purchase_order/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      if (!response.data.allowed) {
+        setAlert('⚠️ You do not have permission to edit purchase orders.');
+        return;
+      }
+
+      if (po.status !== 'draft') {
+        setAlert('⚠️ Only draft purchase orders can be edited.');
+        return;
+      }
+
+      setModalMode('edit');
+      setSelectedPO(po);
+      setFormData({
+        requisition: po.requisition || null,
+        vendor: po.vendor || null,
+        department: po.department || '',
+        delivery_address: po.delivery_address || '',
+        expected_delivery_date: po.expected_delivery_date || '',
+        payment_terms: po.payment_terms || '',
+        notes: po.notes || '',
+        items: po.items?.map((item) => ({
+          item: item.item?.id || null,
+          quantity: item.quantity || 0,
+          unit_price: item.unit_price || 0,
+          notes: item.notes || '',
+        })) || [],
+      });
+      setNewItem({
+        item: null,
+        quantity: '',
+        unit_price: '',
+        notes: '',
+      });
+      setModalAlert(null);
+      setOpenModal(true);
+    } catch (err) {
+      console.error('Edit permission error:', err.response?.data || err.message);
+      setAlert(`⚠️ Failed to check edit permission: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setLoading(false);
     }
-    setSelectedPO(po);
-    setDeleteOpen(true);
   };
 
-  const handleConfirmDeletePO = async () => {
-    if (!permissions.delete_purchase_order) {
-      setAlert('⚠️ You do not have permission to delete purchase orders.');
-      return;
-    }
+  // Open delete dialog
+  const handleOpenDeleteDialog = async (id) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      setAlert(null);
-      await API.delete(`procurement/purchase-orders/${selectedPO.id}/`);
-      setAlert('✅ Purchase Order deleted successfully.');
-      setDeleteOpen(false);
-      fetchOrders();
+      const response = await API.get('/auth/permissions/action/delete_purchase_order/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      if (!response.data.allowed) {
+        setAlert('⚠️ You do not have permission to delete purchase orders.');
+        return;
+      }
+      const po = purchaseOrders.find((p) => p.id === id);
+      if (po.status !== 'draft') {
+        setAlert('⚠️ Only draft purchase orders can be deleted.');
+        return;
+      }
+      setDeleteId(id);
+      setOpenDeleteDialog(true);
     } catch (err) {
+      console.error('Delete permission error:', err.response?.data || err.message);
+      setAlert(`⚠️ Failed to check delete permission: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Close delete dialog
+  const handleCloseDeleteDialog = () => {
+    setOpenDeleteDialog(false);
+    setDeleteId(null);
+    setAlert(null);
+    setModalAlert(null);
+  };
+
+  // Delete PO
+  const handleDelete = async () => {
+    setLoading(true);
+    try {
+      setAlert(null);
+      await API.delete(`procurement/purchase-orders/${deleteId}/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setAlert('✅ Purchase order deleted successfully!');
+      fetchPurchaseOrders();
+      handleCloseDeleteDialog();
+    } catch (err) {
+      console.error('Delete error:', err.response?.data || err.message);
       let errorMsg = '❌ Failed to delete purchase order.';
       if (err.response?.data) {
         errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
@@ -301,99 +663,107 @@ export default function PurchaseOrders() {
     }
   };
 
-  const handleOpenVendor = () => {
-    if (!permissions.add_vendor) {
-      setAlert('⚠️ You do not have permission to add vendors.');
+  // Submit PO (create or update)
+  const handleSubmit = async () => {
+    // Validate required fields
+    if (!formData.vendor || !formData.department || !formData.delivery_address || !formData.expected_delivery_date || formData.items.length === 0) {
+      setModalAlert('⚠️ Please fill all required fields and add at least one item.');
       return;
     }
-    setNewVendor({ name: '', details: '', lead_time: '', ratings: 3, document: null });
-    setVendorOpen(true);
-  };
 
-  const handleEditVendor = (vendor) => {
-    if (!permissions.update_vendor) {
-      setAlert('⚠️ You do not have permission to update vendors.');
+    // Validate items
+    const invalidItems = formData.items.filter((item) => !item.item || isNaN(item.quantity) || item.quantity <= 0 || isNaN(item.unit_price) || item.unit_price <= 0);
+    if (invalidItems.length > 0) {
+      setModalAlert('⚠️ All items must have a valid item, positive quantity, and positive unit price.');
+      console.log('Invalid items:', invalidItems);
       return;
     }
-    setSelectedVendor(vendor);
-    setNewVendor({
-      name: vendor.name,
-      details: vendor.details || '',
-      lead_time: vendor.lead_time,
-      ratings: vendor.ratings,
-      document: null,
-    });
-    setEditVendorOpen(true);
-  };
 
-  const handleUpdateVendor = async () => {
-    if (!permissions.update_vendor) {
-      setAlert('⚠️ You do not have permission to update vendors.');
-      return;
-    }
-    if (!newVendor.name || !newVendor.lead_time) {
-      setAlert('⚠️ Please fill all required fields.');
-      return;
-    }
-    if (parseInt(newVendor.lead_time) <= 0) {
-      setAlert('⚠️ Lead time must be a positive number.');
-      return;
-    }
     try {
       setLoading(true);
-      setAlert(null);
-      const form = new FormData();
-      form.append('name', newVendor.name);
-      form.append('details', newVendor.details || '');
-      form.append('lead_time', parseInt(newVendor.lead_time));
-      form.append('ratings', newVendor.ratings);
-      if (newVendor.document) form.append('document', newVendor.document);
-      const res = await API.patch(`procurement/vendors/${selectedVendor.id}/`, form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setVendorList(vendorList.map((v) => (v.id === selectedVendor.id ? res.data : v)));
-      setAlert('✅ Vendor updated successfully.');
-      setEditVendorOpen(false);
-      setNewVendor({ name: '', details: '', lead_time: '', ratings: 3, document: null });
-      fetchVendors();
+      setModalAlert(null);
+
+      const payload = {
+        vendor: formData.vendor.id,
+        department: formData.department,
+        delivery_address: formData.delivery_address,
+        expected_delivery_date: formData.expected_delivery_date,
+        payment_terms: formData.payment_terms || '',
+        notes: formData.notes || '',
+        items: formData.items.map((item) => ({
+          item: item.item, // Ensure this is the item ID
+          quantity: parseInt(item.quantity, 10),
+          unit_price: parseFloat(item.unit_price),
+          notes: item.notes || '',
+        })),
+      };
+
+      if (formData.requisition) {
+        payload.requisition = formData.requisition.id;
+      }
+
+      console.log('Submitting payload:', JSON.stringify(payload, null, 2));
+
+      let response;
+      if (modalMode === 'create') {
+        response = await API.post('procurement/purchase-orders/', payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        });
+        setPurchaseOrders([response.data, ...purchaseOrders]);
+        setAlert('✅ Purchase order created successfully!');
+      } else {
+        response = await API.patch(`procurement/purchase-orders/${selectedPO.id}/`, payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        });
+        setPurchaseOrders(purchaseOrders.map((po) => (po.id === selectedPO.id ? response.data : po)));
+        setAlert('✅ Purchase order updated successfully!');
+      }
+
+      setOpenModal(false);
+      fetchPurchaseOrders();
     } catch (err) {
-      let errorMsg = '❌ Failed to update vendor.';
+      console.error('Submit error:', err.response?.data || err.message);
+      let errorMsg = '❌ Failed to save purchase order.';
       if (err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
+        const errors = err.response.data;
+        if (typeof errors === 'object') {
+          errorMsg = Object.entries(errors)
+            .map(([field, msg]) => {
+              if (field === 'items' && Array.isArray(msg)) {
+                return msg.map((itemError, index) => `Item ${index + 1}: ${JSON.stringify(itemError)}`).join('; ');
+              }
+              return `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`;
+            })
+            .join('; ');
+        } else {
+          errorMsg = errors.detail || errorMsg;
+        }
       } else {
         errorMsg = err.message || '❌ Network error.';
       }
-      setAlert(errorMsg);
+      setModalAlert(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteVendor = (vendor) => {
-    if (!permissions.delete_vendor) {
-      setAlert('⚠️ You do not have permission to delete vendors.');
-      return;
-    }
-    setSelectedVendor(vendor);
-    setDeleteVendorOpen(true);
-  };
-
-  const handleConfirmDeleteVendor = async () => {
-    if (!permissions.delete_vendor) {
-      setAlert('⚠️ You do not have permission to delete vendors.');
-      return;
-    }
+  // Submit PO for approval
+  const handleSubmitForApproval = async (poId) => {
+    setLoading(true);
     try {
-      setLoading(true);
       setAlert(null);
-      await API.delete(`procurement/vendors/${selectedVendor.id}/`);
-      setAlert('✅ Vendor deleted successfully.');
-      setDeleteVendorOpen(false);
-      fetchVendors();
+      await API.patch(
+        `procurement/purchase-orders/${poId}/`,
+        { status: 'submitted' },
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        }
+      );
+      setAlert('✅ Purchase order submitted for approval!');
+      fetchPurchaseOrders();
     } catch (err) {
-      let errorMsg = '❌ Failed to delete vendor.';
+      console.error('Submit for approval error:', err.response?.data || err.message);
+      let errorMsg = '❌ Failed to submit purchase order.';
       if (err.response?.data) {
         errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
       } else {
@@ -405,45 +775,25 @@ export default function PurchaseOrders() {
     }
   };
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleGeneratePO = async () => {
-    if (!permissions.create_purchase_order) {
-      setAlert('⚠️ You do not have permission to create purchase orders.');
-      return;
-    }
-    if (!formData.itemName || !formData.eoq || !formData.vendor || !formData.amount) {
-      setAlert('⚠️ Please fill all required fields.');
-      return;
-    }
-    if (parseInt(formData.eoq) <= 0 || parseFloat(formData.amount) <= 0) {
-      setAlert('⚠️ EOQ and Amount must be positive numbers.');
-      return;
-    }
+  // Approve PO
+  const handleApprovePO = async (poId) => {
+    setLoading(true);
     try {
-      setLoading(true);
       setAlert(null);
-      const res = await API.post('procurement/purchase-orders/', {
-        item_name: formData.itemName,
-        eoq: parseInt(formData.eoq),
-        vendor_id: parseInt(formData.vendor),
-        amount: parseFloat(formData.amount),
-        notes: formData.notes,
-        status: formData.status,
-      });
-      setPurchaseOrders([res.data, ...purchaseOrders]);
-      setAlert('✅ Purchase Order created successfully.');
-      setOpen(false);
-      setFormData({ itemName: '', eoq: '', vendor: '', amount: '', notes: '', status: 'Pending' });
-      fetchOrders();
+      await API.post(
+        `procurement/purchase-orders/${poId}/approve/`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        }
+      );
+      setAlert('✅ Purchase order approved successfully!');
+      fetchPurchaseOrders();
     } catch (err) {
-      let errorMsg = '❌ Failed to create purchase order.';
+      console.error('Approve error:', err.response?.data || err.message);
+      let errorMsg = '❌ Failed to approve purchase order.';
       if (err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
+        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
       } else {
         errorMsg = err.message || '❌ Network error.';
       }
@@ -453,55 +803,56 @@ export default function PurchaseOrders() {
     }
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setNewVendor((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleRatingChange = (_, value) => {
-    setNewVendor((prev) => ({ ...prev, ratings: value || 3 }));
-  };
-
-  const handleFileChange = (e) => {
-    setNewVendor((prev) => ({ ...prev, document: e.target.files[0] }));
-  };
-
-  const handleCreateVendor = async () => {
-    if (!permissions.add_vendor) {
-      setAlert('⚠️ You do not have permission to add vendors.');
-      return;
-    }
-    if (!newVendor.name || !newVendor.lead_time) {
-      setAlert('⚠️ Please fill all required fields.');
-      return;
-    }
-    if (parseInt(newVendor.lead_time) <= 0) {
-      setAlert('⚠️ Lead time must be a positive number.');
-      return;
-    }
+  // Reject PO
+  const handleRejectPO = async (poId) => {
+    setLoading(true);
     try {
-      setLoading(true);
       setAlert(null);
-      const form = new FormData();
-      form.append('name', newVendor.name);
-      form.append('details', newVendor.details || '');
-      form.append('lead_time', parseInt(newVendor.lead_time));
-      form.append('ratings', newVendor.ratings);
-      if (newVendor.document) form.append('document', newVendor.document);
-      const res = await API.post('procurement/vendors/', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setVendorList([...vendorList, res.data]);
-      setAlert('✅ Vendor created successfully.');
-      setVendorOpen(false);
-      setNewVendor({ name: '', details: '', lead_time: '', ratings: 3, document: null });
-      fetchVendors();
+      await API.post(
+        `procurement/purchase-orders/${poId}/reject/`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        }
+      );
+      setAlert('✅ Purchase order rejected successfully!');
+      fetchPurchaseOrders();
     } catch (err) {
-      let errorMsg = '❌ Failed to create vendor.';
+      console.error('Reject error:', err.response?.data || err.message);
+      let errorMsg = '❌ Failed to reject purchase order.';
       if (err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
+        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
+      setAlert(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Export PO as PDF
+  const handleExportPDF = async (poId) => {
+    setLoading(true);
+    try {
+      setAlert(null);
+      const response = await API.get(`procurement/purchase-orders/${poId}/export_pdf/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `PO_${poId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setAlert('✅ Purchase order PDF exported successfully!');
+    } catch (err) {
+      console.error('Export PDF error:', err.response?.data || err.message);
+      let errorMsg = '❌ Failed to export purchase order as PDF.';
+      if (err.response?.data) {
+        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
       } else {
         errorMsg = err.message || '❌ Network error.';
       }
@@ -533,8 +884,8 @@ export default function PurchaseOrders() {
   }
 
   return (
-    <Container>
-      {alert && (
+    <Container maxWidth="lg">
+      {alert && !openModal && !openDeleteDialog && (
         <Alert
           sx={{ mt: 2, mb: 2 }}
           severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
@@ -543,364 +894,446 @@ export default function PurchaseOrders() {
           {alert}
         </Alert>
       )}
-      <Paper elevation={3} sx={{ p: 4, mt: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Purchase Orders
-        </Typography>
-        <Typography sx={{ mb: 3 }}>
-          Automate your procurement workflow with EOQ-based replenishment and smart vendor tools.
-        </Typography>
 
+      <Paper elevation={3} sx={{ p: 4, mt: 4 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Typography variant="h5">Purchase Orders Management</Typography>
           <Button
             variant="contained"
-            color="primary"
-            onClick={handleOpenPO}
-            disabled={!permissions.create_purchase_order}
+            startIcon={<AddIcon />}
+            onClick={handleOpenCreateModal}
+            disabled={loading || !permissions.create_purchase_order}
           >
-            Generate New PO
+            Create Purchase Order
           </Button>
-          <TextField
-            size="small"
-            placeholder="Search Purchase Orders..."
-            value={poSearch}
-            onChange={(e) => debouncedSetPoSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
         </Box>
 
-        <Dialog open={open || editOpen} onClose={() => { setOpen(false); setEditOpen(false); }} fullWidth maxWidth="sm">
-          <DialogTitle>{editOpen ? 'Edit Purchase Order' : 'Generate New Purchase Order'}</DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Item Name"
-                  name="itemName"
-                  value={formData.itemName}
-                  onChange={handleChange}
-                  required
-                  error={formData.itemName === '' && alert?.includes('required')}
-                  helperText={formData.itemName === '' && alert?.includes('required') ? 'Item name is required' : ''}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Recommended EOQ"
-                  name="eoq"
-                  type="number"
-                  value={formData.eoq}
-                  onChange={handleChange}
-                  required
-                  error={formData.eoq === '' && alert?.includes('required')}
-                  helperText={formData.eoq === '' && alert?.includes('required') ? 'EOQ is required' : ''}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <FormControl fullWidth>
-                  <InputLabel>Vendor</InputLabel>
-                  <Select
-                    name="vendor"
-                    value={formData.vendor}
-                    onChange={handleChange}
-                    required
-                    error={formData.vendor === '' && alert?.includes('required')}
-                  >
-                    {vendorList.map((vendor) => (
-                      <MenuItem key={vendor.id} value={vendor.id}>
-                        {vendor.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Amount"
-                  name="amount"
-                  type="number"
-                  value={formData.amount}
-                  onChange={handleChange}
-                  required
-                  error={formData.amount === '' && alert?.includes('required')}
-                  helperText={formData.amount === '' && alert?.includes('required') ? 'Amount is required' : ''}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Notes"
-                  name="notes"
-                  multiline
-                  rows={3}
-                  value={formData.notes}
-                  onChange={handleChange}
-                />
-              </Grid>
-            </Grid>
-            <Button onClick={handleOpenVendor} size="small" sx={{ mt: 1 }} disabled={!permissions.add_vendor}>
-              Create Vendor
-            </Button>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => { setOpen(false); setEditOpen(false); }}>Cancel</Button>
-            <Button
-              variant="contained"
-              onClick={editOpen ? handleUpdatePO : handleGeneratePO}
-              disabled={loading}
-            >
-              {loading ? <CircularProgress size={24} color="inherit" /> : editOpen ? 'Update' : 'Generate'}
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} fullWidth maxWidth="sm">
-          <DialogTitle>Delete Purchase Order</DialogTitle>
-          <DialogContent>
-            <Typography>
-              Are you sure you want to delete PO {selectedPO?.code}? This action cannot be reversed.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
-            <Button
-              variant="contained"
-              color="error"
-              onClick={handleConfirmDeletePO}
-              disabled={loading || !permissions.delete_purchase_order}
-            >
-              Delete
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        <Typography variant="h6" gutterBottom>
-          Vendor Comparison <IconButton><CompareArrowsIcon /></IconButton>
-        </Typography>
-        <Box display="flex" justifyContent="flex-end" mb={2}>
-          <TextField
-            size="small"
-            placeholder="Search Vendors..."
-            value={vendorSearch}
-            onChange={(e) => debouncedSetVendorSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
+        {/* Tutorial Section */}
+        <Card variant="outlined" sx={{ mb: 4, borderColor: 'primary.main', bgcolor: 'background.paper' }}>
+          <CardHeader
+            title={
+              <Box display="flex" alignItems="center" gap={1}>
+                <InfoIcon color="primary" />
+                <Typography variant="h6" color="primary">
+                  Page 2 of 4: Purchase Orders Management
+                </Typography>
+              </Box>
+            }
+            action={<IconButton onClick={() => setShowTutorial(!showTutorial)}>{showTutorial ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>}
           />
-        </Box>
-        <Table size="small" sx={{ mb: 4 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Vendor</TableCell>
-              <TableCell>Lead Time</TableCell>
-              <TableCell>Rating</TableCell>
-              <TableCell>Document</TableCell>
-              <TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {vendorList.length > 0 ? (
-              vendorList.map((vendor) => (
-                <TableRow key={vendor.id}>
-                  <TableCell>{vendor.name}</TableCell>
-                  <TableCell>{vendor.lead_time} days</TableCell>
-                  <TableCell>{renderStars(vendor.ratings)}</TableCell>
-                  <TableCell>
-                    {vendor.document ? (
-                      <a href={vendor.document} target="_blank" rel="noopener noreferrer">
-                        <PictureAsPdfIcon color="error" />
-                      </a>
-                    ) : (
-                      <Typography variant="body2" color="textSecondary">
-                        No PDF
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <IconButton
-                      onClick={() => handleEditVendor(vendor)}
-                      disabled={!permissions.update_vendor}
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => handleDeleteVendor(vendor)}
-                      disabled={!permissions.delete_vendor}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={5}>No vendors found.</TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-        {vendorTotalPages > 1 && (
-          <Box mt={3} display="flex" justifyContent="center">
-            <Pagination
-              count={vendorTotalPages}
-              page={vendorPage}
-              onChange={(_, value) => setVendorPage(value)}
-              color="primary"
-            />
-          </Box>
-        )}
+          <Collapse in={showTutorial}>
+            <CardContent>
+              <Typography paragraph>
+                This page allows Procurement Officers to create formal purchase orders based on approved requisitions. Purchase Orders (POs) are legally binding documents sent to vendors to order goods or services.
+              </Typography>
+              <Typography variant="subtitle1" gutterBottom>
+                Key Features:
+              </Typography>
+              <ul>
+                <li>
+                  <strong>Create PO from Requisition:</strong> Select an approved requisition to auto-populate department and items
+                </li>
+                <li>
+                  <strong>Standalone PO:</strong> Create a PO without a requisition for ad-hoc purchases
+                </li>
+                <li>
+                  <strong>Vendor Selection:</strong> Choose from your approved vendor list
+                </li>
+                <li>
+                  <strong>Delivery Details:</strong> Set delivery address and expected date
+                </li>
+                <li>
+                  <strong>PO Status Tracking:</strong> Monitor PO progress from Draft → Submitted → Approved → Received
+                </li>
+                <li>
+                  <strong>Approval Workflow:</strong> Managers can approve or reject submitted POs
+                </li>
+                <li>
+                  <strong>PDF Export:</strong> Generate professional PDF documents for vendors
+                </li>
+              </ul>
+              <Typography variant="subtitle1" gutterBottom>
+                Workflow:
+              </Typography>
+              <ol>
+                <li>Create a PO (from requisition or standalone)</li>
+                <li>Submit for approval (changes status to "Submitted")</li>
+                <li>Approvers review and either approve or reject</li>
+                <li>Approved POs are sent to vendors</li>
+                <li>When goods arrive, create a Receiving record (Page 3)</li>
+              </ol>
+              <Typography variant="subtitle1" gutterBottom>
+                Important Notes:
+              </Typography>
+              <ul>
+                <li>Only Draft POs can be edited or deleted</li>
+                <li>Submitted POs require approval before processing</li>
+                <li>All fields marked with * are required</li>
+                <li>Total amount is automatically calculated from line items in Naira</li>
+              </ul>
+            </CardContent>
+          </Collapse>
+        </Card>
 
-        <Dialog open={vendorOpen || editVendorOpen} onClose={() => { setVendorOpen(false); setEditVendorOpen(false); }} fullWidth maxWidth="sm">
-          <DialogTitle>{editVendorOpen ? 'Edit Vendor' : 'Create New Vendor'}</DialogTitle>
-          <DialogContent dividers>
-            <TextField
-              fullWidth
-              label="Name"
-              name="name"
-              value={newVendor.name}
-              onChange={handleInputChange}
-              sx={{ mb: 2 }}
-              required
-              error={newVendor.name === '' && alert?.includes('required')}
-              helperText={newVendor.name === '' && alert?.includes('required') ? 'Name is required' : ''}
-            />
-            <TextField
-              fullWidth
-              label="Details"
-              name="details"
-              value={newVendor.details}
-              onChange={handleInputChange}
-              multiline
-              rows={3}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Lead Time (days)"
-              name="lead_time"
-              type="number"
-              value={newVendor.lead_time}
-              onChange={handleInputChange}
-              sx={{ mb: 2 }}
-              required
-              error={newVendor.lead_time === '' && alert?.includes('required')}
-              helperText={newVendor.lead_time === '' && alert?.includes('required') ? 'Lead time is required' : ''}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-              <span style={{ marginRight: 8 }}>Rating:</span>
-              <Rating name="ratings" value={newVendor.ratings} onChange={handleRatingChange} />
-            </div>
-            <input
-              type="file"
-              onChange={handleFileChange}
-              accept="application/pdf"
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => { setVendorOpen(false); setEditVendorOpen(false); }}>Cancel</Button>
-            <Button
-              onClick={editVendorOpen ? handleUpdateVendor : handleCreateVendor}
-              variant="contained"
-              disabled={loading}
-            >
-              {editVendorOpen ? 'Update' : 'Save'}
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        <Dialog open={deleteVendorOpen} onClose={() => setDeleteVendorOpen(false)} fullWidth maxWidth="sm">
-          <DialogTitle>Delete Vendor</DialogTitle>
-          <DialogContent>
-            <Typography>
-              Are you sure you want to delete vendor {selectedVendor?.name}? This action cannot be reversed.
+        <Grid container spacing={2} mb={3}>
+          <Grid item xs={12} md={6}>
+            <Typography variant="body1" color="text.secondary">
+              Create and manage purchase orders for your organization. Convert approved requisitions into formal orders or create standalone orders.
             </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDeleteVendorOpen(false)}>Cancel</Button>
-            <Button
-              variant="contained"
-              color="error"
-              onClick={handleConfirmDeleteVendor}
-              disabled={loading || !permissions.delete_vendor}
-            >
-              Delete
-            </Button>
-          </DialogActions>
-        </Dialog>
+          </Grid>
+          <Grid item xs={12} md={6} display="flex" justifyContent="flex-end">
+            <TextField
+              size="small"
+              placeholder="Search purchase orders..."
+              value={search}
+              onChange={(e) => debouncedSetSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
+        </Grid>
 
         <Divider sx={{ my: 3 }} />
-        <Typography variant="h6" gutterBottom>Generated Purchase Orders</Typography>
+
+        <Typography variant="h6" gutterBottom>Purchase Orders</Typography>
+
         {purchaseOrders.length > 0 ? (
           <>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Code</TableCell>
-                  <TableCell>Item</TableCell>
-                  <TableCell>EOQ</TableCell>
-                  <TableCell>Vendor</TableCell>
-                  <TableCell>Amount</TableCell>
-                  <TableCell>Date</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {purchaseOrders.map((po) => (
-                  <TableRow key={po.id}>
-                    <TableCell>{po.code}</TableCell>
-                    <TableCell>{po.item_name}</TableCell>
-                    <TableCell>{po.eoq}</TableCell>
-                    <TableCell>{po.vendor?.name || '—'}</TableCell>
-                    <TableCell>₦{parseFloat(po.amount).toLocaleString()}</TableCell>
-                    <TableCell>{new Date(po.date).toLocaleDateString()}</TableCell>
-                    <TableCell>{po.status}</TableCell>
-                    <TableCell>
-                      <IconButton
-                        onClick={() => handleEditPO(po)}
-                        disabled={!permissions.update_purchase_order}
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton
-                        onClick={() => handleDeletePO(po)}
-                        disabled={!permissions.delete_purchase_order}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </TableCell>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell></TableCell>
+                    <TableCell>PO Code</TableCell>
+                    <TableCell>Vendor</TableCell>
+                    <TableCell>Department</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Total Amount</TableCell>
+                    <TableCell>Created</TableCell>
+                    <TableCell>Actions</TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {poTotalPages > 1 && (
+                </TableHead>
+                <TableBody>
+                  {purchaseOrders.map((po) => (
+                    <PurchaseOrderRow
+                      key={po.id}
+                      po={po}
+                      onEdit={handleOpenEditModal}
+                      onDelete={handleOpenDeleteDialog}
+                      onSubmitForApproval={handleSubmitForApproval}
+                      onApprove={handleApprovePO}
+                      onReject={handleRejectPO}
+                      onExportPDF={handleExportPDF}
+                      permissions={permissions}
+                      loading={loading}
+                      formatCurrency={formatCurrency}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            {totalPages > 1 && (
               <Box mt={3} display="flex" justifyContent="center">
-                <Pagination
-                  count={poTotalPages}
-                  page={poPage}
-                  onChange={(_, value) => setPoPage(value)}
-                  color="primary"
-                />
+                <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
               </Box>
             )}
           </>
         ) : (
-          <Typography>No purchase orders found.</Typography>
+          <Box textAlign="center" py={4}>
+            <Typography variant="body1" color="text.secondary">
+              No purchase orders found.
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleOpenCreateModal}
+              sx={{ mt: 2 }}
+              disabled={loading || !permissions.create_purchase_order}
+            >
+              Create Your First Purchase Order
+            </Button>
+          </Box>
         )}
       </Paper>
+
+      {/* Purchase Order Modal */}
+      <Dialog open={openModal} onClose={() => setOpenModal(false)} fullWidth maxWidth="md" PaperProps={{ sx: { minHeight: '80vh' } }}>
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            {modalMode === 'create' ? 'Create New Purchase Order' : 'Edit Purchase Order'}
+            <IconButton onClick={() => setOpenModal(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent dividers>
+          {modalAlert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
+              onClose={() => setModalAlert(null)}
+            >
+              {modalAlert}
+            </Alert>
+          )}
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Autocomplete
+                options={requisitions}
+                getOptionLabel={(option) => `${option.code} - ${option.department}`}
+                value={formData.requisition}
+                onChange={(event, newValue) => handleRequisitionChange(newValue)}
+                renderInput={(params) => <TextField {...params} label="Select Approved Requisition (Optional)" />}
+                isOptionEqualToValue={(option, value) => option.id === value?.id}
+              />
+              <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                Select an approved requisition to auto-populate department and items
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Autocomplete
+                required
+                options={vendors}
+                getOptionLabel={(option) => option.name}
+                value={formData.vendor}
+                onChange={(event, newValue) => handleVendorChange(newValue)}
+                renderInput={(params) => <TextField {...params} label="Vendor *" required />}
+                isOptionEqualToValue={(option, value) => option.id === value?.id}
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                required
+                label="Department *"
+                name="department"
+                value={formData.department}
+                onChange={handleInputChange}
+                fullWidth
+                select
+              >
+                <MenuItem value="IT">IT</MenuItem>
+                <MenuItem value="HR">Human Resources</MenuItem>
+                <MenuItem value="Finance">Finance</MenuItem>
+                <MenuItem value="Marketing">Marketing</MenuItem>
+                <MenuItem value="Operations">Operations</MenuItem>
+                <MenuItem value="Sales">Sales</MenuItem>
+                <MenuItem value="R&D">Research & Development</MenuItem>
+                <MenuItem value="Procurement">Procurement</MenuItem>
+                <MenuItem value="Admin">Administration</MenuItem>
+              </TextField>
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                required
+                label="Expected Delivery Date *"
+                type="date"
+                name="expected_delivery_date"
+                value={formData.expected_delivery_date}
+                onChange={handleInputChange}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                required
+                label="Delivery Address *"
+                name="delivery_address"
+                value={formData.delivery_address}
+                onChange={handleInputChange}
+                fullWidth
+                multiline
+                minRows={2}
+                placeholder="Enter full delivery address..."
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Payment Terms"
+                name="payment_terms"
+                value={formData.payment_terms}
+                onChange={handleInputChange}
+                fullWidth
+                multiline
+                minRows={2}
+                placeholder="e.g., Net 30, 50% upfront, etc."
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Notes"
+                name="notes"
+                value={formData.notes}
+                onChange={handleInputChange}
+                fullWidth
+                multiline
+                minRows={2}
+                placeholder="Additional notes or instructions..."
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Items
+              </Typography>
+
+              <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    <Autocomplete
+                      options={inventoryItems}
+                      getOptionLabel={(option) => option.name}
+                      value={newItem.item}
+                      onChange={(event, newValue) => handleNewItemChange('item', newValue)}
+                      renderInput={(params) => <TextField {...params} label="Select Item *" required />}
+                      isOptionEqualToValue={(option, value) => option.id === value?.id}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} md={2}>
+                    <TextField
+                      required
+                      label="Quantity *"
+                      type="number"
+                      value={newItem.quantity}
+                      onChange={(e) => handleNewItemChange('quantity', e.target.value)}
+                      fullWidth
+                      inputProps={{ min: 1 }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} md={2}>
+                    <TextField
+                      required
+                      label="Unit Price (₦)*"
+                      type="number"
+                      value={newItem.unit_price}
+                      onChange={(e) => handleNewItemChange('unit_price', e.target.value)}
+                      fullWidth
+                      inputProps={{ min: 0.01, step: 0.01 }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      label="Notes"
+                      value={newItem.notes}
+                      onChange={(e) => handleNewItemChange('notes', e.target.value)}
+                      fullWidth
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} md={1} display="flex" alignItems="flex-end">
+                    <Button variant="contained" onClick={handleAddItem} fullWidth disabled={loading}>
+                      Add
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {formData.items.length > 0 ? (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Item</TableCell>
+                        <TableCell>Quantity</TableCell>
+                        <TableCell>Unit Price</TableCell>
+                        <TableCell>Total</TableCell>
+                        <TableCell>Notes</TableCell>
+                        <TableCell>Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {formData.items.map((item, index) => {
+                        const inventoryItem = inventoryItems.find((i) => i.id === item.item);
+                        const total = item.quantity * item.unit_price;
+
+                        return (
+                          <TableRow key={index}>
+                            <TableCell>{inventoryItem ? inventoryItem.name : 'Unknown Item'}</TableCell>
+                            <TableCell>{item.quantity}</TableCell>
+                            <TableCell>{formatCurrency(item.unit_price)}</TableCell>
+                            <TableCell>{formatCurrency(total)}</TableCell>
+                            <TableCell>{item.notes || '-'}</TableCell>
+                            <TableCell>
+                              <IconButton size="small" onClick={() => handleRemoveItem(index)} color="error">
+                                <CancelIcon />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography color="text.secondary" textAlign="center" py={2}>
+                  No items added yet. Add items using the form above.
+                </Typography>
+              )}
+
+              {formData.items.length > 0 && (
+                <Box mt={2} display="flex" justifyContent="flex-end">
+                  <Typography variant="h6">Total Amount: {formatCurrency(calculateTotalAmount(formData.items))}</Typography>
+                </Box>
+              )}
+            </Grid>
+          </Grid>
+        </DialogContent>
+
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setOpenModal(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={loading || formData.items.length === 0 || !formData.vendor || !formData.department || !formData.delivery_address || !formData.expected_delivery_date}
+            startIcon={loading ? <CircularProgress size={20} /> : null}
+          >
+            {loading ? 'Saving...' : modalMode === 'create' ? 'Create Purchase Order' : 'Update Purchase Order'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={openDeleteDialog} onClose={handleCloseDeleteDialog}>
+        <DialogTitle>Delete Purchase Order?</DialogTitle>
+        <DialogContent>
+          {alert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
+              onClose={() => setAlert(null)}
+            >
+              {alert}
+            </Alert>
+          )}
+          <Typography>Are you sure you want to delete this purchase order? This cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog} disabled={loading}>
+            Cancel
+          </Button>
+          <Button color="error" onClick={handleDelete} disabled={loading}>
+            {loading ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

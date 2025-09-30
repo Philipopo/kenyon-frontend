@@ -93,12 +93,12 @@ const Dashboard = () => {
     { label: 'New Audit', link: '/dashboard/audit', icon: <InventoryIcon /> },
   ];
 
-  // Metric configuration with icons and colors
+  // Metric configuration with icons and consistent colors
   const metricConfig = {
-    1: { icon: <InventoryIcon />, color: '#4361ee', title: 'Total Items' },
-    2: { icon: <StorageIcon />, color: '#3f37c9', title: 'Total Bins' },
-    4: { icon: <TimelineIcon />, color: '#4895ef', title: 'Total Movements' },
-    5: { icon: <WarningIcon />, color: '#f72585', title: 'Expired Items' },
+    1: { icon: <InventoryIcon />, color: theme.palette.primary.main, title: 'Total Items' },
+    2: { icon: <StorageIcon />, color: theme.palette.secondary.main, title: 'Total Bins' },
+    4: { icon: <TimelineIcon />, color: theme.palette.info.main, title: 'Total Movements' },
+    5: { icon: <WarningIcon />, color: theme.palette.error.main, title: 'Expired Items' },
   };
 
   useEffect(() => {
@@ -175,7 +175,7 @@ const Dashboard = () => {
 
     fetchDashboardData();
     fetchLocation();
-  }, [theme.palette.primary.main]); // FIXED: Added missing dependency
+  }, [theme.palette.primary.main, theme.palette.secondary.main, theme.palette.info.main, theme.palette.error.main]);
 
   useEffect(() => {
     if (openProfileModal) {
@@ -251,7 +251,7 @@ const Dashboard = () => {
     handleMenuClose();
   };
 
-  // Chart options
+  // Chart options - professional and clean
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -261,6 +261,9 @@ const Dashboard = () => {
         labels: {
           padding: 20,
           usePointStyle: true,
+          font: {
+            size: 12
+          }
         }
       },
       tooltip: {
@@ -288,19 +291,25 @@ const Dashboard = () => {
         ticks: { 
           maxRotation: 0,
           autoSkip: true,
-          maxTicksLimit: 10 
+          maxTicksLimit: 10,
+          font: {
+            size: 11
+          }
         }
       },
       y: { 
         beginAtZero: true,
         grid: { 
           color: alpha(theme.palette.divider, 0.2) 
+        },
+        ticks: {
+          font: {
+            size: 11
+          }
         }
       }
     }
   };
-
-  // REMOVED UNUSED turnoverData variable
 
   const binUsageData = useMemo(() => ({
     labels: analyticsData?.most_used_bins?.map(bin => bin.bin_id) || [],
@@ -311,7 +320,7 @@ const Dashboard = () => {
       borderColor: theme.palette.primary.dark,
       borderWidth: 1,
     }]
-  }), [analyticsData, theme.palette.primary.main, theme.palette.primary.dark]); // FIXED: Added missing dependencies
+  }), [analyticsData, theme.palette.primary.main, theme.palette.primary.dark]);
 
   const alertsData = useMemo(() => {
     if (!analyticsData?.alerts_over_time) return { labels: [], datasets: [] };
@@ -340,23 +349,23 @@ const Dashboard = () => {
      theme.palette.warning.main, 
      theme.palette.warning.dark, 
      theme.palette.error.main, 
-     theme.palette.error.dark]); // FIXED: Added all missing dependencies
+     theme.palette.error.dark]);
 
   if (loading) {
     return (
-      <Container maxWidth="xl" sx={{ mt: 4, px: 0 }}>
-        <Box sx={{ mb: 4, px: 3 }}>
+      <Container maxWidth="xl" sx={{ mt: 4 }}>
+        <Box sx={{ mb: 4 }}>
           <Skeleton variant="text" width={300} height={40} />
           <Skeleton variant="text" width={200} height={20} />
         </Box>
-        <Grid container spacing={3} sx={{ mb: 3, px: 3 }}>
+        <Grid container spacing={3} sx={{ mb: 3 }}>
           {[1, 2, 3, 4].map((i) => (
-            <Grid item xs={12} md={3} key={i}>
+            <Grid item xs={12} sm={6} md={3} key={i}>
               <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 2 }} />
             </Grid>
           ))}
         </Grid>
-        <Grid container spacing={3} sx={{ px: 3 }}>
+        <Grid container spacing={3}>
           <Grid item xs={12} md={8}>
             <Skeleton variant="rectangular" height={400} sx={{ borderRadius: 2 }} />
           </Grid>
@@ -370,14 +379,14 @@ const Dashboard = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 4, px: 0 }}>
+    <Container maxWidth="xl" sx={{ mt: 4 }}>
       {/* Header */}
-      <Box sx={{ mb: 4, px: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Box>
-          <Typography variant="h4" fontWeight={700} gutterBottom>
+          <Typography variant="h5" fontWeight={600} gutterBottom>
             Inventory Dashboard
           </Typography>
-          <Typography variant="body1" color="text.secondary">
+          <Typography variant="body2" color="text.secondary">
             Real-time monitoring and analytics for optimal inventory management
           </Typography>
           {locationError && (
@@ -390,15 +399,14 @@ const Dashboard = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
+            onClick={() => window.location.href = '/receipt/create'}
             sx={{ 
               textTransform: 'none',
-              borderRadius: 2,
-              px: 3,
-              py: 1.5,
-              boxShadow: 3,
-              '&:hover': { boxShadow: 6 }
+              borderRadius: 1,
+              px: 2,
+              py: 1,
+              fontSize: '0.875rem'
             }}
-            onClick={() => window.location.href = '/receipt/create'}
           >
             Create Receipt
           </Button>
@@ -406,7 +414,7 @@ const Dashboard = () => {
             variant="outlined"
             startIcon={<LockIcon />}
             onClick={() => setOpenPasswordModal(true)}
-            sx={{ borderRadius: 2, px: 2, py: 1.5 }}
+            sx={{ borderRadius: 1, px: 2, py: 1, fontSize: '0.875rem' }}
           >
             Change Password
           </Button>
@@ -414,24 +422,21 @@ const Dashboard = () => {
             variant="outlined"
             startIcon={<EditIcon />}
             onClick={() => setOpenProfileModal(true)}
-            sx={{ borderRadius: 2, px: 2, py: 1.5 }}
+            sx={{ borderRadius: 1, px: 2, py: 1, fontSize: '0.875rem' }}
           >
             Edit Profile
           </Button>
           <IconButton
             onClick={handleMenuOpen}
+            size="small"
             sx={{ 
               color: theme.palette.text.secondary,
-              borderRadius: 2,
-              p: 1.5,
+              borderRadius: 1,
+              p: 1,
               border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-              '&:hover': { 
-                backgroundColor: alpha(theme.palette.action.hover, 0.1),
-                borderColor: theme.palette.divider
-              }
             }}
           >
-            <MoreHorizIcon />
+            <MoreHorizIcon fontSize="small" />
           </IconButton>
           <Menu
             anchorEl={anchorEl}
@@ -439,10 +444,10 @@ const Dashboard = () => {
             onClose={handleMenuClose}
             PaperProps={{
               sx: { 
-                width: 220, 
+                width: 200, 
                 mt: 1,
-                borderRadius: 2,
-                boxShadow: 3
+                borderRadius: 1,
+                boxShadow: theme.shadows[2]
               },
             }}
           >
@@ -450,15 +455,10 @@ const Dashboard = () => {
               <MenuItem
                 key={action.label}
                 onClick={() => handleActionSelect(action.link)}
-                sx={{ 
-                  py: 1.5,
-                  '&:hover': { 
-                    backgroundColor: alpha(theme.palette.primary.main, 0.08) 
-                  }
-                }}
+                sx={{ py: 1 }}
               >
                 {action.icon}
-                <Typography sx={{ ml: 2 }}>{action.label}</Typography>
+                <Typography sx={{ ml: 2, fontSize: '0.875rem' }}>{action.label}</Typography>
               </MenuItem>
             ))}
           </Menu>
@@ -466,35 +466,29 @@ const Dashboard = () => {
       </Box>
 
       {/* Metrics Cards */}
-      <Grid container spacing={3} sx={{ mb: 4, px: 3 }}>
+      <Grid container spacing={3} sx={{ mb: 4 }}>
         {metrics.map((metric) => {
-          const config = metricConfig[metric.id] || { icon: <InventoryIcon />, color: '#6c757d' };
+          const config = metricConfig[metric.id] || { icon: <InventoryIcon />, color: theme.palette.grey[500] };
           return (
             <Grid item xs={12} sm={6} md={3} key={metric.id}>
               <Paper
                 elevation={0}
                 sx={{
-                  p: 3,
+                  p: 2.5,
                   height: '100%',
-                  borderRadius: 3,
-                  border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-                  transition: 'all 0.3s ease',
-                  '&:hover': { 
-                    transform: 'translateY(-4px)',
-                    boxShadow: 4,
-                    borderColor: alpha(config.color, 0.3)
-                  },
-                  background: `linear-gradient(135deg, ${alpha(config.color, 0.05)} 0%, ${alpha(config.color, 0.02)} 100%)`
+                  borderRadius: 2,
+                  border: `1px solid ${theme.palette.divider}`,
+                  backgroundColor: 'background.paper'
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
                   <Box sx={{
-                    p: 1.5,
-                    borderRadius: '12px',
-                    backgroundColor: alpha(config.color, 0.15),
+                    p: 1,
+                    borderRadius: '8px',
+                    backgroundColor: alpha(config.color, 0.1),
                     color: config.color,
                     display: 'flex',
-                    mr: 2
+                    mr: 1.5
                   }}>
                     {config.icon}
                   </Box>
@@ -503,7 +497,7 @@ const Dashboard = () => {
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                  <Typography variant="h3" fontWeight={700} sx={{ color: config.color }}>
+                  <Typography variant="h4" fontWeight={600} sx={{ color: config.color }}>
                     {metric.value}
                   </Typography>
                   <Chip
@@ -513,10 +507,10 @@ const Dashboard = () => {
                       metric.trend === 'up' ? 'success' :
                       metric.trend === 'down' ? 'error' : 'default'
                     }
-                    variant="filled"
+                    variant="outlined"
                     sx={{ 
-                      fontWeight: 600,
-                      height: 24,
+                      fontWeight: 500,
+                      height: 22,
                       fontSize: '0.75rem'
                     }}
                   />
@@ -528,32 +522,30 @@ const Dashboard = () => {
       </Grid>
 
       {/* Charts Section */}
-      <Grid container spacing={3} sx={{ px: 3, mb: 4 }}>
+      <Grid container spacing={3} sx={{ mb: 4 }}>
         {/* Stock Tracking Chart */}
         <Grid item xs={12} md={8}>
           <Paper elevation={0} sx={{
             p: 3,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            borderRadius: 2,
+            border: `1px solid ${theme.palette.divider}`,
             height: '100%',
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Typography variant="h6" fontWeight={600}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600}>
                 Stock Levels Over Time
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Chip 
-                  icon={<TrendingUpIcon />} 
-                  label="30 Days" 
-                  size="small" 
-                  color="primary" 
-                  variant="filled" 
-                />
-              </Box>
+              <Chip 
+                icon={<TrendingUpIcon />} 
+                label="30 Days" 
+                size="small" 
+                color="primary" 
+                variant="outlined" 
+              />
             </Box>
-            <Box sx={{ flexGrow: 1, minHeight: 400 }}>
+            <Box sx={{ flexGrow: 1, minHeight: 350 }}>
               <Line data={stockData} options={stockChartOptions} />
             </Box>
           </Paper>
@@ -563,13 +555,13 @@ const Dashboard = () => {
         <Grid item xs={12} md={4}>
           <Paper elevation={0} sx={{
             p: 3,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            borderRadius: 2,
+            border: `1px solid ${theme.palette.divider}`,
             height: '100%',
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <Typography variant="h6" fontWeight={600} gutterBottom>
+            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
               Active Alerts
             </Typography>
             <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
@@ -579,29 +571,29 @@ const Dashboard = () => {
                     <Box 
                       key={index} 
                       sx={{ 
-                        p: 2, 
+                        p: 1.5, 
                         mb: 1, 
-                        borderRadius: 2, 
+                        borderRadius: 1, 
                         backgroundColor: alpha(
                           alert.alert_type === 'CRITICAL' ? theme.palette.error.main : theme.palette.warning.main, 
-                          0.1
+                          0.08
                         ),
-                        borderLeft: `4px solid ${
+                        borderLeft: `3px solid ${
                           alert.alert_type === 'CRITICAL' ? theme.palette.error.main : theme.palette.warning.main
                         }`
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                         {alert.alert_type === 'CRITICAL' ? (
-  <WarningIcon sx={{ color: theme.palette.error.main, mr: 1 }} />
-) : (
-  <CheckCircleIcon sx={{ color: theme.palette.warning.main, mr: 1 }} />
-)}
-                        <Typography variant="subtitle2" fontWeight={600}>
+                          <WarningIcon sx={{ color: theme.palette.error.main, fontSize: '1rem', mr: 1 }} />
+                        ) : (
+                          <CheckCircleIcon sx={{ color: theme.palette.warning.main, fontSize: '1rem', mr: 1 }} />
+                        )}
+                        <Typography variant="body2" fontWeight={600}>
                           {alert.alert_type}
                         </Typography>
                       </Box>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8125rem' }}>
                         {alert.message}
                       </Typography>
                     </Box>
@@ -609,7 +601,7 @@ const Dashboard = () => {
                 </Box>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexGrow: 1, py: 2 }}>
-                  <CheckCircleIcon sx={{ fontSize: 40, color: theme.palette.success.main, mb: 1 }} />
+                  <CheckCircleIcon sx={{ fontSize: 32, color: theme.palette.success.main, mb: 1 }} />
                   <Typography variant="body2" color="text.secondary">
                     No active alerts
                   </Typography>
@@ -623,16 +615,16 @@ const Dashboard = () => {
         <Grid item xs={12} md={6}>
           <Paper elevation={0} sx={{
             p: 3,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            borderRadius: 2,
+            border: `1px solid ${theme.palette.divider}`,
             height: '100%',
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <Typography variant="h6" fontWeight={600} gutterBottom>
+            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
               Bin Usage Distribution
             </Typography>
-            <Box sx={{ flexGrow: 1, minHeight: 300 }}>
+            <Box sx={{ flexGrow: 1, minHeight: 280 }}>
               {binUsageData.labels.length > 0 ? (
                 <Bar data={binUsageData} options={chartOptions} />
               ) : (
@@ -649,27 +641,34 @@ const Dashboard = () => {
         <Grid item xs={12} md={6}>
           <Paper elevation={0} sx={{
             p: 3,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            borderRadius: 2,
+            border: `1px solid ${theme.palette.divider}`,
             height: '100%',
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <Typography variant="h6" fontWeight={600} gutterBottom>
+            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
               Alert Types Distribution
             </Typography>
-            <Box sx={{ flexGrow: 1, minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Box sx={{ flexGrow: 1, minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {alertsData.labels.length > 0 ? (
                 <Doughnut 
                   data={alertsData} 
                   options={{
                     ...chartOptions,
-                    cutout: '60%',
+                    cutout: '70%',
                     plugins: {
                       ...chartOptions.plugins,
                       legend: {
                         ...chartOptions.plugins.legend,
-                        position: 'right'
+                        position: 'bottom',
+                        labels: {
+                          ...chartOptions.plugins.legend.labels,
+                          padding: 15,
+                          font: {
+                            size: 11
+                          }
+                        }
                       }
                     }
                   }} 
@@ -690,8 +689,7 @@ const Dashboard = () => {
       <Dialog 
         open={openPasswordModal} 
         onClose={() => setOpenPasswordModal(false)} 
-        maxWidth="xs"
-        PaperProps={{ sx: { borderRadius: 3 } }}
+        maxWidth="sm"
       >
         <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Change Password</DialogTitle>
         <DialogContent sx={{ mt: 1 }}>
@@ -713,15 +711,14 @@ const Dashboard = () => {
           {passwordError && <Alert severity="error" sx={{ mt: 2 }}>{passwordError}</Alert>}
           {passwordSuccess && <Alert severity="success" sx={{ mt: 2 }}>{passwordSuccess}</Alert>}
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setOpenPasswordModal(false)} sx={{ borderRadius: 2 }}>
+        <DialogActions>
+          <Button onClick={() => setOpenPasswordModal(false)}>
             Cancel
           </Button>
           <Button 
             variant="contained" 
             onClick={handlePasswordChange} 
             disabled={passwordLoading}
-            sx={{ borderRadius: 2, px: 3 }}
           >
             {passwordLoading ? 'Changing...' : 'Change Password'}
           </Button>
@@ -732,8 +729,7 @@ const Dashboard = () => {
       <Dialog 
         open={openProfileModal} 
         onClose={() => setOpenProfileModal(false)} 
-        maxWidth="xs"
-        PaperProps={{ sx: { borderRadius: 3 } }}
+        maxWidth="sm"
       >
         <DialogTitle sx={{ fontWeight: 600, pb: 1 }}>Edit User Profile</DialogTitle>
         <DialogContent sx={{ mt: 1 }}>
@@ -748,15 +744,14 @@ const Dashboard = () => {
           {profileError && <Alert severity="error" sx={{ mt: 2 }}>{profileError}</Alert>}
           {profileSuccess && <Alert severity="success" sx={{ mt: 2 }}>{profileSuccess}</Alert>}
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setOpenProfileModal(false)} sx={{ borderRadius: 2 }}>
+        <DialogActions>
+          <Button onClick={() => setOpenProfileModal(false)}>
             Cancel
           </Button>
           <Button 
             variant="contained" 
             onClick={handleProfileUpdate} 
             disabled={profileLoading}
-            sx={{ borderRadius: 2, px: 3 }}
           >
             {profileLoading ? 'Updating...' : 'Update Profile'}
           </Button>

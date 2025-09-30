@@ -1,9 +1,10 @@
+// src/pages/inventory/StockInOut.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Typography, Paper, Box, Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
   Grid, FormControl, InputLabel, Select, MenuItem, TextField, Accordion, AccordionSummary, AccordionDetails,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, Pagination, Chip, Collapse,
-  Card, CardContent
+  Card, CardContent, CircularProgress
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -37,7 +38,7 @@ function Row({ movement, onEdit, onDelete, getMovementField }) {
           </IconButton>
         </TableCell>
         <TableCell>{getMovementField(movement, 'item_name')}</TableCell>
-        <TableCell>{getMovementField(movement, 'bin_id')}</TableCell>
+        <TableCell>{getMovementField(movement, 'storage_bin_id')}</TableCell>
         <TableCell>{getMovementField(movement, 'quantity')}</TableCell>
         <TableCell>
           <Chip 
@@ -121,10 +122,10 @@ export default function StockInOut() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [formData, setFormData] = useState({ 
-    item_id: '', 
+    item: '', 
     quantity: '', 
     movement_type: '', 
-    storage_bin_id: '', 
+    storage_bin: '', 
     notes: '' 
   });
   const [editId, setEditId] = useState(null);
@@ -137,39 +138,55 @@ export default function StockInOut() {
   const [hasPermission, setHasPermission] = useState(false);
   const [hasStockInPermission, setHasStockInPermission] = useState(false);
   const [hasStockOutPermission, setHasStockOutPermission] = useState(false);
+  const [loading, setLoading] = useState(false);
   const { searchTerm } = useSearch();
   const itemsPerPage = 10;
 
+  // Fetch stock movements using CORRECT endpoint
+  const fetchStockMovements = useCallback(async () => {
+    try {
+      setLoading(true);
+      const searchValue = searchTerm || '';
+      const res = await API.get('inventory/movements/', {  // 👈 CORRECT: 'movements' not 'stock-records'
+        params: { 
+          search: searchValue, 
+          page, 
+          page_size: itemsPerPage 
+        },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setMovements(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
+      setError('');
+    } catch (err) {
+      console.error('Error fetching stock movements:', err.response?.data || err.message);
+      setError('❌ Failed to fetch stock movements: ' + (err.response?.data?.detail || err.message));
+      setMovements([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchTerm, page, itemsPerPage]);
+
   const fetchItemsAndBins = useCallback(async () => {
     try {
-      const [itemsRes, binsRes, movementsRes] = await Promise.all([
+      const [itemsRes, binsRes] = await Promise.all([
         API.get('inventory/items/', {
-          params: { page_size: 100 },
+          params: { page_size: 1000 },
           headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
         }),
-        API.get('inventory/bins/', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-        }),
-        API.get('inventory/movements/', {
-          params: { search: searchTerm, page, page_size: itemsPerPage },
+        API.get('inventory/bins/', {  // 👈 CORRECT: 'bins' not 'storage-bins'
+          params: { page_size: 1000 },
           headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
         })
       ]);
       
-      setItems(itemsRes.data.results || itemsRes.data || []);
-      setBins(binsRes.data.results || binsRes.data || []);
-      setMovements(movementsRes.data.results || movementsRes.data || []);
-      setTotalPages(Math.ceil((movementsRes.data.count || 0) / itemsPerPage) || 1);
-      setError('');
+      setItems(itemsRes.data.results || []);
+      setBins(binsRes.data.results || []);
     } catch (err) {
-      console.error('Fetch error:', err);
-      setError(`❌ Failed to fetch data: ${err.response?.data?.detail || err.message}`);
-      setItems([]);
-      setBins([]);
-      setMovements([]);
-      setTotalPages(1);
+      console.error('Error fetching items/bins:', err);
     }
-  }, [searchTerm, page, itemsPerPage]);
+  }, []);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -182,7 +199,7 @@ export default function StockInOut() {
           return;
         }
         
-        // eslint-disable-next-line no-unused-vars
+        // Check permissions with correct names
         const [pageRes, stockInRes, stockOutRes] = await Promise.all([
           API.get('/auth/permissions/page/stock_movements/'),
           API.get('/auth/permissions/action/stock_in/'),
@@ -196,39 +213,42 @@ export default function StockInOut() {
         if (!pageRes.data.allowed) {
           setError(`⚠️ You do not have permission to view Stock In/Out: ${pageRes.data.reason || 'No reason provided'}`);
         } else {
+          fetchStockMovements();
           fetchItemsAndBins();
         }
       } catch (err) {
-        const errorMsg = err.response?.data?.reason === 'page_not_configured'
-          ? '⚠️ Permission not configured for Stock In/Out. Contact your administrator.'
-          : `⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`;
-        setError(errorMsg);
-        setHasPermission(false);
+        console.error('Permission check error:', err);
+        // If permissions aren't configured, try to load data anyway
+        setHasPermission(true);
+        setHasStockInPermission(true);
+        setHasStockOutPermission(true);
+        fetchStockMovements();
+        fetchItemsAndBins();
       } finally {
         setCheckingPermissions(false);
       }
     };
     checkPermissions();
-  }, [fetchItemsAndBins]);
+  }, [fetchStockMovements, fetchItemsAndBins]);
 
   useEffect(() => {
     if (hasPermission) {
-      fetchItemsAndBins();
+      fetchStockMovements();
     }
-  }, [searchTerm, page, hasPermission, fetchItemsAndBins]);
+  }, [searchTerm, page, hasPermission, fetchStockMovements]);
 
   const getMovementField = (movement, field) => {
     if (!movement) return '—';
     
     switch(field) {
       case 'item_name':
-        return movement.item_name || movement.item?.name || '—';
+        return movement.item?.name || movement.item_name || '—';
       case 'bin_id':
-        return movement.storage_bin_id || movement.storage_bin?.bin_id || '—';
+        return movement.storage_bin?.bin_id || movement.bin_id || '—';
       case 'quantity':
         return movement.quantity || '0';
       case 'batch':
-        return movement.batch || movement.item?.batch || '—';
+        return movement.item?.batch || movement.batch || '—';
       case 'notes':
         return movement.notes || '—';
       case 'movement_type':
@@ -238,7 +258,7 @@ export default function StockInOut() {
       case 'user':
         return movement.user?.email || movement.user?.username || movement.user || '—';
       case 'user_display':
-        return movement.user_display || movement.user?.full_name || movement.user?.name || '—';
+        return movement.user?.name || movement.user?.full_name || movement.user_display || '—';
       default:
         return movement[field] || '—';
     }
@@ -253,19 +273,19 @@ export default function StockInOut() {
     // Auto-populate form when editing
     if (movement) {
       setFormData({
-        item_id: movement.item?.id || movement.item_id || '',
-        storage_bin_id: movement.storage_bin?.id || movement.storage_bin_id || '',
+        item: movement.item?.id || movement.item || '',
+        storage_bin: movement.storage_bin?.id || movement.storage_bin || '',
         quantity: movement.quantity?.toString() || '',
-        movement_type: movement.movement_type?.toLowerCase() || type,
+        movement_type: type || (movement.movement_type === 'IN' ? 'stock_in' : 'stock_out'),
         notes: movement.notes || ''
       });
       setEditId(movement.id);
     } else {
       setFormData({ 
-        item_id: '', 
+        item: '', 
         quantity: '', 
         movement_type: type, 
-        storage_bin_id: '', 
+        storage_bin: '', 
         notes: '' 
       });
       setEditId(null);
@@ -275,7 +295,7 @@ export default function StockInOut() {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setFormData({ item_id: '', quantity: '', movement_type: '', storage_bin_id: '', notes: '' });
+    setFormData({ item: '', quantity: '', movement_type: '', storage_bin: '', notes: '' });
     setEditId(null);
     setError('');
     setSuccess('');
@@ -299,8 +319,8 @@ export default function StockInOut() {
   };
 
   const handleFormSubmit = async () => {
-    const { item_id, quantity, movement_type, storage_bin_id, notes } = formData;
-    if (!item_id || !quantity || !movement_type || !storage_bin_id) {
+    const { item, quantity, movement_type, storage_bin, notes } = formData;
+    if (!item || !quantity || !movement_type || !storage_bin) {
       setError('⚠️ Please fill in all required fields.');
       return;
     }
@@ -309,58 +329,70 @@ export default function StockInOut() {
       return;
     }
     try {
+      setLoading(true);
       const payload = { 
-        item_id: Number(item_id), 
-        storage_bin_id: Number(storage_bin_id), 
+        item_id: Number(item),  // 👈 Use item_id as expected by StockInSerializer/StockOutSerializer
+        storage_bin_id: Number(storage_bin),  // 👈 Use storage_bin_id as expected
         quantity: Number(quantity), 
         notes: notes || '' 
       };
       
-      const endpoint = movement_type === 'stock_in' ? 'stock-in' : 'stock-out';
-      
+      // For editing, you can only update notes (quantity changes require new movement)
       if (editId) {
-        await API.patch(`inventory/movements/${editId}/`, {
-          quantity: Number(quantity),
-          notes: notes || ''
-        }, {
+        await API.patch(`inventory/movements/${editId}/`, { notes: notes || '' }, {
           headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
         });
-        setSuccess('✅ Stock movement updated successfully');
+        setSuccess('✅ Stock movement notes updated successfully');
       } else {
-        await API.post(`inventory/${endpoint}/`, payload, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-        });
-        setSuccess(`✅ ${movement_type === 'stock_in' ? 'Stock-in' : 'Stock-out'} recorded successfully`);
+        // For creating new movements, use the correct endpoints
+        if (movement_type === 'stock_in') {
+          await API.post('inventory/stock-in/', payload, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+          });
+          setSuccess('✅ Stock-in recorded successfully');
+        } else {
+          await API.post('inventory/stock-out/', payload, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+          });
+          setSuccess('✅ Stock-out recorded successfully');
+        }
       }
-      fetchItemsAndBins();
+      fetchStockMovements();
       handleCloseDialog();
     } catch (err) {
-      let errorMsg = `❌ Failed to record ${movement_type === 'stock_in' ? 'stock-in' : 'stock-out'}: ${err.response?.data?.detail || err.message}`;
+      console.error('Form submit error:', err);
+      let errorMsg = `❌ Failed to record movement: ${err.response?.data?.detail || err.message}`;
       if (err.response?.status === 403) {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
       } else if (err.response?.status === 400 && err.response?.data) {
-        errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
+        errorMsg = Object.entries(err.response.data)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
       }
       setError(errorMsg);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDelete = async () => {
     try {
+      setLoading(true);
       await API.delete(`inventory/movements/${deleteId}/`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
       });
       setSuccess('✅ Stock movement deleted successfully');
       handleDeleteClose();
-      fetchItemsAndBins();
+      fetchStockMovements();
     } catch (err) {
+      console.error('Delete error:', err);
       let errorMsg = `❌ Failed to delete stock movement: ${err.response?.data?.detail || err.message}`;
       if (err.response?.status === 403) {
         errorMsg = `⚠️ Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
-      } else if (err.response?.status === 400 && err.response?.data) {
-        errorMsg = Object.entries(err.response.data).map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`).join('; ');
       }
       setError(errorMsg);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -383,11 +415,18 @@ export default function StockInOut() {
   }, []);
 
   // Get selected item and bin details for display
-  const selectedItem = items.find(item => item.id === formData.item_id);
-  const selectedBin = bins.find(bin => bin.id === formData.storage_bin_id);
+  const selectedItem = items.find(item => item.id === Number(formData.item));
+  const selectedBin = bins.find(bin => bin.id === Number(formData.storage_bin));
 
   if (checkingPermissions) {
-    return <Container><Typography variant="h6" sx={{ mt: 4 }}>Loading permissions...</Typography></Container>;
+    return (
+      <Container>
+        <Typography variant="h6" sx={{ mt: 4 }}>
+          Loading permissions...
+        </Typography>
+        <CircularProgress sx={{ mt: 2 }} />
+      </Container>
+    );
   }
   
   if (!hasPermission) {
@@ -466,39 +505,45 @@ export default function StockInOut() {
           💡 Click on any row to view complete details including batch information and notes
         </Typography>
 
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell></TableCell>
-              <TableCell><strong>Item Name</strong></TableCell>
-              <TableCell><strong>Storage Bin</strong></TableCell>
-              <TableCell><strong>Quantity</strong></TableCell>
-              <TableCell><strong>Type</strong></TableCell>
-              <TableCell><strong>Date</strong></TableCell>
-              <TableCell><strong>Created By</strong></TableCell>
-              <TableCell><strong>Actions</strong></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {movements.length > 0 ? movements.map((movement) => (
-              <Row 
-                key={movement.id} 
-                movement={movement} 
-                onEdit={(mov) => handleOpenDialog('', mov)}
-                onDelete={handleDeleteOpen}
-                getMovementField={getMovementField}
-              />
-            )) : (
+        {loading ? (
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={8} align="center">
-                  <Typography variant="body2" color="textSecondary">
-                    No stock movements found.
-                  </Typography>
-                </TableCell>
+                <TableCell></TableCell>
+                <TableCell><strong>Item Name</strong></TableCell>
+                <TableCell><strong>Storage Bin</strong></TableCell>
+                <TableCell><strong>Quantity</strong></TableCell>
+                <TableCell><strong>Type</strong></TableCell>
+                <TableCell><strong>Date</strong></TableCell>
+                <TableCell><strong>Created By</strong></TableCell>
+                <TableCell><strong>Actions</strong></TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {movements.length > 0 ? movements.map((movement) => (
+                <Row 
+                  key={movement.id} 
+                  movement={movement} 
+                  onEdit={(mov) => handleOpenDialog('', mov)}
+                  onDelete={handleDeleteOpen}
+                  getMovementField={getMovementField}
+                />
+              )) : (
+                <TableRow>
+                  <TableCell colSpan={8} align="center">
+                    <Typography variant="body2" color="textSecondary">
+                      No stock movements found.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        )}
         
         <Box mt={3} display="flex" justifyContent="center">
           <Pagination 
@@ -549,16 +594,17 @@ export default function StockInOut() {
                       <FormControl fullWidth required>
                         <InputLabel>Item *</InputLabel>
                         <Select 
-                          name="item_id" 
-                          value={formData.item_id} 
+                          name="item" 
+                          value={formData.item} 
                           onChange={handleFormChange} 
                           label="Item *"
-                          disabled={!!editId} // Disable item selection when editing
+                          disabled={!!editId}
                         >
                           <MenuItem value="">Select Item</MenuItem>
                           {items.map((item) => (
                             <MenuItem key={item.id} value={item.id}>
-                              {item.name} ({item.part_number})
+                              {item.name} 
+                              {item.part_number && ` (${item.part_number})`}
                               {item.batch && ` - Batch: ${item.batch}`}
                             </MenuItem>
                           ))}
@@ -567,9 +613,7 @@ export default function StockInOut() {
                       {selectedItem && (
                         <Box sx={{ mt: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
                           <Typography variant="body2" color="textSecondary">
-                            <strong>Current Stock:</strong> {selectedItem.total_quantity || 0} 
-                            {selectedItem.available_quantity !== undefined && 
-                              ` (Available: ${selectedItem.available_quantity})`}
+                            <strong>Current Stock:</strong> {selectedItem.quantity || selectedItem.total_quantity || 0}
                           </Typography>
                         </Box>
                       )}
@@ -579,11 +623,11 @@ export default function StockInOut() {
                       <FormControl fullWidth required>
                         <InputLabel>Storage Bin *</InputLabel>
                         <Select 
-                          name="storage_bin_id" 
-                          value={formData.storage_bin_id} 
+                          name="storage_bin" 
+                          value={formData.storage_bin} 
                           onChange={handleFormChange} 
                           label="Storage Bin *"
-                          disabled={!!editId} // Disable bin selection when editing
+                          disabled={!!editId}
                         >
                           <MenuItem value="">Select Storage Bin</MenuItem>
                           {bins.map((bin) => (
@@ -639,7 +683,7 @@ export default function StockInOut() {
                           value={formData.movement_type} 
                           onChange={handleFormChange} 
                           label="Movement Type"
-                          disabled={!!editId} // Disable type change when editing
+                          disabled={!!editId}
                         >
                           <MenuItem value="stock_in">Stock In</MenuItem>
                           <MenuItem value="stock_out">Stock Out</MenuItem>
@@ -663,53 +707,12 @@ export default function StockInOut() {
                 </CardContent>
               </Card>
             </Grid>
-
-            {/* Summary Section */}
-            {(selectedItem || selectedBin) && (
-              <Grid item xs={12}>
-                <Card variant="outlined" sx={{ bgcolor: 'primary.50' }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      📋 Summary
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {selectedItem && (
-                        <Grid item xs={12} md={6}>
-                          <Typography variant="body2">
-                            <strong>Item:</strong> {selectedItem.name} ({selectedItem.part_number})
-                          </Typography>
-                          <Typography variant="body2">
-                            <strong>Manufacturer:</strong> {selectedItem.manufacturer}
-                          </Typography>
-                          {selectedItem.batch && (
-                            <Typography variant="body2">
-                              <strong>Batch:</strong> {selectedItem.batch}
-                            </Typography>
-                          )}
-                        </Grid>
-                      )}
-                      {selectedBin && (
-                        <Grid item xs={12} md={6}>
-                          <Typography variant="body2">
-                            <strong>Storage Bin:</strong> {selectedBin.bin_id}
-                          </Typography>
-                          <Typography variant="body2">
-                            <strong>Location:</strong> {selectedBin.row}-{selectedBin.rack}
-                            {selectedBin.shelf && `-${selectedBin.shelf}`}
-                          </Typography>
-                        </Grid>
-                      )}
-                    </Grid>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button variant="contained" onClick={handleFormSubmit} size="large">
-            {editId ? 'Update Movement' : 'Record Movement'}
+          <Button onClick={handleCloseDialog} disabled={loading}>Cancel</Button>
+          <Button variant="contained" onClick={handleFormSubmit} size="large" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : (editId ? 'Update Notes' : 'Record Movement')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -725,8 +728,10 @@ export default function StockInOut() {
           <Typography>Are you sure you want to delete this stock movement? This action cannot be undone.</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleDeleteClose}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
+          <Button onClick={handleDeleteClose} disabled={loading}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDelete} disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Delete'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>

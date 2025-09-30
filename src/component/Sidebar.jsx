@@ -120,6 +120,12 @@ const menuItems = [
         description: 'Approve purchase orders (accessible to only super admin/C.E.O)',
         icon: <StarBorder />,
       },
+      {
+        text: 'Vendor',
+        path: '/dashboard/procurement/vendor',
+        description: 'Approve purchase orders (accessible to only super admin/C.E.O)',
+        icon: <StarBorder />,
+      },
     ],
   },
   {

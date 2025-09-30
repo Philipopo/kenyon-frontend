@@ -1,457 +1,370 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Container, Typography, Paper, Box, TextField, InputAdornment, Table, TableHead,
-  TableRow, TableCell, TableBody, TableContainer, Pagination, CircularProgress, Alert,
-  Button, Dialog, DialogTitle, DialogContent, DialogActions, Grid, MenuItem, Select,
-  FormControl, InputLabel, IconButton
+  Container, Typography, Paper, Box, Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
+  Grid, FormControl, InputLabel, Select, MenuItem, TextField, Accordion, AccordionSummary, AccordionDetails,
+  Table, TableHead, TableRow, TableCell, TableBody, IconButton, Pagination, Collapse
 } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { debounce } from 'lodash';
-import api from '../../api';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
+
+function RentalRow({ rental, onEdit, onDelete, hasUpdatePermission, hasDeletePermission }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <TableRow sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <TableCell>
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
+            {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+          </IconButton>
+        </TableCell>
+        <TableCell>{rental.code}</TableCell>
+        <TableCell>{rental.renter_name || '—'}</TableCell>
+        <TableCell>{rental.equipment_name || '—'}</TableCell>
+        <TableCell>{rental.branch_name || '—'}</TableCell>
+        <TableCell>{rental.start_date || '—'}</TableCell>
+        <TableCell>{rental.due_date || '—'}</TableCell>
+        <TableCell>{rental.status}</TableCell>
+        <TableCell>{rental.returned ? 'Yes' : 'No'}</TableCell>
+        <TableCell>{rental.created_by_name || '—'}</TableCell>
+        <TableCell>{rental.approved_by_name || '—'}</TableCell>
+        <TableCell>
+          <IconButton onClick={(e) => { e.stopPropagation(); onEdit(rental); }} color="primary" size="small" disabled={!hasUpdatePermission}>
+            <EditIcon />
+          </IconButton>
+          <IconButton onClick={(e) => { e.stopPropagation(); onDelete(rental.id); }} color="error" size="small" disabled={!hasDeletePermission}>
+            <DeleteIcon />
+          </IconButton>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={13} style={{ paddingBottom: 0, paddingTop: 0 }}>
+          <Collapse in={open} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 2 }}>
+              <Typography variant="h6">Rental Details</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}><Typography><strong>ID:</strong> {rental.id}</Typography></Grid>
+                <Grid item xs={12} sm={6}><Typography><strong>Created By:</strong> {rental.created_by_name || '—'}</Typography></Grid>
+                <Grid item xs={12} sm={6}><Typography><strong>Approved By:</strong> {rental.approved_by_name || '—'}</Typography></Grid>
+                <Grid item xs={12} sm={6}><Typography><strong>Created At:</strong> {new Date(rental.created_at).toLocaleString()}</Typography></Grid>
+                <Grid item xs={12} sm={6}><Typography><strong>Returned:</strong> {rental.returned ? 'Yes' : 'No'}</Typography></Grid>
+                <Grid item xs={12} sm={6}><Typography><strong>Returned At:</strong> {rental.returned_at ? new Date(rental.returned_at).toLocaleString() : '—'}</Typography></Grid>
+              </Grid>
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </>
+  );
+}
 
 export default function ActiveRentals() {
   const [rentals, setRentals] = useState([]);
   const [equipmentList, setEquipmentList] = useState([]);
-  const [search, setSearch] = useState('');
+  const [formData, setFormData] = useState({
+    equipment: '',
+    start_date: '',
+    due_date: '',
+    status: 'Active',
+  });
+  const [openDialog, setOpenDialog] = useState(false);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
+  const [editId, setEditId] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [formOpen, setFormOpen] = useState(false);
-  const [isUpdate, setIsUpdate] = useState(false);
-  const [selectedRental, setSelectedRental] = useState(null);
-  const [form, setForm] = useState({ equipment: '', start_date: '', due_date: '', status: 'Active' });
-  const [formError, setFormError] = useState(null);
-  const [formLoading, setFormLoading] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState(null);
-  const [hasPageAccess, setHasPageAccess] = useState(false);
+  const [success, setSuccess] = useState('');
   const [checkingPermissions, setCheckingPermissions] = useState(true);
-  const [canCreateRental, setCanCreateRental] = useState(false);
-  const [canUpdateRental, setCanUpdateRental] = useState(false);
-  const [canDeleteRental, setCanDeleteRental] = useState(false);
+  const [hasPermission, setHasPermission] = useState(false);
+  const [hasCreatePermission, setHasCreatePermission] = useState(false);
+  const [hasUpdatePermission, setHasUpdatePermission] = useState(false);
+  const [hasDeletePermission, setHasDeletePermission] = useState(false);
   const { searchTerm } = useSearch();
   const itemsPerPage = 10;
-  const prevSearchTermRef = useRef(searchTerm);
-  const prevSearchRef = useRef(search);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSetSearch = useCallback(
-    debounce((value) => {
-      setSearch(value);
-      setPage(1);
-    }, 500),
-    []
-  );
 
   const fetchRentals = useCallback(async () => {
     try {
-      setLoading(true);
-      const searchValue = search || searchTerm;
-      const res = await api.get('/rentals/rentals/', {
-        params: { search: searchValue, page, page_size: itemsPerPage },
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      const token = localStorage.getItem('accessToken');
+      const res = await API.get('rentals/rentals/', {
+        params: { search: searchTerm, page, page_size: itemsPerPage },
+        headers: { Authorization: `Bearer ${token}` },
       });
-      setRentals(Array.isArray(res.data.results) ? res.data.results : Array.isArray(res.data) ? res.data : []);
+      setRentals(res.data.results || []);
       setTotalPages(Math.ceil((res.data.count || 0) / itemsPerPage));
-      setError('');
     } catch (err) {
-      console.error('Error fetching rentals:', err.response?.data || err.message);
       setError(`❌ Failed to fetch rentals: ${err.response?.data?.detail || err.message}`);
-      setRentals([]);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
     }
-  }, [search, searchTerm, page]);
+  }, [searchTerm, page]);
+
+  const fetchEquipment = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await API.get('rentals/equipment/', {
+        params: { page_size: 100 },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setEquipmentList(res.data.results || []);
+    } catch (err) {
+      setError(`❌ Failed to fetch equipment: ${err.response?.data?.detail || err.message}`);
+    }
+  }, []);
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
-        if (!token) {
-          setError('⚠️ No authentication token found. Please log in.');
-          setHasPageAccess(false);
-          setCheckingPermissions(false);
-          return;
-        }
-        const pageResponse = await api.get('/auth/permissions/page/rentals_active/');
-        console.log('Page permission response:', pageResponse.data);
-        setHasPageAccess(pageResponse.data.allowed || false);
-        if (!pageResponse.data.allowed) {
-          setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
-          setCheckingPermissions(false);
-          return;
-        }
-        const [createResponse, updateResponse, deleteResponse, equipmentResponse] = await Promise.all([
-          api.get('/auth/permissions/action/create_rental/'),
-          api.get('/auth/permissions/action/update_rental/'),
-          api.get('/auth/permissions/action/delete_rental/'),
-          api.get('/rentals/equipment/', { params: { page_size: 100 } }),
+        if (!token) return setCheckingPermissions(false);
+
+        const pageRes = await API.get('/auth/permissions/page/rentals_active/', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const [createRes, updateRes, deleteRes] = await Promise.all([
+          API.get('/auth/permissions/action/create_rental/', {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          API.get('/auth/permissions/action/update_rental/', {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          API.get('/auth/permissions/action/delete_rental/', {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
         ]);
-        console.log('Equipment API response:', equipmentResponse.data);
-        setCanCreateRental(createResponse.data.allowed || false);
-        setCanUpdateRental(updateResponse.data.allowed || false);
-        setCanDeleteRental(deleteResponse.data.allowed || false);
-        setEquipmentList(Array.isArray(equipmentResponse.data.results) ? equipmentResponse.data.results : Array.isArray(equipmentResponse.data) ? equipmentResponse.data : []);
-        if (pageResponse.data.allowed) {
+
+        setHasPermission(pageRes.data.allowed);
+        setHasCreatePermission(createRes.data.allowed);
+        setHasUpdatePermission(updateRes.data.allowed);
+        setHasDeletePermission(deleteRes.data.allowed);
+
+        if (pageRes.data.allowed) {
           fetchRentals();
+          fetchEquipment();
         }
       } catch (err) {
-        console.error('Error checking permissions or fetching equipment:', err.response?.data || err.message);
-        setError(`⚠️ Failed to check permissions or fetch equipment: ${err.response?.data?.detail || err.message}`);
-        setHasPageAccess(false);
-        setEquipmentList([]);
+        setError(`⚠️ Permission check failed`);
       } finally {
         setCheckingPermissions(false);
       }
     };
     checkPermissions();
-  }, [fetchRentals]);
+  }, [fetchRentals, fetchEquipment]);
 
   useEffect(() => {
-    if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
-      setPage(1);
-      prevSearchRef.current = search;
-      prevSearchTermRef.current = searchTerm;
-    }
-    if (hasPageAccess) fetchRentals();
-  }, [search, searchTerm, page, hasPageAccess, fetchRentals]);
+    if (hasPermission) fetchRentals();
+  }, [searchTerm, page, hasPermission, fetchRentals]);
 
-  const handleFormChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handleOpenDialog = (rental = null) => {
+    if (rental) {
+      setFormData({
+        equipment: rental.equipment,
+        start_date: rental.start_date,
+        due_date: rental.due_date,
+        status: rental.status,
+      });
+      setEditId(rental.id);
+    } else {
+      setFormData({ equipment: '', start_date: '', due_date: '', status: 'Active' });
+      setEditId(null);
+    }
+    setOpenDialog(true);
   };
 
-  const handleSubmit = async () => {
-    if (!form.equipment || !form.start_date || !form.due_date) {
-      setFormError('⚠ Please fill all required fields.');
-      return;
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setError('');
+    setSuccess('');
+  };
+
+  const handleDeleteOpen = (id) => {
+    if (!hasDeletePermission) return setError('⚠️ No delete permission.');
+    setDeleteId(id);
+    setOpenDeleteDialog(true);
+  };
+
+  const handleDeleteClose = () => {
+    setOpenDeleteDialog(false);
+    setDeleteId(null);
+  };
+
+  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleSave = async () => {
+    const { equipment, start_date, due_date, status } = formData;
+    if (!equipment || !start_date || !due_date) {
+      return setError('⚠️ All fields are required.');
     }
-    if (new Date(form.start_date) > new Date(form.due_date)) {
-      setFormError('⚠ Due date must be after start date.');
-      return;
+    if (start_date > due_date) {
+      return setError('⚠️ Due date must be after start date.');
     }
-    if (isUpdate && !canUpdateRental) {
-      setFormError('⚠ You do not have permission to update a rental.');
-      return;
-    }
-    if (!isUpdate && !canCreateRental) {
-      setFormError('⚠ You do not have permission to create a rental.');
-      return;
-    }
+
     try {
-      setFormLoading(true);
-      setFormError(null);
-      const payload = {
-        equipment: form.equipment,
-        start_date: form.start_date,
-        due_date: form.due_date,
-        status: form.status,
-      };
-      if (isUpdate) {
-        const res = await api.put(`/rentals/rentals/${selectedRental.id}/`, payload);
-        setRentals(rentals.map((r) => (r.id === res.data.id ? res.data : r)));
-        setFormError('✅ Rental updated successfully.');
-      } else {
-        const res = await api.post('/rentals/rentals/', payload);
-        setRentals([res.data, ...rentals]);
-        setFormError('✅ Rental created successfully.');
-      }
-      setFormOpen(false);
-      setForm({ equipment: '', start_date: '', due_date: '', status: 'Active' });
-      setIsUpdate(false);
-      setSelectedRental(null);
-      fetchRentals();
-    } catch (err) {
-      let errorMsg = `Failed to ${isUpdate ? 'update' : 'create'} rental: Unable to process request.`;
-      if (err.response?.status === 400 && err.response?.data) {
-        errorMsg = Object.entries(err.response.data)
-          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-          .join('; ');
-      } else {
-        errorMsg = err.response?.data?.detail || err.message;
-      }
-      setFormError(`❌ ${errorMsg}`);
-    } finally {
-      setFormLoading(false);
-    }
-  };
+      const payload = { equipment, start_date, due_date, status };
 
-  const handleUpdate = (rental) => {
-    if (!canUpdateRental) {
-      setError('⚠ You do not have permission to update a rental.');
-      return;
+      if (editId) {
+        await API.put(`rentals/rentals/${editId}/`, payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        });
+        setSuccess('✅ Rental updated.');
+      } else {
+        await API.post('rentals/rentals/', payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        });
+        setSuccess('✅ Rental created.');
+      }
+
+      fetchRentals();
+      setOpenDialog(false);
+    } catch (err) {
+      setError(`❌ ${err.response?.data?.detail || 'Save failed.'}`);
     }
-    setForm({
-      equipment: rental.equipment,
-      start_date: rental.start_date,
-      due_date: rental.due_date,
-      status: rental.status,
-    });
-    setSelectedRental(rental);
-    setIsUpdate(true);
-    setFormOpen(true);
   };
 
   const handleDelete = async () => {
-    if (!canDeleteRental) {
-      setError('⚠ You do not have permission to delete a rental.');
-      return;
-    }
     try {
-      await api.delete(`/rentals/rentals/${deleteId}/`);
-      setRentals(rentals.filter((r) => r.id !== deleteId));
-      setError('✅ Rental deleted successfully.');
-      setDeleteOpen(false);
-      setDeleteId(null);
+      await API.delete(`rentals/rentals/${deleteId}/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setSuccess('✅ Deleted.');
       fetchRentals();
+      setOpenDeleteDialog(false);
     } catch (err) {
-      let errorMsg = 'Failed to delete rental: Unable to process request.';
-      if (err.response?.status === 403) {
-        errorMsg = `⚠ Permission denied: ${err.response.data.detail || 'You lack permission to delete rentals.'}`;
-      } else {
-        errorMsg = err.response?.data?.detail || err.message;
-      }
-      setError(`❌ ${errorMsg}`);
+      setError(`❌ ${err.response?.data?.detail || 'Delete failed.'}`);
     }
   };
 
-  const openDeleteDialog = (id) => {
-    if (!canDeleteRental) {
-      setError('⚠ You do not have permission to delete a rental.');
-      return;
-    }
-    setDeleteId(id);
-    setDeleteOpen(true);
-  };
-
-  if (checkingPermissions) {
-    return (
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        <Typography variant="h6">Loading permissions...</Typography>
-        <CircularProgress sx={{ mt: 2 }} />
-      </Container>
-    );
-  }
-
-  if (!hasPageAccess) {
-    return (
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        <Alert severity="error">{error || 'Access Denied: You do not have permission to view this page.'}</Alert>
-      </Container>
-    );
-  }
+  if (checkingPermissions) return <Container><Typography variant="h6">Loading...</Typography></Container>;
+  if (!hasPermission) return <Container><Alert severity="error">No permission</Alert></Container>;
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
-      {error && (
-        <Alert severity={error.includes('❌') ? 'error' : 'success'} sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>Active Rentals</Typography>
-        <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          All currently active or overdue rental records.
-        </Typography>
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-        <Box display="flex" justifyContent="space-between" mb={2}>
-          <TextField
-            placeholder="Search by renter, equipment, or code..."
-            variant="outlined"
-            size="small"
-            value={search}
-            onChange={(e) => debouncedSetSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-          {canCreateRental && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                setForm({ equipment: '', start_date: '', due_date: '', status: 'Active' });
-                setIsUpdate(false);
-                setFormOpen(true);
-              }}
-            >
-              Add Rental
-            </Button>
-          )}
-        </Box>
+      <Typography variant="h4" gutterBottom>Active Rentals</Typography>
 
-        {loading ? (
-          <Box display="flex" justifyContent="center" py={5}>
-            <CircularProgress />
-          </Box>
-        ) : error && error.includes('❌') ? (
-          <Alert severity="error">{error}</Alert>
-        ) : (
-          <>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>S/N</TableCell>
-                    <TableCell>Code</TableCell>
-                    <TableCell>Renter</TableCell>
-                    <TableCell>Equipment</TableCell>
-                    <TableCell>Start Date</TableCell>
-                    <TableCell>Due Date</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Created By</TableCell>
-                    {(canUpdateRental || canDeleteRental) && <TableCell>Actions</TableCell>}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {rentals.length > 0 ? (
-                    rentals.map((rental, index) => (
-                      <TableRow key={rental.id}>
-                        <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
-                        <TableCell>{rental.code}</TableCell>
-                        <TableCell>{rental.renter_name}</TableCell>
-                        <TableCell>{rental.equipment_name}</TableCell>
-                        <TableCell>{new Date(rental.start_date).toLocaleDateString()}</TableCell>
-                        <TableCell>{new Date(rental.due_date).toLocaleDateString()}</TableCell>
-                        <TableCell>{rental.status}</TableCell>
-                        <TableCell>{rental.created_by_name || 'N/A'}</TableCell>
-                        {(canUpdateRental || canDeleteRental) && (
-                          <TableCell>
-                            {canUpdateRental && (
-                              <IconButton onClick={() => handleUpdate(rental)}>
-                                <EditIcon />
-                              </IconButton>
-                            )}
-                            {canDeleteRental && (
-                              <IconButton onClick={() => openDeleteDialog(rental.id)}>
-                                <DeleteIcon />
-                              </IconButton>
-                            )}
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={canUpdateRental || canDeleteRental ? 9 : 8} align="center">
-                        No rentals found.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+      {/* ✅ TUTORIAL ACCORDION */}
+      <Accordion sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="h6">Rental Management Guide & Best Practices</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body1" paragraph>
+            <strong>💡 What is Rental Management?</strong> This page tracks all active equipment rentals, including renter details, equipment, branch location, and return status.
+          </Typography>
+          <Typography variant="body1" paragraph>
+            <strong>✅ Best Practices:</strong>
+            <ul>
+              <li><strong>Accurate Equipment Assignment:</strong> Always select the correct equipment and branch.</li>
+              <li><strong>Realistic Due Dates:</strong> Set due dates that account for actual usage periods.</li>
+              <li><strong>Track Returns:</strong> Mark rentals as returned immediately upon equipment return.</li>
+              <li><strong>Overdue Handling:</strong> Follow up on overdue rentals promptly to avoid loss.</li>
+            </ul>
+          </Typography>
+        </AccordionDetails>
+      </Accordion>
 
-            {totalPages > 1 && (
-              <Box display="flex" justifyContent="center" mt={3}>
-                <Pagination
-                  count={totalPages}
-                  page={page}
-                  onChange={(_, value) => setPage(value)}
-                  color="primary"
+      <Box mb={2}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()} disabled={!hasCreatePermission}>
+          Add Rental
+        </Button>
+      </Box>
+
+      <Paper sx={{ p: 3 }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell></TableCell>
+              <TableCell><strong>Code</strong></TableCell>
+              <TableCell><strong>Renter</strong></TableCell>
+              <TableCell><strong>Equipment</strong></TableCell>
+              <TableCell><strong>Branch</strong></TableCell>
+              <TableCell><strong>Start Date</strong></TableCell>
+              <TableCell><strong>Due Date</strong></TableCell>
+              <TableCell><strong>Status</strong></TableCell>
+              <TableCell><strong>Returned</strong></TableCell>
+              <TableCell><strong>Created By</strong></TableCell>
+              <TableCell><strong>Approved By</strong></TableCell>
+              <TableCell><strong>Actions</strong></TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rentals.length > 0 ? (
+              rentals.map(rental => (
+                <RentalRow
+                  key={rental.id}
+                  rental={rental}
+                  onEdit={handleOpenDialog}
+                  onDelete={handleDeleteOpen}
+                  hasUpdatePermission={hasUpdatePermission}
+                  hasDeletePermission={hasDeletePermission}
                 />
-              </Box>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={13} align="center">
+                  <Typography variant="body2" color="textSecondary">No rentals found.</Typography>
+                </TableCell>
+              </TableRow>
             )}
-          </>
-        )}
+          </TableBody>
+        </Table>
+
+        <Box mt={3} display="flex" justifyContent="center">
+          <Pagination count={totalPages} page={page} onChange={(_, p) => setPage(p)} color="primary" />
+        </Box>
       </Paper>
 
-      <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{isUpdate ? 'Update Rental' : 'Add Rental'}</DialogTitle>
+      {/* Form Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>{editId ? '✏️ Edit Rental' : '➕ Add New Rental'}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <FormControl fullWidth required>
-                <InputLabel id="equipment-label">Equipment</InputLabel>
-                <Select
-                  labelId="equipment-label"
-                  name="equipment"
-                  value={form.equipment}
-                  label="Equipment"
-                  onChange={handleFormChange}
-                >
-                  <MenuItem value="" disabled>-- Select Equipment --</MenuItem>
-                  {Array.isArray(equipmentList) && equipmentList.length > 0 ? (
-                    equipmentList.map((eq) => (
-                      <MenuItem key={eq.id} value={eq.id}>{eq.name}</MenuItem>
-                    ))
-                  ) : (
-                    <MenuItem value="" disabled>No equipment available</MenuItem>
-                  )}
+                <InputLabel>Equipment</InputLabel>
+                <Select name="equipment" value={formData.equipment} onChange={handleChange}>
+                  <MenuItem value="">Select Equipment</MenuItem>
+                  {equipmentList.map(eq => (
+                    <MenuItem key={eq.id} value={eq.id}>{eq.name} ({eq.branch_name})</MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={6}>
-              <TextField
-                name="start_date"
-                label="Start Date"
-                type="date"
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-                value={form.start_date}
-                onChange={handleFormChange}
-                required
-                error={form.start_date === '' && formError?.includes('required')}
-                helperText={form.start_date === '' && formError?.includes('required') ? 'Start date is required' : ''}
-              />
+            <Grid item xs={12} sm={6}>
+              <TextField label="Start Date" name="start_date" type="date" value={formData.start_date} onChange={handleChange} fullWidth required InputLabelProps={{ shrink: true }} />
             </Grid>
-            <Grid item xs={6}>
-              <TextField
-                name="due_date"
-                label="Due Date"
-                type="date"
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-                value={form.due_date}
-                onChange={handleFormChange}
-                required
-                error={form.due_date === '' && formError?.includes('required')}
-                helperText={form.due_date === '' && formError?.includes('required') ? 'Due date is required' : ''}
-              />
+            <Grid item xs={12} sm={6}>
+              <TextField label="Due Date" name="due_date" type="date" value={formData.due_date} onChange={handleChange} fullWidth required InputLabelProps={{ shrink: true }} />
             </Grid>
             <Grid item xs={12}>
               <FormControl fullWidth required>
                 <InputLabel>Status</InputLabel>
-                <Select name="status" value={form.status} onChange={handleFormChange}>
+                <Select name="status" value={formData.status} onChange={handleChange}>
                   <MenuItem value="Active">Active</MenuItem>
                   <MenuItem value="Overdue">Overdue</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
           </Grid>
-          {formError && (
-            <Alert severity={formError.includes('❌') ? 'error' : 'success'} sx={{ mt: 2 }}>
-              {formError}
-            </Alert>
-          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFormOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit} disabled={formLoading}>
-            {isUpdate ? 'Update' : 'Submit'}
-          </Button>
+          <Button onClick={handleCloseDialog}>Cancel</Button>
+          <Button variant="contained" onClick={handleSave}>Save</Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
-        <DialogTitle>Confirm Delete</DialogTitle>
-        <DialogContent>
-          <Typography>Are you sure you want to delete this rental?</Typography>
-        </DialogContent>
+      {/* Delete Dialog */}
+      <Dialog open={openDeleteDialog} onClose={handleDeleteClose}>
+        <DialogTitle>Delete Rental?</DialogTitle>
+        <DialogContent>Are you sure? This cannot be undone.</DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleDelete}>
-            Delete
-          </Button>
+          <Button onClick={handleDeleteClose}>Cancel</Button>
+          <Button color="error" onClick={handleDelete}>Delete</Button>
         </DialogActions>
       </Dialog>
     </Container>

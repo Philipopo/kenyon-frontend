@@ -40,6 +40,24 @@ const getUsageColor = (percentage) => {
 function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermission }) {
   const [open, setOpen] = useState(false);
   const usagePercentage = calculateUsagePercentage(bin.current_load || 0, bin.capacity);
+  
+  // Parse stock records from bin data (assuming they come from API)
+  const stockRecords = bin.stock_records || [];
+  
+  // Group items by name and sum quantities
+  const itemSummary = stockRecords.reduce((acc, record) => {
+    const itemName = record.item?.name || 'Unknown Item';
+    if (!acc[itemName]) {
+      acc[itemName] = {
+        name: itemName,
+        totalQuantity: 0,
+        records: []
+      };
+    }
+    acc[itemName].totalQuantity += record.quantity || 0;
+    acc[itemName].records.push(record);
+    return acc;
+  }, {});
 
   return (
     <>
@@ -147,6 +165,47 @@ function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermissio
                     />
                   </Typography>
                 </Grid>
+                
+                {/* Items in Bin Section */}
+                <Grid item xs={12}>
+                  <Typography variant="h6" gutterBottom>
+                    Items in Bin ({stockRecords.length} stock records)
+                  </Typography>
+                  {stockRecords.length > 0 ? (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell><strong>Item Name</strong></TableCell>
+                          <TableCell><strong>Part Number</strong></TableCell>
+                          <TableCell><strong>Quantity</strong></TableCell>
+                          <TableCell><strong>Batch</strong></TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {Object.entries(itemSummary).map(([itemName, summary]) => (
+                          <TableRow key={itemName}>
+                            <TableCell>{itemName}</TableCell>
+                            <TableCell>
+                              {summary.records.map((record, idx) => 
+                                record.item?.part_number || '—'
+                              ).filter((part, idx, arr) => arr.indexOf(part) === idx).join(', ')}
+                            </TableCell>
+                            <TableCell>
+                              <strong>{summary.totalQuantity}</strong>
+                            </TableCell>
+                            <TableCell>
+                              {summary.records.map(record => record.item?.batch || '—').filter(Boolean).join(', ') || '—'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <Typography color="text.secondary">
+                      No items in this bin.
+                    </Typography>
+                  )}
+                </Grid>
               </Grid>
             </Box>
           </Collapse>
@@ -215,7 +274,12 @@ export default function BinLocations() {
       setLoading(true);
       const search = localSearch || searchTerm;
       const res = await API.get('inventory/bins/', {
-        params: { search, page, page_size: binsPerPage },
+        params: { 
+          search, 
+          page, 
+          page_size: binsPerPage,
+          expand: 'stock_records' // Add this to get stock records
+        },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
       console.log('[BINS FETCHED]', res.data);
@@ -295,7 +359,6 @@ export default function BinLocations() {
       return;
     }
 
-    // Only proceed if the user has the appropriate permission
     if (hasActionPermission) {
       if (bin) {
         setFormData({
@@ -359,7 +422,6 @@ export default function BinLocations() {
   const handleFormSubmit = async () => {
     const { row, rack, shelf, type, capacity, description } = formData;
     
-    // Validation
     if (!row || !rack || !type || !capacity) {
       setError('⚠️ Please fill in all required fields (Row, Rack, Type, Capacity).');
       return;
@@ -371,7 +433,6 @@ export default function BinLocations() {
       return;
     }
 
-    // Check if editing and new capacity is less than current load
     if (editId) {
       const existingBin = bins.find(b => b.id === editId);
       if (existingBin && numCapacity < (existingBin.current_load || 0)) {
