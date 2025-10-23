@@ -399,16 +399,10 @@ const Dashboard = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => window.location.href = '/receipt/create'}
-            sx={{ 
-              textTransform: 'none',
-              borderRadius: 1,
-              px: 2,
-              py: 1,
-              fontSize: '0.875rem'
-            }}
+            onClick={() => handleActionSelect('/dashboard/procurement/orders')}
+            sx={{ borderRadius: 1, px: 2, py: 1, fontSize: '0.875rem' }}
           >
-            Create Receipt
+            Create Order
           </Button>
           <Button
             variant="outlined"
@@ -428,15 +422,10 @@ const Dashboard = () => {
           </Button>
           <IconButton
             onClick={handleMenuOpen}
-            size="small"
-            sx={{ 
-              color: theme.palette.text.secondary,
-              borderRadius: 1,
-              p: 1,
-              border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-            }}
+            sx={{ borderRadius: 1, p: 1 }}
+            title="More Actions"
           >
-            <MoreHorizIcon fontSize="small" />
+            <MoreHorizIcon />
           </IconButton>
           <Menu
             anchorEl={anchorEl}
@@ -475,7 +464,7 @@ const Dashboard = () => {
                 elevation={0}
                 sx={{
                   p: 2.5,
-                  height: '100%',
+                  maintenance: '100%',
                   borderRadius: 2,
                   border: `1px solid ${theme.palette.divider}`,
                   backgroundColor: 'background.paper'

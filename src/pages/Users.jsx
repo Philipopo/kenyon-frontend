@@ -100,28 +100,23 @@ const RECEIPT_ACTIONS = [
   "create_signing_receipt",
 ];
 
-// Finance permission keys (must match accounts/models.py)
-const FINANCE_PAGES = [
-  "invoices",
-  "financial_metrics",
-];
-
-const FINANCE_ACTIONS = [
-  "create_invoice",
-  "create_payment",
-];
 
 // Rentals permission keys (must match accounts/models.py)
 const RENTALS_PAGES = [
   "rentals_active",
   "rentals_equipment",
   "rentals_payments",
+  "branches"  // ← was missing!
 ];
 
 const RENTALS_ACTIONS = [
-  "create_rental",
-  "create_equipment",
-  "create_payment",
+  "create_rental", "update_rental", "delete_rental",
+  "create_equipment", "update_equipment", "delete_equipment",
+  "create_payment", "update_payment", "delete_payment",
+  "create_branch", "update_branch", "delete_branch",        // ← were missing
+  "create_reservation", "update_reservation", "delete_reservation",
+  "mark_rental_returned",
+  "view_overdue_rentals"
 ];
 
 // Analytics permission keys (must match accounts/models.py)
@@ -166,8 +161,7 @@ export default function UserManagement() {
   const [proActionPerms, setProActionPerms] = useState([]);
   const [recPagePerms, setRecPagePerms] = useState([]);
   const [recActionPerms, setRecActionPerms] = useState([]);
-  const [finPagePerms, setFinPagePerms] = useState([]);
-  const [finActionPerms, setFinActionPerms] = useState([]);
+
   const [rentPagePerms, setRentPagePerms] = useState([]);
   const [rentActionPerms, setRentActionPerms] = useState([]);
   const [anaPagePerms, setAnaPagePerms] = useState([]);
@@ -196,15 +190,16 @@ export default function UserManagement() {
   }, []);
 
   const fetchUsers = async () => {
-    try {
-      const res = await api.get("auth/users/");
-      // Ensure res.data is an array; fallback to empty array if not
-      setUsers(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Failed to fetch users:", err);
-      setUsers([]); // Fallback to empty array on error
-    }
-  };
+  try {
+    const res = await api.get("auth/users/");
+    // Backend returns { results: [...], count: N }
+    const usersArray = Array.isArray(res.data.results) ? res.data.results : [];
+    setUsers(usersArray);
+  } catch (err) {
+    console.error("Failed to fetch users:", err);
+    setUsers([]);
+  }
+};
 
   const handleCreateUser = async () => {
     setFormError("");
@@ -336,19 +331,7 @@ export default function UserManagement() {
           : { id: null, action_name: key, min_role: "staff" };
       });
 
-      // Build Finance arrays
-      const finPages = FINANCE_PAGES.map((key) => {
-        const found = pagesFromServer.find((p) => p.page_name === key);
-        return found
-          ? { id: found.id, page_name: found.page_name, min_role: found.min_role }
-          : { id: null, page_name: key, min_role: "staff" };
-      });
-      const finActions = FINANCE_ACTIONS.map((key) => {
-        const found = actionsFromServer.find((a) => a.action_name === key);
-        return found
-          ? { id: found.id, action_name: found.action_name, min_role: found.min_role }
-          : { id: null, action_name: key, min_role: "staff" };
-      });
+     
 
       // Build Rentals arrays
       const rentPages = RENTALS_PAGES.map((key) => {
@@ -384,8 +367,7 @@ export default function UserManagement() {
       setProActionPerms(proActions);
       setRecPagePerms(recPages);
       setRecActionPerms(recActions);
-      setFinPagePerms(finPages);
-      setFinActionPerms(finActions);
+ 
       setRentPagePerms(rentPages);
       setRentActionPerms(rentActions);
       setAnaPagePerms(anaPages);
@@ -408,8 +390,7 @@ export default function UserManagement() {
       setProActionPerms(PROCUREMENT_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
       setRecPagePerms(RECEIPT_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
       setRecActionPerms(RECEIPT_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
-      setFinPagePerms(FINANCE_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
-      setFinActionPerms(FINANCE_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
+     
       setRentPagePerms(RENTALS_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
       setRentActionPerms(RENTALS_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
       setAnaPagePerms(ANALYTICS_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
@@ -456,16 +437,7 @@ export default function UserManagement() {
   };
 
   // Change handlers (Finance)
-  const handleFinPagePermChange = (pageName, newRole) => {
-    setFinPagePerms((prev) =>
-      prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p))
-    );
-  };
-  const handleFinActionPermChange = (actionName, newRole) => {
-    setFinActionPerms((prev) =>
-      prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a))
-    );
-  };
+  
 
   // Change handlers (Rentals)
   const handleRentPagePermChange = (pageName, newRole) => {
@@ -571,23 +543,8 @@ export default function UserManagement() {
         }
       });
 
-      // Patch/create Finance pages
-      finPagePerms.forEach((p) => {
-        if (p.id) {
-          requests.push(api.patch(`${pageEndpoint}${p.id}/`, { min_role: p.min_role }));
-        } else {
-          requests.push(api.post(pageEndpoint, { page_name: p.page_name, min_role: p.min_role }));
-        }
-      });
-
-      // Patch/create Finance actions
-      finActionPerms.forEach((a) => {
-        if (a.id) {
-          requests.push(api.patch(`${actionEndpoint}${a.id}/`, { min_role: a.min_role }));
-        } else {
-          requests.push(api.post(actionEndpoint, { action_name: a.action_name, min_role: a.min_role }));
-        }
-      });
+      
+      
 
       // Patch/create Rentals pages
       rentPagePerms.forEach((p) => {
@@ -965,58 +922,7 @@ export default function UserManagement() {
             </Grid>
           </Box>
 
-          {/* Finance Section */}
-          <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" gutterBottom>
-              Finance
-            </Typography>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Pages
-            </Typography>
-            <Grid container spacing={2} sx={{ mb: 2 }}>
-              {finPagePerms.map((p) => (
-                <Grid item xs={12} sm={6} key={p.page_name}>
-                  <TextField
-                    label={friendlyLabelFromKey(p.page_name)}
-                    helperText={p.page_name}
-                    select
-                    fullWidth
-                    value={p.min_role}
-                    onChange={(e) => handleFinPagePermChange(p.page_name, e.target.value)}
-                  >
-                    {ROLE_OPTIONS.map((r) => (
-                      <MenuItem key={r.value} value={r.value}>
-                        {r.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                </Grid>
-              ))}
-            </Grid>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Actions
-            </Typography>
-            <Grid container spacing={2}>
-              {finActionPerms.map((a) => (
-                <Grid item xs={12} sm={6} key={a.action_name}>
-                  <TextField
-                    label={friendlyLabelFromKey(a.action_name)}
-                    helperText={a.action_name}
-                    select
-                    fullWidth
-                    value={a.min_role}
-                    onChange={(e) => handleFinActionPermChange(a.action_name, e.target.value)}
-                  >
-                    {ROLE_OPTIONS.map((r) => (
-                      <MenuItem key={r.value} value={r.value}>
-                        {r.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                </Grid>
-              ))}
-            </Grid>
-          </Box>
+         
 
           {/* Rentals Section */}
           <Box sx={{ mb: 4 }}>
