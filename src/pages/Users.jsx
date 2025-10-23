@@ -45,22 +45,22 @@ const INVENTORY_PAGES = [
   "expired_items",
   "items",
   "stock_records",
-  "expiry_tracked_items", // Added
+  "expiry_tracked_items",
 ];
 
 const INVENTORY_ACTIONS = [
   "create_storage_bin",
   "create_item",
   "create_stock_record",
-  "create_expiry_tracked_item", // Added
-  "update_storage_bin", // Added
-  "update_item", // Added
-  "update_stock_record", // Added
-  "update_expiry_tracked_item", // Added
+  "create_expiry_tracked_item",
+  "update_storage_bin",
+  "update_item",
+  "update_stock_record",
+  "update_expiry_tracked_item",
   "delete_item",
   "delete_storage_bin",
-  "delete_stock_record", // Added
-  "delete_expiry_tracked_item", // Added
+  "delete_stock_record",
+  "delete_expiry_tracked_item",
 ];
 
 // Procurement permission keys (must match accounts/models.py)
@@ -186,20 +186,23 @@ export default function UserManagement() {
         if (res.data.role === "admin") {
           fetchUsers();
         } else {
-          setUsers([]);
+          setUsers([]); // Ensure users is an array even if not admin
         }
       })
       .catch((err) => {
         console.error("Failed to fetch current user:", err);
+        setUsers([]); // Fallback to empty array on error
       });
   }, []);
 
   const fetchUsers = async () => {
     try {
       const res = await api.get("auth/users/");
-      setUsers(res.data);
+      // Ensure res.data is an array; fallback to empty array if not
+      setUsers(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("Failed to fetch users:", err);
+      setUsers([]); // Fallback to empty array on error
     }
   };
 
@@ -638,12 +641,15 @@ export default function UserManagement() {
     }
   };
 
-  const filtered = users.filter(
-    (user) =>
-      user.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-      user.email?.toLowerCase().includes(search.toLowerCase()) ||
-      user.role?.toLowerCase().includes(search.toLowerCase())
-  );
+  // Ensure users is an array before calling filter
+  const filtered = Array.isArray(users)
+    ? users.filter(
+        (user) =>
+          user.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+          user.email?.toLowerCase().includes(search.toLowerCase()) ||
+          user.role?.toLowerCase().includes(search.toLowerCase())
+      )
+    : [];
 
   const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 

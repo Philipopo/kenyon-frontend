@@ -1,26 +1,83 @@
-// src/pages/inventory/StockInOut.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Typography, Paper, Box, Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
   Grid, FormControl, InputLabel, Select, MenuItem, TextField, Accordion, AccordionSummary, AccordionDetails,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, Pagination, Chip, Collapse,
-  Card, CardContent, CircularProgress
+  Card, CardContent, CircularProgress, Tooltip
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ReceiptIcon from '@mui/icons-material/Receipt';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import { BarChart, Bar, XAxis, YAxis, Legend, ResponsiveContainer } from 'recharts';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
-// Expandable row component
-function Row({ movement, onEdit, onDelete, getMovementField }) {
+// Expandable Row component
+function Row({ movement, bins, onEdit, onDelete, onEditReceipt, getMovementField }) {
   const [open, setOpen] = useState(false);
+
+  const getBinId = () => {
+    if (movement.storage_bin?.bin_id) return movement.storage_bin.bin_id;
+    if (typeof movement.storage_bin === 'number') {
+      const bin = bins.find(b => b.id === movement.storage_bin);
+      return bin?.bin_id || '—';
+    }
+    return movement.bin_id || '—';
+  };
+
+  // NEW: View PDF Receipt
+  const handleViewReceiptPDF = async (e) => {
+  e.stopPropagation();
+  if (!movement.warehouse_receipt) {
+    alert('No receipt available for this stock-out movement.');
+    return;
+  }
+  console.log(`Viewing receipt for movement ${movement.id}, receipt ID: ${movement.warehouse_receipt}`);
+  try {
+    const response = await API.get(`/inventory/receipts/${movement.warehouse_receipt}/pdf/`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      responseType: 'blob'
+    });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    // The filename will be set by backend
+    window.open(url, '_blank');
+    window.URL.revokeObjectURL(url); // Clean up
+  } catch (err) {
+    console.error('Error fetching receipt PDF:', err);
+    alert('Failed to load receipt PDF: ' + (err.response?.data?.detail || err.message));
+  }
+};
+
+  // Fallback: View HTML receipt (if needed)
+  const handleViewReceiptHTML = async (e) => {
+    e.stopPropagation();
+    if (!movement.warehouse_receipt) {
+      alert('No receipt available.');
+      return;
+    }
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await API.get(`/inventory/receipts/${movement.warehouse_receipt}/print/`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const blob = new Blob([response.data], { type: 'text/html' });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error fetching HTML receipt:', err);
+      alert('Failed to load receipt: ' + (err.response?.data?.detail || err.message));
+    }
+  };
 
   return (
     <>
@@ -38,7 +95,7 @@ function Row({ movement, onEdit, onDelete, getMovementField }) {
           </IconButton>
         </TableCell>
         <TableCell>{getMovementField(movement, 'item_name')}</TableCell>
-        <TableCell>{getMovementField(movement, 'storage_bin_id')}</TableCell>
+        <TableCell>{getBinId()}</TableCell>
         <TableCell>{getMovementField(movement, 'quantity')}</TableCell>
         <TableCell>
           <Chip 
@@ -50,6 +107,37 @@ function Row({ movement, onEdit, onDelete, getMovementField }) {
         <TableCell>{new Date(getMovementField(movement, 'timestamp')).toLocaleDateString()}</TableCell>
         <TableCell>{getMovementField(movement, 'user_display') || getMovementField(movement, 'user')}</TableCell>
         <TableCell>
+          {getMovementField(movement, 'movement_type') === 'OUT' && (
+            <>
+              <Tooltip title="View PDF Receipt">
+                <span>
+                  <IconButton 
+                    onClick={handleViewReceiptPDF}
+                    color="primary"
+                    size="small"
+                    disabled={!movement.warehouse_receipt}
+                  >
+                    <PictureAsPdfIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Edit Receipt">
+                <span>
+                  <IconButton 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditReceipt(movement.warehouse_receipt);
+                    }}
+                    color="primary"
+                    size="small"
+                    disabled={!movement.warehouse_receipt}
+                  >
+                    <EditIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </>
+          )}
           <IconButton 
             onClick={(e) => {
               e.stopPropagation();
@@ -106,6 +194,30 @@ function Row({ movement, onEdit, onDelete, getMovementField }) {
                     />
                   </Typography>
                 </Grid>
+                {getMovementField(movement, 'movement_type') === 'OUT' && (
+                  <Grid item xs={12}>
+                    <Button
+                      size="small"
+                      startIcon={<PictureAsPdfIcon />}
+                      onClick={handleViewReceiptPDF}
+                      sx={{ mr: 1 }}
+                      disabled={!movement.warehouse_receipt}
+                    >
+                      View PDF Receipt
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<EditIcon />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditReceipt(movement.warehouse_receipt);
+                      }}
+                      disabled={!movement.warehouse_receipt}
+                    >
+                      Edit Receipt
+                    </Button>
+                  </Grid>
+                )}
               </Grid>
             </Box>
           </Collapse>
@@ -126,7 +238,8 @@ export default function StockInOut() {
     quantity: '', 
     movement_type: '', 
     storage_bin: '', 
-    notes: '' 
+    notes: '',
+    recipient: ''
   });
   const [editId, setEditId] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
@@ -139,15 +252,29 @@ export default function StockInOut() {
   const [hasStockInPermission, setHasStockInPermission] = useState(false);
   const [hasStockOutPermission, setHasStockOutPermission] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
+  const [receiptData, setReceiptData] = useState({
+    recipient: '',
+    delivery_to: '',
+    transfer_order_no: '',
+    unloading_point: '',
+    original_document: '',
+    old_material_no: '',
+    picker: '',
+    controller: '',
+    purpose: '',
+    qty_picked: '',
+    qty_remaining: ''
+  });
+  const [receiptId, setReceiptId] = useState(null);
   const { searchTerm } = useSearch();
   const itemsPerPage = 10;
 
-  // Fetch stock movements using CORRECT endpoint
   const fetchStockMovements = useCallback(async () => {
     try {
       setLoading(true);
       const searchValue = searchTerm || '';
-      const res = await API.get('inventory/movements/', {  // 👈 CORRECT: 'movements' not 'stock-records'
+      const res = await API.get('inventory/movements/', {
         params: { 
           search: searchValue, 
           page, 
@@ -166,27 +293,46 @@ export default function StockInOut() {
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, page, itemsPerPage]);
+  }, [searchTerm, page]);
 
   const fetchItemsAndBins = useCallback(async () => {
     try {
       const [itemsRes, binsRes] = await Promise.all([
-        API.get('inventory/items/', {
-          params: { page_size: 1000 },
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-        }),
-        API.get('inventory/bins/', {  // 👈 CORRECT: 'bins' not 'storage-bins'
-          params: { page_size: 1000 },
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-        })
+        API.get('inventory/items/', { params: { page_size: 1000 } }),
+        API.get('inventory/bins/', { params: { page_size: 1000 } })
       ]);
-      
       setItems(itemsRes.data.results || []);
       setBins(binsRes.data.results || []);
     } catch (err) {
       console.error('Error fetching items/bins:', err);
+      setError('❌ Failed to fetch items or bins: ' + (err.response?.data?.detail || err.message));
     }
   }, []);
+
+  const fetchReceipt = async (id) => {
+    try {
+      const res = await API.get(`inventory/receipts/${id}/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+      });
+      setReceiptData({
+        recipient: res.data.recipient || '',
+        delivery_to: res.data.delivery_to || '',
+        transfer_order_no: res.data.transfer_order_no || '',
+        unloading_point: res.data.unloading_point || '',
+        original_document: res.data.original_document || '',
+        old_material_no: res.data.old_material_no || '',
+        picker: res.data.picker || '',
+        controller: res.data.controller || '',
+        purpose: res.data.purpose || '',
+        qty_picked: res.data.qty_picked?.toString() || '',
+        qty_remaining: res.data.qty_remaining?.toString() || ''
+      });
+      setReceiptId(id);
+    } catch (err) {
+      console.error('Error fetching receipt:', err);
+      setError('❌ Failed to load receipt details: ' + (err.response?.data?.detail || err.message));
+    }
+  };
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -198,18 +344,14 @@ export default function StockInOut() {
           setCheckingPermissions(false);
           return;
         }
-        
-        // Check permissions with correct names
         const [pageRes, stockInRes, stockOutRes] = await Promise.all([
           API.get('/auth/permissions/page/stock_movements/'),
           API.get('/auth/permissions/action/stock_in/'),
           API.get('/auth/permissions/action/stock_out/')
         ]);
-        
         setHasPermission(pageRes.data.allowed || false);
         setHasStockInPermission(stockInRes.data.allowed || false);
         setHasStockOutPermission(stockOutRes.data.allowed || false);
-        
         if (!pageRes.data.allowed) {
           setError(`⚠️ You do not have permission to view Stock In/Out: ${pageRes.data.reason || 'No reason provided'}`);
         } else {
@@ -218,7 +360,6 @@ export default function StockInOut() {
         }
       } catch (err) {
         console.error('Permission check error:', err);
-        // If permissions aren't configured, try to load data anyway
         setHasPermission(true);
         setHasStockInPermission(true);
         setHasStockOutPermission(true);
@@ -239,12 +380,9 @@ export default function StockInOut() {
 
   const getMovementField = (movement, field) => {
     if (!movement) return '—';
-    
     switch(field) {
       case 'item_name':
         return movement.item?.name || movement.item_name || '—';
-      case 'bin_id':
-        return movement.storage_bin?.bin_id || movement.bin_id || '—';
       case 'quantity':
         return movement.quantity || '0';
       case 'batch':
@@ -269,15 +407,14 @@ export default function StockInOut() {
       setError(`⚠️ You do not have permission to perform ${type === 'stock_in' ? 'stock-in' : 'stock-out'}.`);
       return;
     }
-    
-    // Auto-populate form when editing
     if (movement) {
       setFormData({
         item: movement.item?.id || movement.item || '',
         storage_bin: movement.storage_bin?.id || movement.storage_bin || '',
         quantity: movement.quantity?.toString() || '',
         movement_type: type || (movement.movement_type === 'IN' ? 'stock_in' : 'stock_out'),
-        notes: movement.notes || ''
+        notes: movement.notes || '',
+        recipient: movement.recipient || ''
       });
       setEditId(movement.id);
     } else {
@@ -286,7 +423,8 @@ export default function StockInOut() {
         quantity: '', 
         movement_type: type, 
         storage_bin: '', 
-        notes: '' 
+        notes: '',
+        recipient: ''
       });
       setEditId(null);
     }
@@ -295,7 +433,7 @@ export default function StockInOut() {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setFormData({ item: '', quantity: '', movement_type: '', storage_bin: '', notes: '' });
+    setFormData({ item: '', quantity: '', movement_type: '', storage_bin: '', notes: '', recipient: '' });
     setEditId(null);
     setError('');
     setSuccess('');
@@ -319,7 +457,7 @@ export default function StockInOut() {
   };
 
   const handleFormSubmit = async () => {
-    const { item, quantity, movement_type, storage_bin, notes } = formData;
+    const { item, quantity, movement_type, storage_bin, notes, recipient } = formData;
     if (!item || !quantity || !movement_type || !storage_bin) {
       setError('⚠️ Please fill in all required fields.');
       return;
@@ -331,30 +469,58 @@ export default function StockInOut() {
     try {
       setLoading(true);
       const payload = { 
-        item_id: Number(item),  // 👈 Use item_id as expected by StockInSerializer/StockOutSerializer
-        storage_bin_id: Number(storage_bin),  // 👈 Use storage_bin_id as expected
+        item_id: Number(item),
+        storage_bin_id: Number(storage_bin),
         quantity: Number(quantity), 
-        notes: notes || '' 
+        notes: notes || '',
+        recipient: movement_type === 'stock_out' ? recipient || '' : ''
       };
-      
-      // For editing, you can only update notes (quantity changes require new movement)
       if (editId) {
-        await API.patch(`inventory/movements/${editId}/`, { notes: notes || '' }, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-        });
+        await API.patch(`inventory/movements/${editId}/`, { notes: notes || '' });
         setSuccess('✅ Stock movement notes updated successfully');
       } else {
-        // For creating new movements, use the correct endpoints
         if (movement_type === 'stock_in') {
-          await API.post('inventory/stock-in/', payload, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-          });
+          await API.post('inventory/stock-in/', payload);
           setSuccess('✅ Stock-in recorded successfully');
         } else {
-          await API.post('inventory/stock-out/', payload, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-          });
-          setSuccess('✅ Stock-out recorded successfully');
+          const res = await API.post('inventory/stock-out/', payload);
+          if (res.data.receipt_id) {
+            setSuccess(
+              <>
+                ✅ Stock-out recorded successfully.
+                <br />
+                <Button
+                  size="small"
+                  startIcon={<PictureAsPdfIcon />}
+                  onClick={() => {
+                    const token = localStorage.getItem('accessToken');
+                    API.get(`/inventory/receipts/${res.data.receipt_id}/pdf/`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                      responseType: 'blob'
+                    }).then(response => {
+                      const blob = new Blob([response.data], { type: 'application/pdf' });
+                      const url = window.URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.setAttribute('download', `Receipt_${res.data.receipt_id}.pdf`);
+                      document.body.appendChild(link);
+                      link.click();
+                      link.remove();
+                      window.URL.revokeObjectURL(url);
+                    }).catch(err => {
+                      alert('Failed to download receipt: ' + (err.response?.data?.detail || err.message));
+                    });
+                  }}
+                  sx={{ mt: 1 }}
+                >
+                  Download Receipt PDF
+                </Button>
+              </>
+            );
+          } else {
+            setSuccess('✅ Stock-out recorded successfully');
+            setError('⚠️ No receipt generated. Ensure the storage bin has an assigned warehouse.');
+          }
         }
       }
       fetchStockMovements();
@@ -376,11 +542,13 @@ export default function StockInOut() {
   };
 
   const handleDelete = async () => {
+    if (!deleteId) {
+      setError('⚠️ No stock movement selected for deletion.');
+      return;
+    }
     try {
       setLoading(true);
-      await API.delete(`inventory/movements/${deleteId}/`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
-      });
+      await API.delete(`inventory/movements/${deleteId}/`);
       setSuccess('✅ Stock movement deleted successfully');
       handleDeleteClose();
       fetchStockMovements();
@@ -396,12 +564,40 @@ export default function StockInOut() {
     }
   };
 
+  const handleEditReceipt = (id) => {
+    fetchReceipt(id);
+    setReceiptDialogOpen(true);
+  };
+
+  const handleReceiptChange = (e) => {
+    const { name, value } = e.target;
+    setReceiptData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleReceiptSubmit = async () => {
+    if (!receiptData.recipient) {
+      setError('⚠️ Recipient is required.');
+      return;
+    }
+    try {
+      setLoading(true);
+      await API.patch(`inventory/receipts/${receiptId}/`, receiptData);
+      setSuccess('✅ Warehouse receipt updated successfully');
+      setReceiptDialogOpen(false);
+      fetchStockMovements();
+    } catch (err) {
+      console.error('Error updating receipt:', err);
+      setError(`❌ Failed to update receipt: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const chartData = movements.reduce((acc, movement) => {
     const itemName = getMovementField(movement, 'item_name');
     const existing = acc.find(item => item.name === itemName);
     const movementType = getMovementField(movement, 'movement_type');
     const quantity = Number(movement.quantity) || 0;
-    
     if (existing) {
       existing[movementType === 'IN' ? 'stock_in' : 'stock_out'] += quantity;
     } else {
@@ -414,7 +610,6 @@ export default function StockInOut() {
     return acc;
   }, []);
 
-  // Get selected item and bin details for display
   const selectedItem = items.find(item => item.id === Number(formData.item));
   const selectedBin = bins.find(bin => bin.id === Number(formData.storage_bin));
 
@@ -428,7 +623,7 @@ export default function StockInOut() {
       </Container>
     );
   }
-  
+
   if (!hasPermission) {
     return (
       <Container>
@@ -441,19 +636,18 @@ export default function StockInOut() {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
-      {error && !openDialog && !openDeleteDialog && (
+      {error && !openDialog && !openDeleteDialog && !receiptDialogOpen && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
-      {success && !openDialog && !openDeleteDialog && (
+      {success && !openDialog && !openDeleteDialog && !receiptDialogOpen && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
           {success}
         </Alert>
       )}
-      
+
       <Typography variant="h4" gutterBottom>Stock In/Out</Typography>
-      
       <Accordion sx={{ mb: 2 }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="h6">Stock In/Out Tutorial & Analytics</Typography>
@@ -500,11 +694,9 @@ export default function StockInOut() {
             </Button>
           </Box>
         </Box>
-
         <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
           💡 Click on any row to view complete details including batch information and notes
         </Typography>
-
         {loading ? (
           <Box display="flex" justifyContent="center" p={4}>
             <CircularProgress />
@@ -528,8 +720,10 @@ export default function StockInOut() {
                 <Row 
                   key={movement.id} 
                   movement={movement} 
+                  bins={bins}
                   onEdit={(mov) => handleOpenDialog('', mov)}
                   onDelete={handleDeleteOpen}
+                  onEditReceipt={handleEditReceipt}
                   getMovementField={getMovementField}
                 />
               )) : (
@@ -544,7 +738,6 @@ export default function StockInOut() {
             </TableBody>
           </Table>
         )}
-        
         <Box mt={3} display="flex" justifyContent="center">
           <Pagination 
             count={totalPages} 
@@ -555,7 +748,7 @@ export default function StockInOut() {
         </Box>
       </Paper>
 
-      {/* Enhanced Form Dialog */}
+      {/* Stock Movement Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
           <Box display="flex" alignItems="center">
@@ -579,9 +772,7 @@ export default function StockInOut() {
               {error}
             </Alert>
           )}
-          
           <Grid container spacing={3} sx={{ mt: 1 }}>
-            {/* Selection Section */}
             <Grid item xs={12}>
               <Card variant="outlined">
                 <CardContent>
@@ -613,12 +804,11 @@ export default function StockInOut() {
                       {selectedItem && (
                         <Box sx={{ mt: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
                           <Typography variant="body2" color="textSecondary">
-                            <strong>Current Stock:</strong> {selectedItem.quantity || selectedItem.total_quantity || 0}
+                            <strong>Current Stock:</strong> {selectedItem.total_quantity || 0}
                           </Typography>
                         </Box>
                       )}
                     </Grid>
-                    
                     <Grid item xs={12} md={6}>
                       <FormControl fullWidth required>
                         <InputLabel>Storage Bin *</InputLabel>
@@ -651,8 +841,6 @@ export default function StockInOut() {
                 </CardContent>
               </Card>
             </Grid>
-
-            {/* Movement Details Section */}
             <Grid item xs={12}>
               <Card variant="outlined">
                 <CardContent>
@@ -674,7 +862,6 @@ export default function StockInOut() {
                         helperText="Must be a positive number"
                       />
                     </Grid>
-                    
                     <Grid item xs={12} md={6}>
                       <FormControl fullWidth>
                         <InputLabel>Movement Type</InputLabel>
@@ -690,7 +877,18 @@ export default function StockInOut() {
                         </Select>
                       </FormControl>
                     </Grid>
-                    
+                    {formData.movement_type === 'stock_out' && (
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Recipient"
+                          name="recipient"
+                          value={formData.recipient}
+                          onChange={handleFormChange}
+                          helperText="Recipient for the stock-out (optional)"
+                        />
+                      </Grid>
+                    )}
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
@@ -717,6 +915,7 @@ export default function StockInOut() {
         </DialogActions>
       </Dialog>
 
+      {/* Delete Confirmation Dialog */}
       <Dialog open={openDeleteDialog} onClose={handleDeleteClose}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
@@ -731,6 +930,130 @@ export default function StockInOut() {
           <Button onClick={handleDeleteClose} disabled={loading}>Cancel</Button>
           <Button variant="contained" color="error" onClick={handleDelete} disabled={loading}>
             {loading ? <CircularProgress size={24} /> : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Receipt Edit Dialog */}
+      <Dialog open={receiptDialogOpen} onClose={() => setReceiptDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Edit Warehouse Receipt</DialogTitle>
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Recipient (Issued To) *"
+                name="recipient"
+                value={receiptData.recipient}
+                onChange={handleReceiptChange}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Delivery To"
+                name="delivery_to"
+                value={receiptData.delivery_to}
+                onChange={handleReceiptChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Transfer Order No"
+                name="transfer_order_no"
+                value={receiptData.transfer_order_no}
+                onChange={handleReceiptChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Unloading Point"
+                name="unloading_point"
+                value={receiptData.unloading_point}
+                onChange={handleReceiptChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Original Document"
+                name="original_document"
+                value={receiptData.original_document}
+                onChange={handleReceiptChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Old Material No"
+                name="old_material_no"
+                value={receiptData.old_material_no}
+                onChange={handleReceiptChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Picker"
+                name="picker"
+                value={receiptData.picker}
+                onChange={handleReceiptChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Controller"
+                name="controller"
+                value={receiptData.controller}
+                onChange={handleReceiptChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Purpose"
+                name="purpose"
+                value={receiptData.purpose}
+                onChange={handleReceiptChange}
+                multiline
+                rows={2}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Qty Picked"
+                name="qty_picked"
+                value={receiptData.qty_picked}
+                onChange={handleReceiptChange}
+                type="number"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Qty Remaining"
+                name="qty_remaining"
+                value={receiptData.qty_remaining}
+                onChange={handleReceiptChange}
+                type="number"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReceiptDialogOpen(false)} disabled={loading}>Cancel</Button>
+          <Button variant="contained" onClick={handleReceiptSubmit} disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Update Receipt'}
           </Button>
         </DialogActions>
       </Dialog>

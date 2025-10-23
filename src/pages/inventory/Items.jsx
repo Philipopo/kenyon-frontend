@@ -10,7 +10,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import UploadFileIcon from '@mui/icons-material/UploadFile'; // Added for CSV import
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
@@ -34,7 +34,9 @@ function ItemRow({ item, onEdit, onDelete }) {
             {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
           </IconButton>
         </TableCell>
+        <TableCell>{item.material_id}</TableCell>
         <TableCell>{item.name}</TableCell>
+        
         <TableCell>{item.part_number}</TableCell>
         <TableCell>{item.manufacturer}</TableCell>
         <TableCell>{item.batch || '—'}</TableCell>
@@ -64,7 +66,7 @@ function ItemRow({ item, onEdit, onDelete }) {
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={10}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ margin: 2 }}>
               <Typography variant="h6" gutterBottom component="div">
@@ -72,7 +74,13 @@ function ItemRow({ item, onEdit, onDelete }) {
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
+                  <Typography><strong>Material ID:</strong> {item.material_id}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <Typography><strong>ID:</strong> {item.id}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Description:</strong> {item.description || '—'}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Contact:</strong> {item.contact || '—'}</Typography>
@@ -129,8 +137,16 @@ export default function ItemMaster() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [formData, setFormData] = useState({
-    name: '', part_number: '', manufacturer: '', contact: '',
-    batch: '', expiry_date: '', min_stock_level: '0', reserved_quantity: '0',
+    material_id: '',
+    name: '',
+    description: '',
+    part_number: '',
+    manufacturer: '',
+    contact: '',
+    batch: '',
+    expiry_date: '',
+    min_stock_level: '0',
+    reserved_quantity: '0',
     custom_fields: { Material: '', Grade: '' }
   });
   const [editId, setEditId] = useState(null);
@@ -143,10 +159,10 @@ export default function ItemMaster() {
   const [hasPermission, setHasPermission] = useState(false);
   const [hasCreatePermission, setHasCreatePermission] = useState(false);
   const [hasDeletePermission, setHasDeletePermission] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false); // Added for CSV import
-  const [importFile, setImportFile] = useState(null); // Added for CSV import
-  const [importResult, setImportResult] = useState(null); // Added for CSV import
-  const [importing, setImporting] = useState(false); // Added for CSV import
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importResult, setImportResult] = useState(null);
+  const [importing, setImporting] = useState(false);
   const { searchTerm } = useSearch();
   const itemsPerPage = 10;
   const grades = ['Prime', 'Standard', 'Secondary', 'Economy'];
@@ -223,7 +239,9 @@ export default function ItemMaster() {
         return;
       }
       setFormData(item ? {
+        material_id: item.material_id || '',
         name: item.name || '',
+        description: item.description || '',
         part_number: item.part_number || '',
         manufacturer: item.manufacturer || '',
         contact: item.contact || '',
@@ -233,8 +251,16 @@ export default function ItemMaster() {
         reserved_quantity: item.reserved_quantity?.toString() || '0',
         custom_fields: item.custom_fields || { Material: '', Grade: '' }
       } : {
-        name: '', part_number: '', manufacturer: '', contact: '',
-        batch: '', expiry_date: '', min_stock_level: '0', reserved_quantity: '0',
+        material_id: '',
+        name: '',
+        description: '',
+        part_number: '',
+        manufacturer: '',
+        contact: '',
+        batch: '',
+        expiry_date: '',
+        min_stock_level: '0',
+        reserved_quantity: '0',
         custom_fields: { Material: '', Grade: '' }
       });
       setEditId(item ? item.id : null);
@@ -247,8 +273,16 @@ export default function ItemMaster() {
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setFormData({
-      name: '', part_number: '', manufacturer: '', contact: '',
-      batch: '', expiry_date: '', min_stock_level: '0', reserved_quantity: '0',
+      material_id: '',
+      name: '',
+      description: '',
+      part_number: '',
+      manufacturer: '',
+      contact: '',
+      batch: '',
+      expiry_date: '',
+      min_stock_level: '0',
+      reserved_quantity: '0',
       custom_fields: { Material: '', Grade: '' }
     });
     setEditId(null);
@@ -286,8 +320,8 @@ export default function ItemMaster() {
   };
 
   const handleSave = async () => {
-    const { name, part_number, manufacturer, contact, min_stock_level, reserved_quantity, custom_fields } = formData;
-    if (!name || !part_number || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
+    const { name, description, part_number, manufacturer, contact, min_stock_level, reserved_quantity, custom_fields } = formData;
+    if (!name || !description || !part_number || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -302,13 +336,14 @@ export default function ItemMaster() {
     const validationError = validateReservedQuantity(reserved_quantity, totalQty, !!editId);
 
     if (validationError) {
-      setError(`${validationError}`);
+      setError(validationError);
       return;
     }
 
     try {
       const payload = {
         name,
+        description,
         part_number,
         manufacturer,
         contact,
@@ -336,9 +371,9 @@ export default function ItemMaster() {
       let errorMsg = `Failed to ${editId ? 'update' : 'create'} item: ${err.response?.data?.detail || err.message}`;
       if (err.response?.status === 400 && err.response?.data) {
         if (typeof err.response.data === 'string') {
-          errorMsg = `${err.response.data}`;
+          errorMsg = err.response.data;
         } else if (err.response.data.reserved_quantity) {
-          errorMsg = `${err.response.data.reserved_quantity}`;
+          errorMsg = err.response.data.reserved_quantity;
         } else {
           errorMsg = Object.entries(err.response.data)
             .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
@@ -372,11 +407,9 @@ export default function ItemMaster() {
     }
   };
 
-  // Added: Handle file upload for CSV import
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Validate file type
       if (!file.name.endsWith('.csv')) {
         setError('Please select a CSV file');
         return;
@@ -386,7 +419,6 @@ export default function ItemMaster() {
     }
   };
 
-  // Added: Handle CSV import
   const handleImportCSV = async () => {
     if (!importFile) {
       setError('Please select a CSV file');
@@ -415,9 +447,9 @@ export default function ItemMaster() {
       console.error('CSV import error:', err);
       let errorMsg = 'Failed to import CSV file';
       if (err.response?.data?.error) {
-        errorMsg = `${err.response.data.error}`;
+        errorMsg = err.response.data.error;
       } else if (err.response?.data?.detail) {
-        errorMsg = `${err.response.data.detail}`;
+        errorMsg = err.response.data.detail;
       }
       setError(errorMsg);
     } finally {
@@ -425,11 +457,10 @@ export default function ItemMaster() {
     }
   };
 
-  // Added: Download CSV template
   const downloadCSVTemplate = () => {
-    const template = `name,part_number,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity
-Sample Item,PN001,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0
-Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,2`;
+    const template = `name,description,part_number,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity
+Sample Item,Sample Description,PN001,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0
+Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -442,7 +473,7 @@ Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30
   };
 
   const chartData = items.map(item => ({
-    name: item.name,
+    name: `${item.name} (${item.material_id})`,
     total_quantity: item.total_quantity || 0,
     available_quantity: item.available_quantity || 0
   }));
@@ -471,7 +502,7 @@ Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30
         </AccordionSummary>
         <AccordionDetails>
           <Typography variant="body1" paragraph>
-            <strong>Tip:</strong> Click on any row to expand and see full item details including contact information, expiry dates, and custom fields.
+            <strong>Tip:</strong> Click on any row to expand and see full item details including material ID, description, contact information, expiry dates, and custom fields.
           </Typography>
           <Box sx={{ mt: 2, height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -510,14 +541,16 @@ Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-          Click on any row to view complete item details including contact information, expiry dates, and custom fields
+          Search by Item Name, Description, Part Number, or Material ID (e.g., 123456)
         </Typography>
 
         <Table>
           <TableHead>
             <TableRow>
               <TableCell></TableCell>
+              <TableCell><strong>Material ID</strong></TableCell>
               <TableCell><strong>Name</strong></TableCell>
+
               <TableCell><strong>Part Number</strong></TableCell>
               <TableCell><strong>Manufacturer</strong></TableCell>
               <TableCell><strong>Batch</strong></TableCell>
@@ -536,7 +569,7 @@ Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30
               />
             )) : (
               <TableRow>
-                <TableCell colSpan={8} align="center">
+                <TableCell colSpan={10} align="center">
                   <Typography variant="body2" color="textSecondary">
                     No items found.
                   </Typography>
@@ -555,7 +588,7 @@ Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
           {editId ? 'Update Item' : 'Add New Item'}
-          {editId && ` (ID: ${editId})`}
+          {editId && ` (ID: ${editId}, Material ID: ${formData.material_id})`}
         </DialogTitle>
         <DialogContent>
           {error && (
@@ -572,11 +605,32 @@ Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30
           )}
           
           <Grid container spacing={3} sx={{ mt: 1 }}>
+            {editId && (
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Material ID"
+                  name="material_id"
+                  value={formData.material_id}
+                  fullWidth
+                  disabled
+                />
+              </Grid>
+            )}
             <Grid item xs={12} sm={6}>
               <TextField
                 label="Name *"
                 name="name"
                 value={formData.name}
+                onChange={handleChange}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Description *"
+                name="description"
+                value={formData.description}
                 onChange={handleChange}
                 fullWidth
                 required
@@ -730,8 +784,9 @@ Another Item,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30
               <strong>CSV Format Requirements:</strong>
             </Typography>
             <ul>
-              <li>Required columns: <code>name</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
+              <li>Required columns: <code>name</code>, <code>description</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
               <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code></li>
+              <li>Note: <code>material_id</code> is auto-generated and should not be included in the CSV</li>
               <li>File must be UTF-8 encoded CSV</li>
               <li>Date format for expiry_date: YYYY-MM-DD</li>
             </ul>

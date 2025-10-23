@@ -4,7 +4,7 @@ import {
   TableContainer, Box, Alert, Pagination, TextField, Button,
   Dialog, DialogTitle, DialogContent, DialogActions, Grid, Card, CardContent,
   LinearProgress, Chip, FormControl, InputLabel, Select, MenuItem,
-  Accordion, AccordionSummary, AccordionDetails, Tab, Tabs, IconButton
+  Accordion, AccordionSummary, AccordionDetails, Tab, Tabs, IconButton, Divider
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -17,7 +17,8 @@ import {
   BarChart as BarChartIcon,
   Analytics as AnalyticsIcon,
   Info as InfoIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
@@ -61,14 +62,18 @@ export default function AisleRackDashboard() {
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
 
-  // NEW: Bin management states - FIXED useState declaration
+  // NEW: Bin management states
   const [binDialog, setBinDialog] = useState(false);
   const [binFormData, setBinFormData] = useState({
     bin_id: '', row: '', rack: '', shelf: '', type: '', capacity: ''
   });
   const [selectedWarehouseId, setSelectedWarehouseId] = useState(null);
   const [warehouseBins, setWarehouseBins] = useState([]);
-  const [loadingBins, setLoadingBins] = useState(false); // ✅ CORRECTED: loadingBins, not setLoadingBins
+  const [loadingBins, setLoadingBins] = useState(false);
+
+  // NEW: Bin view modal state
+  const [binViewModal, setBinViewModal] = useState(false);
+  const [selectedWarehouseBins, setSelectedWarehouseBins] = useState([]);
 
   // Modal-specific alerts
   const [modalError, setModalError] = useState('');
@@ -113,7 +118,7 @@ export default function AisleRackDashboard() {
     }
   }, [page, searchTerm, itemsPerPage]);
 
-  // NEW: Fetch bins for selected warehouse
+  // Fetch bins for selected warehouse
   const fetchWarehouseBins = useCallback(async (warehouseId) => {
     if (!warehouseId) return;
     setLoadingBins(true);
@@ -131,7 +136,7 @@ export default function AisleRackDashboard() {
     } finally {
       setLoadingBins(false);
     }
-  }, []); // ✅ Removed setLoadingBins from dependency array
+  }, []);
 
   // Check permissions
   useEffect(() => {
@@ -189,13 +194,16 @@ export default function AisleRackDashboard() {
         code: warehouse.code || '',
         description: warehouse.description || '',
         address: warehouse.address || '',
+        city: warehouse.city || '',
+        state: warehouse.state || '',
+        country: warehouse.country || 'Nigeria',
         capacity: warehouse.capacity?.toString() || '',
         is_active: warehouse.is_active !== undefined ? warehouse.is_active : true
       });
       setSelectedItem(warehouse);
     } else {
       setFormData({
-        name: '', code: '', description: '', address: '', capacity: '', is_active: true
+        name: '', code: '', description: '', address: '', city: '', state: '', country: 'Nigeria', capacity: '', is_active: true
       });
       setSelectedItem(null);
     }
@@ -206,7 +214,7 @@ export default function AisleRackDashboard() {
     setOpenDialog(false);
     setSelectedItem(null);
     setFormData({
-      name: '', code: '', description: '', address: '', capacity: '', is_active: true
+      name: '', code: '', description: '', address: '', city: '', state: '', country: 'Nigeria', capacity: '', is_active: true
     });
   };
 
@@ -219,7 +227,7 @@ export default function AisleRackDashboard() {
   };
 
   const handleFormSubmit = async () => {
-    const { name, code, description, address, capacity, is_active } = formData;
+    const { name, code, description, address, city, state, country, capacity, is_active } = formData;
     
     if (!name || !code || !capacity) {
       setError('⚠️ Please fill in all required fields (Name, Code, Capacity).');
@@ -233,8 +241,7 @@ export default function AisleRackDashboard() {
 
     try {
       const payload = {
-        name, code, description, address,
-        capacity: Number(capacity), is_active
+        name, code, description, address, city, state, country, capacity: Number(capacity), is_active
       };
 
       if (selectedItem) {
@@ -280,7 +287,7 @@ export default function AisleRackDashboard() {
     }
   };
 
-  // NEW: Bin dialog handlers
+  // Bin dialog handlers
   const handleOpenBinDialog = (bin = null, warehouseId) => {
     if (bin) {
       setBinFormData({
@@ -335,13 +342,11 @@ export default function AisleRackDashboard() {
 
       const token = localStorage.getItem('accessToken');
       if (selectedItem) {
-        // Update existing bin
         await API.patch(`/inventory/bins/${selectedItem.id}/`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setModalSuccess('✅ Bin updated successfully');
       } else {
-        // Create new bin in warehouse
         await API.post(`/inventory/warehouses/${selectedWarehouseId}/add_bin/`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -355,7 +360,6 @@ export default function AisleRackDashboard() {
         handleCloseBinDialog();
       }, 1500);
     } catch (err) {
-      // Handle specific error messages
       let errorMsg = 'Failed to save bin';
       if (err.response?.data) {
         const data = err.response.data;
@@ -393,6 +397,26 @@ export default function AisleRackDashboard() {
     }
   };
 
+  // NEW: Handle "View Bins" button click
+  const handleViewBins = async (warehouse) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await API.get(`/inventory/warehouses/${warehouse.id}/bins/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSelectedWarehouseBins(res.data);
+      setBinViewModal(true);
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to fetch bins';
+      setError(`❌ ${errorMsg}`);
+    }
+  };
+
+  const handleCloseBinViewModal = () => {
+    setBinViewModal(false);
+    setSelectedWarehouseBins([]);
+  };
+
   // Chart data functions
   const getWarehouseUsageData = () => ({
     labels: warehouses.map(w => w.name),
@@ -421,6 +445,12 @@ export default function AisleRackDashboard() {
       }]
     };
   };
+
+  // Filter warehouses by search term (name OR city)
+  const filteredWarehouses = warehouses.filter(warehouse =>
+    warehouse.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (warehouse.city && warehouse.city.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   if (checkingPermissions) {
     return <Container><Typography>Loading permissions...</Typography></Container>;
@@ -566,34 +596,54 @@ export default function AisleRackDashboard() {
 
         {/* Tab 2: Warehouse Management */}
         <TabPanel value={tabValue} index={1}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, alignItems: 'center' }}>
             <Typography variant="h5">Warehouse Management</Typography>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
-              Add Warehouse
-            </Button>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                placeholder="Search by name or city..."
+                size="small"
+                value={searchTerm}
+                onChange={(e) => handleSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: <SearchIcon />,
+                }}
+                sx={{ width: 250 }}
+              />
+              <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
+                Add Warehouse
+              </Button>
+            </Box>
           </Box>
 
           <Grid container spacing={3}>
-            {warehouses.map(warehouse => (
-              <Grid item xs={12} md={6} key={warehouse.id}>
-                <Card>
+            {filteredWarehouses.map(warehouse => (
+              <Grid item xs={12} key={warehouse.id}>
+                <Card sx={{ 
+                  borderRadius: 2, 
+                  boxShadow: 3,
+                  transition: 'box-shadow 0.3s ease',
+                  '&:hover': { boxShadow: 6 }
+                }}>
                   <CardContent>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
                       <Box>
-                        <Typography variant="h6">{warehouse.name}</Typography>
-                        <Typography color="textSecondary">{warehouse.code}</Typography>
+                        <Typography variant="h6" fontWeight="bold">{warehouse.name}</Typography>
+                        <Typography color="textSecondary" sx={{ fontSize: '0.9rem' }}>{warehouse.code}</Typography>
                       </Box>
                       <Chip 
                         label={warehouse.is_active ? 'Active' : 'Inactive'} 
                         color={warehouse.is_active ? 'success' : 'default'} 
                         size="small" 
+                        sx={{ fontWeight: 'bold' }}
                       />
                     </Box>
 
-                    <Typography variant="body2" paragraph>{warehouse.description}</Typography>
+                    <Typography variant="body2" paragraph sx={{ color: 'text.secondary' }}>
+                      {warehouse.description || 'No description provided'}
+                    </Typography>
 
                     <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" gutterBottom>
+                      <Typography variant="body2" gutterBottom sx={{ fontWeight: 'medium' }}>
                         Capacity Usage: {warehouse.used_capacity || 0} / {warehouse.capacity} 
                         ({warehouse.usage_percentage || 0}%)
                       </Typography>
@@ -601,20 +651,37 @@ export default function AisleRackDashboard() {
                         variant="determinate" 
                         value={warehouse.usage_percentage || 0} 
                         color={warehouse.usage_percentage >= 80 ? 'error' : warehouse.usage_percentage >= 60 ? 'warning' : 'success'}
+                        sx={{ height: 8, borderRadius: 4 }}
                       />
                     </Box>
 
-                    <Typography variant="body2" gutterBottom>
-                      📦 Bins: {warehouse.total_bins || 0} | 
-                      📍 {warehouse.address || 'No address specified'}
-                    </Typography>
+                    <Grid container spacing={1} sx={{ mb: 2 }}>
+                      <Grid item xs={12}>
+                        <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center' }}>
+                          📍 <strong>Address:</strong> {warehouse.address || 'Not specified'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center' }}>
+                          🏙️ <strong>Location:</strong> {warehouse.city || '—'}, {warehouse.state || '—'} | {warehouse.country || '—'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center' }}>
+                          📦 <strong>Bins:</strong> {warehouse.total_bins || 0}
+                        </Typography>
+                      </Grid>
+                    </Grid>
 
-                    <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                    <Divider sx={{ my: 2 }} />
+
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                       <Button 
                         size="small" 
                         startIcon={<EditIcon />}
                         onClick={() => handleOpenDialog(warehouse)}
                         disabled={!hasUpdatePermission}
+                        variant="outlined"
                       >
                         Edit
                       </Button>
@@ -624,82 +691,19 @@ export default function AisleRackDashboard() {
                         startIcon={<DeleteIcon />}
                         onClick={() => handleDeleteOpen(warehouse)}
                         disabled={!hasDeletePermission || (warehouse.total_bins || 0) > 0}
+                        variant="outlined"
                       >
                         Delete
                       </Button>
-                    </Box>
-
-                    {/* NEW: Bin management section */}
-                    <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #eee' }}>
-                      <Typography variant="subtitle1" gutterBottom>
-                        Bins ({warehouse.total_bins})
-                      </Typography>
-                      
                       <Button 
                         size="small" 
-                        variant="outlined" 
-                        startIcon={<AddIcon />}
-                        onClick={() => handleOpenBinDialog(null, warehouse.id)}
-                        disabled={!hasCreateBinPermission}
-                        sx={{ mb: 1 }}
+                        startIcon={<VisibilityIcon />}
+                        onClick={() => handleViewBins(warehouse)}
+                        variant="contained"
+                        color="primary"
                       >
-                        Add Bin
+                        View Bins
                       </Button>
-
-                      {warehouse.total_bins > 0 ? (
-                        <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                          {warehouseBins
-                            .filter(bin => bin.warehouse?.id === warehouse.id)
-                            .map(bin => (
-                              <Box 
-                                key={bin.id} 
-                                sx={{ 
-                                  display: 'flex', 
-                                  justifyContent: 'space-between', 
-                                  alignItems: 'center',
-                                  p: 1,
-                                  borderBottom: '1px solid #f0f0f0'
-                                }}
-                              >
-                                <Box>
-                                  <Typography variant="body2" fontWeight="bold">
-                                    {bin.bin_id}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {bin.location_display}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Chip 
-                                    label={`${bin.current_load}/${bin.capacity}`} 
-                                    size="small" 
-                                    color={bin.usage_percentage >= 80 ? 'error' : 'default'}
-                                    sx={{ mr: 1 }}
-                                  />
-                                  <IconButton 
-                                    size="small" 
-                                    onClick={() => handleOpenBinDialog(bin, warehouse.id)}
-                                    disabled={!hasUpdatePermission}
-                                  >
-                                    <EditIcon />
-                                  </IconButton>
-                                  <IconButton 
-                                    size="small" 
-                                    color="error"
-                                    onClick={() => handleDeleteBin(bin)}
-                                    disabled={!hasDeletePermission || bin.current_load > 0}
-                                  >
-                                    <DeleteIcon />
-                                  </IconButton>
-                                </Box>
-                              </Box>
-                            ))}
-                        </Box>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          No bins assigned. Click "Add Bin" to create one.
-                        </Typography>
-                      )}
                     </Box>
                   </CardContent>
                 </Card>
@@ -868,6 +872,35 @@ export default function AisleRackDashboard() {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
+                label="City"
+                name="city"
+                value={formData.city}
+                onChange={handleFormChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="State *"
+                name="state"
+                value={formData.state}
+                onChange={handleFormChange}
+                required
+                helperText="State names must be unique"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Country"
+                name="country"
+                value={formData.country}
+                onChange={handleFormChange}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
                 label="Total Capacity *"
                 name="capacity"
                 type="number"
@@ -901,7 +934,7 @@ export default function AisleRackDashboard() {
         </DialogActions>
       </Dialog>
 
-      {/* NEW: Bin Management Dialog */}
+      {/* Bin Management Dialog */}
       <Dialog open={binDialog} onClose={handleCloseBinDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -984,6 +1017,63 @@ export default function AisleRackDashboard() {
           <Button onClick={handleBinSubmit} variant="contained" disabled={loadingBins}>
             {loadingBins ? 'Saving...' : (selectedItem ? 'Update' : 'Add to Warehouse')}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* NEW: Bin View Modal */}
+      <Dialog open={binViewModal} onClose={handleCloseBinViewModal} maxWidth="md" fullWidth>
+        <DialogTitle>
+          Bins in {selectedWarehouseBins.length > 0 ? selectedWarehouseBins[0]?.warehouse?.name : 'Warehouse'}
+          <IconButton
+            aria-label="close"
+            onClick={handleCloseBinViewModal}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {selectedWarehouseBins.length === 0 ? (
+            <Typography>No bins found in this warehouse.</Typography>
+          ) : (
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Bin ID</TableCell>
+                    <TableCell>Location</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Capacity</TableCell>
+                    <TableCell>Usage</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedWarehouseBins.map(bin => (
+                    <TableRow key={bin.id}>
+                      <TableCell>{bin.bin_id}</TableCell>
+                      <TableCell>{bin.location_display}</TableCell>
+                      <TableCell>{bin.type || '—'}</TableCell>
+                      <TableCell>{bin.current_load || 0}/{bin.capacity}</TableCell>
+                      <TableCell>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={bin.usage_percentage || 0}
+                          color={
+                            bin.usage_percentage >= 80 ? 'error' : 
+                            bin.usage_percentage >= 60 ? 'warning' : 'success'
+                          }
+                          sx={{ height: 6 }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseBinViewModal}>Close</Button>
         </DialogActions>
       </Dialog>
 

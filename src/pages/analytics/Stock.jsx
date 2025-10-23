@@ -3,7 +3,7 @@ import {
   Container, Typography, Paper, Table, TableHead, TableRow, TableCell,
   TableBody, TextField, Box, TableContainer, InputAdornment, Pagination,
   CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, FormControl, InputLabel, Select, MenuItem
+  DialogActions, Grid, FormControl, InputLabel, Select, MenuItem, Link
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AssessmentIcon from '@mui/icons-material/Assessment';
@@ -13,11 +13,11 @@ import API from '../../api';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 
-// Register ChartJS components
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 export default function StockAnalytics() {
   const [data, setData] = useState([]);
+  const [forecastData, setForecastData] = useState([]);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -69,6 +69,28 @@ export default function StockAnalytics() {
     }
   }, [checkAuth, navigate]);
 
+  const fetchForecastData = useCallback(async () => {
+    const token = checkAuth();
+    if (!token) return;
+    
+    try {
+      const response = await API.get('inventory/items/', {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { page_size: 1000 }
+      });
+      const items = response.data.results || response.data;
+      const forecastPromises = items.map(item =>
+        API.get(`analytics/forecast/?item_id=${item.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      );
+      const forecasts = await Promise.all(forecastPromises);
+      setForecastData(forecasts.map(res => res.data));
+    } catch (err) {
+      setError(`❌ Failed to fetch forecast data: ${err.response?.data?.detail || err.message}`);
+    }
+  }, [checkAuth]);
+
   const checkPermissions = useCallback(async () => {
     setCheckingPermissions(true);
     const token = checkAuth();
@@ -97,7 +119,7 @@ export default function StockAnalytics() {
       
       setHasPageAccess(true);
       setCanCreateStock(actionResponse.data.allowed || false);
-      await fetchStockData();
+      await Promise.all([fetchStockData(), fetchForecastData()]);
       
     } catch (err) {
       console.error('Error checking permissions:', err);
@@ -111,51 +133,11 @@ export default function StockAnalytics() {
     } finally {
       setCheckingPermissions(false);
     }
-  }, [checkAuth, fetchStockData, navigate]);
+  }, [checkAuth, fetchStockData, fetchForecastData, navigate]);
 
   useEffect(() => {
     checkPermissions();
   }, [checkPermissions]);
-
-  // Prepare chart data
-  const categoryDistribution = {
-    labels: ['A Items (High Value)', 'B Items (Medium Value)', 'C Items (Low Value)'],
-    datasets: [{
-      label: 'Number of Items',
-      data: [
-        data.filter(item => item.category === 'A').length,
-        data.filter(item => item.category === 'B').length,
-        data.filter(item => item.category === 'C').length
-      ],
-      backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'],
-      borderWidth: 1,
-    }]
-  };
-
-  const riskDistribution = {
-    labels: ['Low Risk', 'Medium Risk', 'High Risk', 'Critical Risk'],
-    datasets: [{
-      label: 'Number of Items',
-      data: [
-        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('low')).length,
-        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('medium')).length,
-        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('high')).length,
-        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('critical')).length
-      ],
-      backgroundColor: ['#4BC0C0', '#FFCE56', '#FF9F40', '#FF6384'],
-      borderWidth: 1,
-    }]
-  };
-
-  const turnoverAnalysis = {
-    labels: data.map(item => item.item).slice(0, 10), // Top 10 items
-    datasets: [{
-      label: 'Turnover Rate',
-      data: data.map(item => parseFloat(item.turnover_rate) || 0).slice(0, 10),
-      backgroundColor: '#9966FF',
-      borderWidth: 1,
-    }]
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -169,7 +151,6 @@ export default function StockAnalytics() {
       return;
     }
 
-    // Map obsolescence_risk to backend-compatible values
     const riskMapping = {
       'Low Risk': 'low',
       'Medium Risk': 'medium',
@@ -215,6 +196,53 @@ export default function StockAnalytics() {
     page * itemsPerPage
   );
 
+  const categoryDistribution = {
+    labels: ['A Items (High Value)', 'B Items (Medium Value)', 'C Items (Low Value)'],
+    datasets: [{
+      label: 'Number of Items',
+      data: [
+        data.filter(item => item.category === 'A').length,
+        data.filter(item => item.category === 'B').length,
+        data.filter(item => item.category === 'C').length
+      ],
+      backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'],
+      borderWidth: 1,
+    }]
+  };
+
+  const riskDistribution = {
+    labels: ['Low Risk', 'Medium Risk', 'High Risk', 'Critical Risk'],
+    datasets: [{
+      label: 'Number of Items',
+      data: [
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('low')).length,
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('medium')).length,
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('high')).length,
+        data.filter(item => item.obsolescence_risk?.toLowerCase().includes('critical')).length
+      ],
+      backgroundColor: ['#4BC0C0', '#FFCE56', '#FF9F40', '#FF6384'],
+      borderWidth: 1,
+    }]
+  };
+
+  const turnoverAnalysis = {
+    labels: data.map(item => item.item).slice(0, 10),
+    datasets: [{
+      label: 'Turnover Rate',
+      data: data.map(item => parseFloat(item.turnover_rate) || 0).slice(0, 10),
+      backgroundColor: '#9966FF',
+      borderWidth: 1,
+    }, {
+      label: 'Forecasted Demand (units/year)',
+      data: data.map(item => {
+        const forecast = forecastData.find(f => f.item_name === item.item)?.forecasted_demand || 0;
+        return forecast;
+      }).slice(0, 10),
+      backgroundColor: '#82ca9d',
+      borderWidth: 1,
+    }]
+  };
+
   if (checkingPermissions) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
@@ -238,7 +266,8 @@ export default function StockAnalytics() {
           Stock Analytics
         </Typography>
         <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          Review turnover rates, ABC classifications, and obsolescence risk.
+          Review turnover rates, ABC classifications, and obsolescence risk. For EOQ and reorder recommendations, visit{' '}
+          <Link href="/analytics/optimization" color="primary">Stock Optimization</Link>.
         </Typography>
 
         <Box display="flex" justifyContent="space-between" mb={2}>
@@ -276,9 +305,7 @@ export default function StockAnalytics() {
           <Alert severity="error">{error}</Alert>
         ) : (
           <>
-            {/* Charts Section */}
             <Box sx={{ mb: 4, display: 'flex', flexWrap: 'wrap', gap: 3, justifyContent: 'center' }}>
-              {/* ABC Classification Chart */}
               <Box sx={{ width: 300, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
                 <Typography variant="h6" gutterBottom align="center">
                   ABC Classification
@@ -297,7 +324,6 @@ export default function StockAnalytics() {
                 )}
               </Box>
 
-              {/* Obsolescence Risk Chart */}
               <Box sx={{ width: 300, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
                 <Typography variant="h6" gutterBottom align="center">
                   Obsolescence Risk
@@ -314,13 +340,12 @@ export default function StockAnalytics() {
                 )}
               </Box>
 
-              {/* Turnover Rate Chart */}
               <Box sx={{ width: 400, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
                 <Typography variant="h6" gutterBottom align="center">
-                  Top 10 Items by Turnover Rate
+                  Top 10 Items by Turnover & Demand
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
-                  Higher turnover = faster selling items
+                  Higher turnover = faster selling items. Forecasted demand aids EOQ planning.
                 </Typography>
                 {data.length > 0 ? (
                   <Bar 
@@ -328,9 +353,7 @@ export default function StockAnalytics() {
                     options={{
                       responsive: true,
                       plugins: {
-                        legend: {
-                          display: false
-                        }
+                        legend: { display: true }
                       }
                     }}
                   />
@@ -342,7 +365,6 @@ export default function StockAnalytics() {
               </Box>
             </Box>
 
-            {/* Data Table */}
             <TableContainer>
               <Table>
                 <TableHead>

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            font-size: 10pt;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .logo {
+            width: 150px;
+            height: auto;
+        }
+        .title {
+            font-size: 16pt;
+            font-weight: bold;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .section {
+            margin: 15px 0;
+        }
+        .field {
+            display: flex;
+            margin: 5px 0;
+        }
+        .label {
+            width: 180px;
+            font-weight: bold;
+        }
+        .value {
+            flex: 1;
+            border-bottom: 1px solid #000;
+            padding: 2px 5px;
+        }
+        .signature {
+            margin-top: 40px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .signature-box {
+            width: 30%;
+            text-align: center;
+        }
+        .page-footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 8pt;
+            padding: 5px;
+            border-top: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="{{ logo_url }}" class="logo" alt="Company Logo">
+        <div>
+            <div class="title">WAREHOUSE RECEIPT</div>
+            <div style="text-align: right;">Page: 1</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="field">
+            <div class="label">Delivery To:</div>
+            <div class="value">{{ object.delivery_to }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Transfer Order No:</div>
+            <div class="value">{{ object.transfer_order_no }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Ship-to Party:</div>
+            <div class="value">{{ object.recipient }}</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="field">
+            <div class="label">Material:</div>
+            <div class="value">{{ object.material_description }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Plant / Site:</div>
+            <div class="value">{{ object.plant_site }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Bin:</div>
+            <div class="value">{{ object.bin_location }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Quantity:</div>
+            <div class="value">{{ object.quantity }} PC</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="field">
+            <div class="label">Unloading Point:</div>
+            <div class="value">{{ object.unloading_point }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Original Document:</div>
+            <div class="value">{{ object.original_document }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Old Material No:</div>
+            <div class="value">{{ object.old_material_no }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Qty Picked:</div>
+            <div class="value">{{ object.qty_picked }}</div>
+        </div>
+        <div class="field">
+            <div class="label">Qty Remaining:</div>
+            <div class="value">{{ object.qty_remaining }}</div>
+        </div>
+    </div>
+
+    <div class="signature">
+        <div class="signature-box">
+            <div>PICKER</div>
+            <div style="margin-top: 40px; border-bottom: 1px solid #000; padding: 5px;">
+                {{ object.picker }}
+            </div>
+        </div>
+        <div class="signature-box">
+            <div>CONTROLLER</div>
+            <div style="margin-top: 40px; border-bottom: 1px solid #000; padding: 5px;">
+                {{ object.controller }}
+            </div>
+        </div>
+    </div>
+
+    <div class="page-footer">
+        Generated on {{ object.created_at|date:"d/m/Y H:i:s" }} | Kenyon Ltd Inventory System
+    </div>
+</body>
+</html>

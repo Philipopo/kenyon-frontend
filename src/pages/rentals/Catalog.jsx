@@ -1,20 +1,36 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Pagination,
   CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, IconButton
+  DialogActions, Grid, IconButton, Accordion, AccordionSummary, AccordionDetails, MenuItem,
+  Collapse
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import dayjs from 'dayjs';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { debounce } from 'lodash';
 import api from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
+// Create debounced function outside component to avoid ESLint warning
+const createDebouncedSetSearch = (setSearch, setPage) =>
+  debounce((value) => {
+    setSearch(value);
+    setPage(1);
+  }, 500);
+
 export default function EquipmentCatalog() {
   const [catalog, setCatalog] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -23,11 +39,30 @@ export default function EquipmentCatalog() {
   const [formOpen, setFormOpen] = useState(false);
   const [isUpdate, setIsUpdate] = useState(false);
   const [selectedEquipment, setSelectedEquipment] = useState(null);
-  const [form, setForm] = useState({ name: '', category: '', condition: '', location: '' });
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    category: '',
+    condition: '',
+    location: '',
+    branch: '',
+    total_quantity: '1',
+    available_quantity: '1',
+    manufacture_date: null,
+    expiry_date: null,
+    image: null,
+    imagePreview: null
+  });
+  const [expandedRows, setExpandedRows] = useState(new Set());
+  const [branchFormOpen, setBranchFormOpen] = useState(false);
+  const [isBranchUpdate, setIsBranchUpdate] = useState(false);
+  const [selectedBranch, setSelectedBranch] = useState(null);
+  const [branchForm, setBranchForm] = useState({ name: '', code: '', address: '' });
   const [formError, setFormError] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+  const [deleteType, setDeleteType] = useState('equipment');
   const [hasPageAccess, setHasPageAccess] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [canCreateEquipment, setCanCreateEquipment] = useState(false);
@@ -38,17 +73,13 @@ export default function EquipmentCatalog() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-const debouncedSetSearch = useCallback(
-  debounce((value) => {
-    setSearch(value);
-    setPage(1);
-  }, 500),
-  []
-);
+  // Memoize debounced function to ensure stable reference
+  const debouncedSetSearch = useMemo(
+    () => createDebouncedSetSearch(setSearch, setPage),
+    [setSearch, setPage]
+  );
 
-
-
+  // Fetching
   const fetchEquipment = useCallback(async () => {
     try {
       setLoading(true);
@@ -70,6 +101,18 @@ const debouncedSetSearch = useCallback(
     }
   }, [search, searchTerm, page]);
 
+  const fetchBranches = useCallback(async () => {
+    try {
+      const res = await api.get('/rentals/branches/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      setBranches(res.data.results || []);
+    } catch (err) {
+      console.error('Error fetching branches:', err);
+    }
+  }, []);
+
+  // Permissions & Initial Load
   useEffect(() => {
     const checkPermissions = async () => {
       try {
@@ -97,6 +140,7 @@ const debouncedSetSearch = useCallback(
         setCanDeleteEquipment(deleteResponse.data.allowed || false);
         if (pageResponse.data.allowed) {
           fetchEquipment();
+          fetchBranches();
         }
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
@@ -108,7 +152,7 @@ const debouncedSetSearch = useCallback(
       }
     };
     checkPermissions();
-  }, [fetchEquipment]);
+  }, [fetchEquipment, fetchBranches]);
 
   useEffect(() => {
     if (hasPageAccess && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
@@ -119,15 +163,45 @@ const debouncedSetSearch = useCallback(
     if (hasPageAccess) fetchEquipment();
   }, [search, searchTerm, page, hasPageAccess, fetchEquipment]);
 
-  const handleFormChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
+  // Equipment Form Handlers
+  const handleFormChange = useCallback((e) => {
+    const { name, value, files } = e.target;
+    if (name === 'image') {
+      const file = files[0];
+      setForm(prev => ({
+        ...prev,
+        image: file,
+        imagePreview: file ? URL.createObjectURL(file) : null
+      }));
+    } else {
+      setForm(prev => ({ ...prev, [name]: value }));
+    }
+  }, []);
 
-  const handleSubmit = async () => {
-    if (!form.name || !form.category || !form.condition || !form.location) {
+  const handleDateChange = useCallback((name, newValue) => {
+    setForm(prev => ({ ...prev, [name]: newValue }));
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    const { name, description, category, condition, location, branch, total_quantity, available_quantity, manufacture_date, expiry_date, image } = form;
+    if (!name || !category || !condition || !location || !branch) {
       setFormError('⚠ Please fill all required fields.');
       return;
     }
+    
+    const totalQty = parseInt(total_quantity);
+    const availQty = parseInt(available_quantity);
+    
+    if (isNaN(totalQty) || totalQty < 1) {
+      setFormError('⚠ Total quantity must be at least 1.');
+      return;
+    }
+    
+    if (isNaN(availQty) || availQty < 0 || availQty > totalQty) {
+      setFormError('⚠ Available quantity must be between 0 and total quantity.');
+      return;
+    }
+
     if (isUpdate && !canUpdateEquipment) {
       setFormError('⚠ You do not have permission to update equipment.');
       return;
@@ -136,86 +210,204 @@ const debouncedSetSearch = useCallback(
       setFormError('⚠ You do not have permission to create equipment.');
       return;
     }
+    
     try {
       setFormLoading(true);
       setFormError(null);
-      const payload = { ...form };
+
+      const formData = new FormData();
+      formData.append('name', name);
+      if (description) formData.append('description', description);
+      formData.append('category', category);
+      formData.append('condition', condition);
+      formData.append('location', location);
+      formData.append('branch', branch);
+      formData.append('total_quantity', totalQty);
+      formData.append('available_quantity', availQty);
+      if (manufacture_date) formData.append('manufacture_date', manufacture_date.format('YYYY-MM-DD'));
+      if (expiry_date) formData.append('expiry_date', expiry_date.format('YYYY-MM-DD'));
+
+      if (image instanceof File) {
+        formData.append('image', image);
+      }
+
+      let res;
       if (isUpdate) {
-        const res = await api.put(`/rentals/equipment/${selectedEquipment.id}/`, payload);
-        setCatalog(catalog.map((item) => (item.id === res.data.id ? res.data : item)));
+        res = await api.put(`/rentals/equipment/${selectedEquipment.id}/`, formData);
+        setCatalog(prev => prev.map((item) => (item.id === res.data.id ? res.data : item)));
         setFormError('✅ Equipment updated successfully.');
       } else {
-        const res = await api.post('/rentals/equipment/', payload);
-        setCatalog([res.data, ...catalog]);
+        res = await api.post('/rentals/equipment/', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        setCatalog(prev => [res.data, ...prev]);
         setFormError('✅ Equipment created successfully.');
       }
+      
       setFormOpen(false);
-      setForm({ name: '', category: '', condition: '', location: '' });
+      setForm({
+        name: '', description: '', category: '', condition: '', location: '', branch: '',
+        total_quantity: '1', available_quantity: '1',
+        manufacture_date: null, expiry_date: null, image: null, imagePreview: null
+      });
       setIsUpdate(false);
       setSelectedEquipment(null);
       fetchEquipment();
     } catch (err) {
-      let errorMsg = `Failed to ${isUpdate ? 'update' : 'create'} equipment: Unable to process request.`;
-      if (err.response?.status === 400 && err.response?.data) {
+      let errorMsg = `Failed to ${isUpdate ? 'update' : 'create'} equipment.`;
+      if (err.response?.data) {
         errorMsg = Object.entries(err.response.data)
           .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
           .join('; ');
-      } else {
-        errorMsg = err.response?.data?.detail || err.message;
       }
       setFormError(`❌ ${errorMsg}`);
     } finally {
       setFormLoading(false);
     }
-  };
+  }, [form, isUpdate, canCreateEquipment, canUpdateEquipment, selectedEquipment, fetchEquipment]);
 
-  const handleUpdate = (equipment) => {
+  const handleUpdate = useCallback((equipment) => {
     if (!canUpdateEquipment) {
       setError('⚠ You do not have permission to update equipment.');
       return;
     }
     setForm({
       name: equipment.name,
+      description: equipment.description || '',
       category: equipment.category,
       condition: equipment.condition,
       location: equipment.location,
+      branch: equipment.branch,
+      total_quantity: equipment.total_quantity.toString(),
+      available_quantity: equipment.available_quantity.toString(),
+      manufacture_date: equipment.manufacture_date ? dayjs(equipment.manufacture_date) : null,
+      expiry_date: equipment.expiry_date ? dayjs(equipment.expiry_date) : null,
+      image: undefined,
+      imagePreview: equipment.image || null
     });
     setSelectedEquipment(equipment);
     setIsUpdate(true);
     setFormOpen(true);
-  };
+  }, [canUpdateEquipment]);
 
-  const handleDelete = async () => {
-    if (!canDeleteEquipment) {
-      setError('⚠ You do not have permission to delete equipment.');
+  const toggleRow = useCallback((id) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Branch Handlers
+  const handleBranchFormChange = useCallback((e) => {
+    setBranchForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  }, []);
+
+  const handleBranchSubmit = useCallback(async () => {
+    const { name, code, address } = branchForm;
+    if (!name || !code || !address) {
+      setFormError('⚠ Please fill all required fields.');
       return;
     }
+
     try {
-      await api.delete(`/rentals/equipment/${deleteId}/`);
-      setCatalog(catalog.filter((item) => item.id !== deleteId));
-      setError('✅ Equipment deleted successfully.');
+      setFormLoading(true);
+      setFormError(null);
+      const payload = { name, code, address };
+      
+      if (isBranchUpdate) {
+        await api.put(`/rentals/branches/${selectedBranch.id}/`, payload);
+        setFormError('✅ Branch updated successfully.');
+      } else {
+        await api.post('/rentals/branches/', payload);
+        setFormError('✅ Branch created successfully.');
+      }
+      
+      setBranchFormOpen(false);
+      setBranchForm({ name: '', code: '', address: '' });
+      setIsBranchUpdate(false);
+      setSelectedBranch(null);
+      fetchBranches();
+    } catch (err) {
+      let errorMsg = `Failed to ${isBranchUpdate ? 'update' : 'create'} branch.`;
+      if (err.response?.data) {
+        errorMsg = Object.entries(err.response.data)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
+      }
+      setFormError(`❌ ${errorMsg}`);
+    } finally {
+      setFormLoading(false);
+    }
+  }, [branchForm, isBranchUpdate, selectedBranch, fetchBranches]);
+
+  const handleBranchUpdate = useCallback((branch) => {
+    setBranchForm({
+      name: branch.name,
+      code: branch.code,
+      address: branch.address
+    });
+    setSelectedBranch(branch);
+    setIsBranchUpdate(true);
+    setBranchFormOpen(true);
+  }, []);
+
+  const handleBranchDelete = useCallback((id) => {
+    setDeleteId(id);
+    setDeleteType('branch');
+    setDeleteOpen(true);
+  }, []);
+
+  const handleDelete = useCallback(async () => {
+    try {
+      if (deleteType === 'equipment') {
+        await api.delete(`/rentals/equipment/${deleteId}/`);
+        setCatalog(prev => prev.filter((item) => item.id !== deleteId));
+        setError('✅ Equipment deleted successfully.');
+      } else {
+        await api.delete(`/rentals/branches/${deleteId}/`);
+        setBranches(prev => prev.filter((b) => b.id !== deleteId));
+        setError('✅ Branch deleted successfully.');
+      }
       setDeleteOpen(false);
       setDeleteId(null);
+      setDeleteType('equipment');
       fetchEquipment();
+      fetchBranches();
     } catch (err) {
-      let errorMsg = 'Failed to delete equipment: Unable to process request.';
-      if (err.response?.status === 403) {
-        errorMsg = `⚠ Permission denied: ${err.response.data.detail || 'You lack permission to delete equipment.'}`;
-      } else {
-        errorMsg = err.response?.data?.detail || err.message;
+      let errorMsg = `Failed to delete ${deleteType}.`;
+      if (err.response?.data?.detail) {
+        errorMsg = err.response.data.detail;
       }
       setError(`❌ ${errorMsg}`);
     }
-  };
+  }, [deleteType, deleteId, fetchEquipment, fetchBranches]);
 
-  const openDeleteDialog = (id) => {
-    if (!canDeleteEquipment) {
+  const openDeleteDialog = useCallback((id, type = 'equipment') => {
+    if (type === 'equipment' && !canDeleteEquipment) {
       setError('⚠ You do not have permission to delete equipment.');
       return;
     }
     setDeleteId(id);
+    setDeleteType(type);
     setDeleteOpen(true);
-  };
+  }, [canDeleteEquipment]);
+
+  const getAvailabilityStatus = useCallback((available, total) => {
+    if (available === 0) return 'Unavailable';
+    if (available === total) return 'Available';
+    return 'Partially Available';
+  }, []);
+
+  const getAvailabilityColor = useCallback((available, total) => {
+    if (available === 0) return 'error';
+    if (available === total) return 'success';
+    return 'warning';
+  }, []);
 
   if (checkingPermissions) {
     return (
@@ -235,201 +427,488 @@ const debouncedSetSearch = useCallback(
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      {error && (
-        <Alert severity={error.includes('❌') ? 'error' : 'success'} sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Equipment Catalog
-        </Typography>
-        <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          Browse available equipment, categories, and locations
-        </Typography>
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        {error && (
+          <Alert severity={error.includes('❌') ? 'error' : 'success'} sx={{ mb: 2 }} onClose={() => setError('')}>
+            {error}
+          </Alert>
+        )}
+        <Paper elevation={3} sx={{ p: 4 }}>
+          <Typography variant="h4" gutterBottom>
+            Equipment Catalog
+          </Typography>
+          <Typography variant="subtitle1" sx={{ mb: 3 }}>
+            Manage equipment and branches for rental operations
+          </Typography>
 
-        <Box display="flex" justifyContent="space-between" mb={2}>
-          <TextField
-            placeholder="Search by name, category, or location..."
-            variant="outlined"
-            size="small"
-            value={search}
-            onChange={(e) => debouncedSetSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-          {canCreateEquipment && (
+          {/* Branch Management Accordion */}
+          <Accordion sx={{ mb: 3 }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6">Manage Branches</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box display="flex" justifyContent="space-between" mb={2}>
+                <Typography variant="body2" color="textSecondary">
+                  Create and manage physical locations for equipment
+                </Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    setBranchForm({ name: '', code: '', address: '' });
+                    setIsBranchUpdate(false);
+                    setBranchFormOpen(true);
+                  }}
+                >
+                  Add Branch
+                </Button>
+              </Box>
+
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Code</TableCell>
+                      <TableCell>Address</TableCell>
+                      <TableCell>Created By</TableCell>
+                      <TableCell>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {branches.length > 0 ? (
+                      branches.map((branch) => (
+                        <TableRow key={branch.id}>
+                          <TableCell>{branch.name}</TableCell>
+                          <TableCell>{branch.code}</TableCell>
+                          <TableCell>{branch.address}</TableCell>
+                          <TableCell>{branch.created_by_name || 'N/A'}</TableCell>
+                          <TableCell>
+                            <IconButton onClick={() => handleBranchUpdate(branch)}>
+                              <EditIcon />
+                            </IconButton>
+                            <IconButton onClick={() => handleBranchDelete(branch.id)}>
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} align="center">
+                          No branches found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </AccordionDetails>
+          </Accordion>
+
+          {/* Equipment Section */}
+          <Box display="flex" justifyContent="space-between" mb={2}>
+            <TextField
+              placeholder="Search by name, category, or location..."
+              variant="outlined"
+              size="small"
+              value={search}
+              onChange={(e) => debouncedSetSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            {canCreateEquipment && (
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setForm({
+                    name: '', description: '', category: '', condition: '', location: '',
+                    branch: '', total_quantity: '1', available_quantity: '1',
+                    manufacture_date: null, expiry_date: null, image: null, imagePreview: null
+                  });
+                  setIsUpdate(false);
+                  setFormOpen(true);
+                }}
+              >
+                Add Equipment
+              </Button>
+            )}
             <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                setForm({ name: '', category: '', condition: '', location: '' });
-                setIsUpdate(false);
-                setFormOpen(true);
+              variant="outlined"
+              onClick={async () => {
+                try {
+                  const response = await api.get('/rentals/reports/equipment-pdf/', {
+                    responseType: 'blob',
+                    headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+                  });
+                  const url = window.URL.createObjectURL(new Blob([response.data]));
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', 'equipment_inventory_report.pdf');
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                } catch (err) {
+                  setError('❌ Failed to generate equipment report.');
+                  console.error(err);
+                }
               }}
             >
-              Add Equipment
+              Print Equipment Report (PDF)
             </Button>
-          )}
-        </Box>
-
-        {loading ? (
-          <Box display="flex" justifyContent="center" py={5}>
-            <CircularProgress />
           </Box>
-        ) : error && error.includes('❌') ? (
-          <Alert severity="error">{error}</Alert>
-        ) : (
-          <>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>S/N</TableCell>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Category</TableCell>
-                    <TableCell>Condition</TableCell>
-                    <TableCell>Location</TableCell>
-                    <TableCell>Created By</TableCell>
-                    {(canUpdateEquipment || canDeleteEquipment) && <TableCell>Actions</TableCell>}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {catalog.length > 0 ? (
-                    catalog.map((item, index) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
-                        <TableCell>{item.name}</TableCell>
-                        <TableCell>{item.category}</TableCell>
-                        <TableCell>{item.condition}</TableCell>
-                        <TableCell>{item.location}</TableCell>
-                        <TableCell>{item.created_by_name || 'N/A'}</TableCell>
-                        {(canUpdateEquipment || canDeleteEquipment) && (
-                          <TableCell>
-                            {canUpdateEquipment && (
-                              <IconButton onClick={() => handleUpdate(item)}>
-                                <EditIcon />
-                              </IconButton>
-                            )}
-                            {canDeleteEquipment && (
-                              <IconButton onClick={() => openDeleteDialog(item.id)}>
-                                <DeleteIcon />
-                              </IconButton>
-                            )}
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))
-                  ) : (
+
+          {loading ? (
+            <Box display="flex" justifyContent="center" py={5}>
+              <CircularProgress />
+            </Box>
+          ) : error && error.includes('❌') ? (
+            <Alert severity="error">{error}</Alert>
+          ) : (
+            <>
+              <TableContainer>
+                <Table>
+                  <TableHead>
                     <TableRow>
-                      <TableCell colSpan={canUpdateEquipment || canDeleteEquipment ? 7 : 6} align="center">
-                        No equipment found.
-                      </TableCell>
+                      <TableCell />
+                      <TableCell>S/N</TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Category</TableCell>
+                      <TableCell>Condition</TableCell>
+                      <TableCell>Location</TableCell>
+                      <TableCell>Branch</TableCell>
+                      <TableCell>Total Qty</TableCell>
+                      <TableCell>Available Qty</TableCell>
+                      <TableCell>Availability</TableCell>
+                      <TableCell>Created By</TableCell>
+                      {(canUpdateEquipment || canDeleteEquipment) && <TableCell>Actions</TableCell>}
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {catalog.length > 0 ? (
+                      catalog.map((item, index) => (
+                        <React.Fragment key={item.id}>
+                          <TableRow>
+                            <TableCell>
+                              <IconButton size="small" onClick={() => toggleRow(item.id)}>
+                                {expandedRows.has(item.id) ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                              </IconButton>
+                            </TableCell>
+                            <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
+                            <TableCell>{item.name}</TableCell>
+                            <TableCell>{item.category}</TableCell>
+                            <TableCell>{item.condition}</TableCell>
+                            <TableCell>{item.location}</TableCell>
+                            <TableCell>{item.branch_name || '—'}</TableCell>
+                            <TableCell>{item.total_quantity}</TableCell>
+                            <TableCell>{item.available_quantity}</TableCell>
+                            <TableCell>
+                              <span style={{
+                                display: 'inline-block',
+                                width: '12px',
+                                height: '12px',
+                                borderRadius: '50%',
+                                backgroundColor: getAvailabilityColor(item.available_quantity, item.total_quantity) === 'success' ? '#4caf50' :
+                                                 getAvailabilityColor(item.available_quantity, item.total_quantity) === 'warning' ? '#ff9800' : '#f44336'
+                              }} />
+                              <span style={{ marginLeft: '8px' }}>
+                                {getAvailabilityStatus(item.available_quantity, item.total_quantity)}
+                              </span>
+                            </TableCell>
+                            <TableCell>{item.created_by_name || 'N/A'}</TableCell>
+                            {(canUpdateEquipment || canDeleteEquipment) && (
+                              <TableCell>
+                                {canUpdateEquipment && (
+                                  <IconButton onClick={() => handleUpdate(item)}>
+                                    <EditIcon />
+                                  </IconButton>
+                                )}
+                                {canDeleteEquipment && (
+                                  <IconButton onClick={() => openDeleteDialog(item.id, 'equipment')}>
+                                    <DeleteIcon />
+                                  </IconButton>
+                                )}
+                              </TableCell>
+                            )}
+                          </TableRow>
+                          <TableRow>
+                            <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={12}>
+                              <Collapse in={expandedRows.has(item.id)} timeout="auto" unmountOnExit>
+                                <Box sx={{ p: 2, bgcolor: '#f9f9f9' }}>
+                                  <Typography variant="subtitle2" gutterBottom>Details</Typography>
+                                  <Grid container spacing={2}>
+                                    <Grid item xs={12} md={6}>
+                                      <Typography variant="body2"><strong>Description:</strong> {item.description || '—'}</Typography>
+                                      <Typography variant="body2"><strong>Manufacture Date:</strong> {item.manufacture_date || '—'}</Typography>
+                                      <Typography variant="body2"><strong>Expiry Date:</strong> {item.expiry_date || '—'}</Typography>
+                                    </Grid>
+                                    <Grid item xs={12} md={6}>
+                                      {item.image ? (
+                                        <Box>
+                                          <Typography variant="body2" gutterBottom><strong>Image:</strong></Typography>
+                                          <img src={item.image} alt={item.name} style={{ maxWidth: '200px', height: 'auto', border: '1px solid #ddd' }} />
+                                        </Box>
+                                      ) : (
+                                        <Typography variant="body2"><strong>Image:</strong> —</Typography>
+                                      )}
+                                    </Grid>
+                                  </Grid>
+                                </Box>
+                              </Collapse>
+                            </TableCell>
+                          </TableRow>
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={12} align="center">
+                          No equipment found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
 
-            {totalPages > 1 && (
-              <Box display="flex" justifyContent="center" mt={3}>
-                <Pagination
-                  count={totalPages}
-                  page={page}
-                  onChange={(_, value) => setPage(value)}
-                  color="primary"
-                />
-              </Box>
-            )}
-          </>
-        )}
-      </Paper>
-
-      <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{isUpdate ? 'Update Equipment' : 'Add Equipment'}</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                label="Name"
-                name="name"
-                fullWidth
-                value={form.name}
-                onChange={handleFormChange}
-                required
-                error={form.name === '' && formError?.includes('required')}
-                helperText={form.name === '' && formError?.includes('required') ? 'Name is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                label="Category"
-                name="category"
-                fullWidth
-                value={form.category}
-                onChange={handleFormChange}
-                required
-                error={form.category === '' && formError?.includes('required')}
-                helperText={form.category === '' && formError?.includes('required') ? 'Category is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                label="Condition"
-                name="condition"
-                fullWidth
-                value={form.condition}
-                onChange={handleFormChange}
-                required
-                error={form.condition === '' && formError?.includes('required')}
-                helperText={form.condition === '' && formError?.includes('required') ? 'Condition is required' : ''}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                label="Location"
-                name="location"
-                fullWidth
-                value={form.location}
-                onChange={handleFormChange}
-                required
-                error={form.location === '' && formError?.includes('required')}
-                helperText={form.location === '' && formError?.includes('required') ? 'Location is required' : ''}
-              />
-            </Grid>
-          </Grid>
-          {formError && (
-            <Alert severity={formError.includes('❌') ? 'error' : 'success'} sx={{ mt: 2 }}>
-              {formError}
-            </Alert>
+              {totalPages > 1 && (
+                <Box display="flex" justifyContent="center" mt={3}>
+                  <Pagination
+                    count={totalPages}
+                    page={page}
+                    onChange={(_, value) => setPage(value)}
+                    color="primary"
+                  />
+                </Box>
+              )}
+            </>
           )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setFormOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit} disabled={formLoading}>
-            {isUpdate ? 'Update' : 'Submit'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </Paper>
 
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
-        <DialogTitle>Confirm Delete</DialogTitle>
-        <DialogContent>
-          <Typography>Are you sure you want to delete this equipment?</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleDelete}>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
+        {/* Equipment Form Dialog */}
+        <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>{isUpdate ? 'Update Equipment' : 'Add Equipment'}</DialogTitle>
+          <DialogContent>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12}>
+                <TextField
+                  label="Name"
+                  name="name"
+                  fullWidth
+                  value={form.name}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Description"
+                  name="description"
+                  fullWidth
+                  multiline
+                  rows={3}
+                  value={form.description}
+                  onChange={handleFormChange}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Category"
+                  name="category"
+                  fullWidth
+                  value={form.category}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Condition"
+                  name="condition"
+                  fullWidth
+                  value={form.condition}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Location"
+                  name="location"
+                  fullWidth
+                  value={form.location}
+                  onChange={handleFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Branch"
+                  name="branch"
+                  select
+                  fullWidth
+                  value={form.branch}
+                  onChange={handleFormChange}
+                  required
+                >
+                  {branches.map((branch) => (
+                    <MenuItem key={branch.id} value={branch.id}>
+                      {branch.name} ({branch.code})
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Total Quantity"
+                  name="total_quantity"
+                  type="number"
+                  fullWidth
+                  value={form.total_quantity}
+                  onChange={handleFormChange}
+                  inputProps={{ min: 1 }}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Available Quantity"
+                  name="available_quantity"
+                  type="number"
+                  fullWidth
+                  value={form.available_quantity}
+                  onChange={handleFormChange}
+                  inputProps={{ min: 0 }}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <DatePicker
+                  label="Manufacture Date"
+                  value={form.manufacture_date}
+                  onChange={(newValue) => handleDateChange('manufacture_date', newValue)}
+                  renderInput={(params) => <TextField {...params} fullWidth />}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <DatePicker
+                  label="Expiry Date"
+                  value={form.expiry_date}
+                  onChange={(newValue) => handleDateChange('expiry_date', newValue)}
+                  renderInput={(params) => <TextField {...params} fullWidth />}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button variant="outlined" component="label" fullWidth>
+                  {form.imagePreview ? 'Change Image' : 'Upload Image'}
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={handleFormChange}
+                    name="image"
+                  />
+                </Button>
+                {form.imagePreview && (
+                  <Box mt={1} textAlign="center">
+                    <img src={form.imagePreview} alt="Preview" style={{ maxWidth: '100%', maxHeight: '150px', objectFit: 'contain' }} />
+                  </Box>
+                )}
+              </Grid>
+            </Grid>
+            {formError && (
+              <Alert severity={formError.includes('❌') ? 'error' : 'success'} sx={{ mt: 2 }}>
+                {formError}
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button variant="contained" onClick={handleSubmit} disabled={formLoading}>
+              {isUpdate ? 'Update' : 'Submit'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Branch Form Dialog */}
+        <Dialog open={branchFormOpen} onClose={() => setBranchFormOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>{isBranchUpdate ? 'Update Branch' : 'Add Branch'}</DialogTitle>
+          <DialogContent>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12}>
+                <TextField
+                  label="Name"
+                  name="name"
+                  fullWidth
+                  value={branchForm.name}
+                  onChange={handleBranchFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Code"
+                  name="code"
+                  fullWidth
+                  value={branchForm.code}
+                  onChange={handleBranchFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Address"
+                  name="address"
+                  fullWidth
+                  multiline
+                  rows={2}
+                  value={branchForm.address}
+                  onChange={handleBranchFormChange}
+                  required
+                />
+              </Grid>
+            </Grid>
+            {formError && (
+              <Alert severity={formError.includes('❌') ? 'error' : 'success'} sx={{ mt: 2 }}>
+                {formError}
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setBranchFormOpen(false)}>Cancel</Button>
+            <Button variant="contained" onClick={handleBranchSubmit} disabled={formLoading}>
+              {isBranchUpdate ? 'Update' : 'Submit'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete this {deleteType}? This action cannot be undone.
+              {deleteType === 'branch' && (
+                <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+                  Note: You cannot delete a branch that has equipment assigned to it.
+                </Typography>
+              )}
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button variant="contained" color="error" onClick={handleDelete}>
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Container>
+    </LocalizationProvider>
   );
 }

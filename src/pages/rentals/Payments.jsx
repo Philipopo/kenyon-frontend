@@ -3,12 +3,14 @@ import {
   Container, Typography, Paper, Box, TextField, InputAdornment, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Pagination,
   CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent,
-  DialogActions, Grid, MenuItem, Select, FormControl, InputLabel, IconButton
+  DialogActions, Grid, MenuItem, Select, FormControl, InputLabel, IconButton,
+  Tooltip
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import WarningIcon from '@mui/icons-material/Warning';
 import { debounce } from 'lodash';
 import api from '../../api';
 import { useSearch } from '../../context/SearchContext';
@@ -39,7 +41,6 @@ export default function RentalPayments() {
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSetSearch = useCallback(
     debounce((value) => {
       setSearch(value);
@@ -56,7 +57,7 @@ export default function RentalPayments() {
         params: { search: searchValue, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      setPayments(Array.isArray(res.data.results) ? res.data.results : Array.isArray(res.data) ? res.data : []);
+      setPayments(Array.isArray(res.data.results) ? res.data.results : []);
       setTotalPages(Math.ceil((res.data.count || 0) / itemsPerPage));
       setError('');
     } catch (err) {
@@ -80,7 +81,6 @@ export default function RentalPayments() {
           return;
         }
         const pageResponse = await api.get('/auth/permissions/page/rentals_payments/');
-        console.log('Page permission response:', pageResponse.data);
         setHasPageAccess(pageResponse.data.allowed || false);
         if (!pageResponse.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
@@ -93,11 +93,10 @@ export default function RentalPayments() {
           api.get('/auth/permissions/action/delete_payment/'),
           api.get('/rentals/rentals/', { params: { page_size: 100 } }),
         ]);
-        console.log('Rentals API response:', rentalsResponse.data);
         setCanCreatePayment(createResponse.data.allowed || false);
         setCanUpdatePayment(updateResponse.data.allowed || false);
         setCanDeletePayment(deleteResponse.data.allowed || false);
-        setRentals(Array.isArray(rentalsResponse.data.results) ? rentalsResponse.data.results : Array.isArray(rentalsResponse.data) ? rentalsResponse.data : []);
+        setRentals(Array.isArray(rentalsResponse.data.results) ? rentalsResponse.data.results : []);
         if (pageResponse.data.allowed) {
           fetchPayments();
         }
@@ -227,6 +226,11 @@ export default function RentalPayments() {
     setDeleteOpen(true);
   };
 
+  // Helper to get rental details by ID
+  const getRentalDetails = (rentalId) => {
+    return rentals.find(r => r.id === rentalId) || {};
+  };
+
   if (checkingPermissions) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
@@ -256,7 +260,7 @@ export default function RentalPayments() {
           Rental Payments
         </Typography>
         <Typography variant="subtitle1" sx={{ mb: 3 }}>
-          View and track all equipment rental payments
+          Track payments with real-time rental status and overdue alerts
         </Typography>
 
         <Box display="flex" justifyContent="space-between" mb={2}>
@@ -302,8 +306,10 @@ export default function RentalPayments() {
                 <TableHead>
                   <TableRow>
                     <TableCell>S/N</TableCell>
+                    <TableCell>Rental Code</TableCell>
                     <TableCell>Renter</TableCell>
                     <TableCell>Equipment</TableCell>
+                    <TableCell>Rental Status</TableCell>
                     <TableCell>Amount Paid</TableCell>
                     <TableCell>Payment Date</TableCell>
                     <TableCell>Status</TableCell>
@@ -313,34 +319,51 @@ export default function RentalPayments() {
                 </TableHead>
                 <TableBody>
                   {payments.length > 0 ? (
-                    payments.map((payment, index) => (
-                      <TableRow key={payment.id}>
-                        <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
-                        <TableCell>{payment.renter_name}</TableCell>
-                        <TableCell>{payment.equipment_name}</TableCell>
-                        <TableCell>₦{parseFloat(payment.amount_paid).toLocaleString()}</TableCell>
-                        <TableCell>{new Date(payment.payment_date).toLocaleDateString()}</TableCell>
-                        <TableCell>{payment.status}</TableCell>
-                        <TableCell>{payment.created_by_name || 'N/A'}</TableCell>
-                        {(canUpdatePayment || canDeletePayment) && (
+                    payments.map((payment, index) => {
+                      const rental = getRentalDetails(payment.rental);
+                      const isOverdue = rental.is_overdue;
+                      const daysOverdue = rental.days_overdue || 0;
+                      
+                      return (
+                        <TableRow key={payment.id}>
+                          <TableCell>{(page - 1) * itemsPerPage + index + 1}</TableCell>
                           <TableCell>
-                            {canUpdatePayment && (
-                              <IconButton onClick={() => handleUpdate(payment)}>
-                                <EditIcon />
-                              </IconButton>
-                            )}
-                            {canDeletePayment && (
-                              <IconButton onClick={() => openDeleteDialog(payment.id)}>
-                                <DeleteIcon />
-                              </IconButton>
+                            {payment.rental_code || rental.code}
+                            {isOverdue && (
+                              <Tooltip title={`Overdue by ${daysOverdue} days`}>
+                                <WarningIcon color="error" fontSize="small" sx={{ ml: 1 }} />
+                              </Tooltip>
                             )}
                           </TableCell>
-                        )}
-                      </TableRow>
-                    ))
+                          <TableCell>{payment.renter_name}</TableCell>
+                          <TableCell>{payment.equipment_name}</TableCell>
+                          <TableCell>
+                            {rental.computed_status || 'Unknown'}
+                          </TableCell>
+                          <TableCell>₦{parseFloat(payment.amount_paid).toLocaleString()}</TableCell>
+                          <TableCell>{new Date(payment.payment_date).toLocaleDateString()}</TableCell>
+                          <TableCell>{payment.status}</TableCell>
+                          <TableCell>{payment.created_by_name || 'N/A'}</TableCell>
+                          {(canUpdatePayment || canDeletePayment) && (
+                            <TableCell>
+                              {canUpdatePayment && (
+                                <IconButton onClick={() => handleUpdate(payment)}>
+                                  <EditIcon />
+                                </IconButton>
+                              )}
+                              {canDeletePayment && (
+                                <IconButton onClick={() => openDeleteDialog(payment.id)}>
+                                  <DeleteIcon />
+                                </IconButton>
+                              )}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={canUpdatePayment || canDeletePayment ? 8 : 7} align="center">
+                      <TableCell colSpan={canUpdatePayment || canDeletePayment ? 10 : 9} align="center">
                         No payments found.
                       </TableCell>
                     </TableRow>
@@ -379,11 +402,17 @@ export default function RentalPayments() {
                 >
                   <MenuItem value="" disabled>-- Select Rental --</MenuItem>
                   {Array.isArray(rentals) && rentals.length > 0 ? (
-                    rentals.map((rental) => (
-                      <MenuItem key={rental.id} value={rental.id}>
-                        {`${rental.code} - ${rental.renter_name} - ${rental.equipment_name}`}
-                      </MenuItem>
-                    ))
+                    rentals.map((rental) => {
+                      const isOverdue = rental.is_overdue;
+                      return (
+                        <MenuItem key={rental.id} value={rental.id}>
+                          {`${rental.code} - ${rental.renter_name} - ${rental.equipment_name}`}
+                          {isOverdue && (
+                            <WarningIcon color="error" fontSize="small" sx={{ ml: 1 }} />
+                          )}
+                        </MenuItem>
+                      );
+                    })
                   ) : (
                     <MenuItem value="" disabled>No rentals available</MenuItem>
                   )}

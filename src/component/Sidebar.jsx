@@ -108,12 +108,7 @@ const menuItems = [
         description: 'Internal PR workflows with email routing',
         icon: <StarBorder />,
       },
-      {
-        text: 'Receiving',
-        path: '/dashboard/procurement/receiving',
-        description: 'Document attachments (PO receipts, test certificates)',
-        icon: <StarBorder />,
-      },
+      
       {
         text: 'Approval',
         path: '/dashboard/procurement/approval',
@@ -146,54 +141,8 @@ const menuItems = [
       },
     ],
   },
-  {
-    icon: <AttachMoney />,
-    text: 'Finance Management',
-    subItems: [
-      {
-        text: 'Financial Dashboard',
-        path: '/dashboard/finance/overview',
-        description: 'Financial summaries and KPIs',
-        icon: <Assessment />,
-      },
-      //{
-        //: 'Categories',
-        //path: '/dashboard/finance/categories',
-        //description: 'Manage financial categories and accounts',
-        //icon: <Category />,
-      //},
-      {
-        text: 'Transactions',
-        path: '/dashboard/finance/transactions',
-        description: 'View and manage all financial transactions',
-        icon: <Receipt />,
-      },
-    ],
-  },
-  {
-    icon: <Description />,
-    text: 'Receipt Generation',
-    subItems: [
-      {
-        text: 'Create Receipt',
-        path: '/dashboard/receipts/create',
-        description: 'Generate new receipts for payments',
-        icon: <PostAdd />,
-      },
-      {
-        text: 'Digital Signing',
-        path: '/dashboard/receipts/signing',
-        description: 'Digitally sign completed receipts',
-        icon: <Draw />,
-      },
-      {
-        text: 'Receipt Archive',
-        path: '/dashboard/receipts/archive',
-        description: 'View historical receipts',
-        icon: <Archive />,
-      },
-    ],
-  },
+ 
+  
   {
     icon: <Construction />,
     text: 'Equipment Rental',
@@ -218,24 +167,14 @@ const menuItems = [
       },
     ],
   },
-  {
-    icon: <Warehouse />,
-    text: 'Warehouse',
-    path: '/dashboard/warehouse',
-    description: 'Visual rack map with storage status indicators',
-  },
+ 
   {
     icon: <ChatBubble />,
     text: 'Chat',
     path: '/dashboard/chat/chat',
     description: 'Role-based access control (Admin only)',
   },
-  {
-    icon: <Timeline />,
-    text: 'Audit Trail',
-    path: '/dashboard/audit',
-    description: 'Complete history of movements and changes',
-  },
+  
   {
     icon: <Analytics />,
     text: 'Analytics',
@@ -260,42 +199,14 @@ const menuItems = [
       },
     ],
   },
-  {
-    icon: <Warning />,
-    text: 'Alerts',
-    path: '/dashboard/alerts',
-    description: 'Stock thresholds, expiry warnings, and RFID issues',
-  },
+ 
   {
     icon: <People />,
     text: 'User Management',
     path: '/dashboard/users',
     description: 'Role-based access control (Admin only)',
   },
-  {
-    icon: <Settings />,
-    text: 'System Settings',
-    subItems: [
-      //{
-        //text: 'ERP Integration',
-        //path: '/dashboard/settings/erp',
-        //description: 'AWS cloud configuration and module settings',
-        //icon: <StarBorder />,
-      //},
-      {
-        text: 'Company Branding',
-        path: '/dashboard/settings/branding',
-        description: 'Customize interface and reporting templates',
-        icon: <StarBorder />,
-      },
-      //{
-        //text: 'Tracker Setup',
-        //path: '/dashboard/settings/trackers',
-        //description: 'RFID/Scanner configuration',
-        //icon: <StarBorder />,
-      //},
-    ],
-  },
+  
 ];
 
 export default function Sidebar({ mobileOpen, handleDrawerToggle }) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -6,8 +6,16 @@ import {
   IconButton,
   InputBase,
   Typography,
+  Badge,
+  Drawer,
+  List,
+  ListItem,
+  ListItemText,
+  Divider,
+  Button,
+  CircularProgress
 } from '@mui/material';
-import { Search, Menu as MenuIcon, LocationOn } from '@mui/icons-material';
+import { Search, Menu as MenuIcon, LocationOn, Notifications as NotificationsIcon } from '@mui/icons-material';
 import { Brightness4, Brightness7 } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
 import Sidebar from './Sidebar';
@@ -17,6 +25,7 @@ import { Outlet } from 'react-router-dom';
 import API from '../api';
 import logo from '../assets/kenyon_logo-removebg-preview.png';
 import ChatWidget from '../widget/ChatWidget';
+import dayjs from 'dayjs';
 
 const drawerWidth = 280;
 
@@ -27,9 +36,15 @@ export default function DashboardLayout() {
   const [userProfile, setUserProfile] = useState({ full_name: '', state: 'Lagos' });
   const [brandingLogo, setBrandingLogo] = useState(null);
   const [brandingColor, setBrandingColor] = useState(null);
-  const [canViewBranding, setCanViewBranding] = useState(false); // Initialize as false
+  const [canViewBranding, setCanViewBranding] = useState(false);
+  
+  // ✅ Notification state
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
-  // Fetch user profile (unchanged)
+  // Fetch user profile
   const fetchUserProfile = async () => {
     try {
       const response = await API.get('/auth/profile/', {
@@ -45,16 +60,13 @@ export default function DashboardLayout() {
     }
   };
 
-  // Fetch branding data
+  // Fetch branding
   const fetchBranding = async () => {
     try {
-      // Check permission to view branding
       await API.get('/auth/permissions/page/branding/', {
         headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
       });
-      setCanViewBranding(true); // User has permission
-
-      // Fetch branding data
+      setCanViewBranding(true);
       const response = await API.get('/settings/company-branding/', {
         headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
       });
@@ -62,31 +74,90 @@ export default function DashboardLayout() {
         const branding = response.data.results[0];
         setBrandingLogo(branding.logo);
         setBrandingColor(branding.primary_color || '#212121');
-      } else {
-        // No branding data, use fallbacks
-        setBrandingLogo(null);
-        setBrandingColor(null);
       }
     } catch (error) {
-      console.error('Error fetching branding:', error.response || error);
       if (error.response?.status === 403) {
-        setCanViewBranding(false); // No permission
-        toast.error(error.response.data.reason || 'Requires admin role to view branding');
-      } else {
-        toast.error(error.response?.data?.detail || 'Failed to load branding');
+        setCanViewBranding(false);
       }
-      // Use fallbacks on error
       setBrandingLogo(null);
       setBrandingColor(null);
     }
   };
 
+  // ✅ Fetch unread notification count
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const res = await API.get('/rentals/notifications/', {
+        params: { is_read: false },
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      setUnreadCount(res.data.count || 0);
+    } catch (err) {
+      console.error('Failed to fetch unread count:', err);
+    }
+  }, []);
+
+  // ✅ Fetch all notifications
+  const fetchNotifications = async () => {
+    try {
+      setLoadingNotifications(true);
+      const res = await API.get('/rentals/notifications/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      setNotifications(res.data.results || []);
+    } catch (err) {
+      toast.error('Failed to load notifications');
+      console.error(err);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  // ✅ Mark notification as read
+  const markAsRead = async (id) => {
+    try {
+      await API.post(`/rentals/notifications/${id}/mark_as_read/`, {}, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      setNotifications(notifications.map(n => n.id === id ? { ...n, is_read: true } : n));
+      fetchUnreadCount(); // Update badge
+    } catch (err) {
+      toast.error('Failed to mark as read');
+    }
+  };
+
+  // ✅ Mark all as read
+  const markAllAsRead = async () => {
+    try {
+      await API.post('/rentals/notifications/mark_all_as_read/', {}, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      setNotifications(notifications.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+      setNotificationsOpen(false);
+    } catch (err) {
+      toast.error('Failed to mark all as read');
+    }
+  };
+
+  // Initial fetch + auto-refresh
   useEffect(() => {
     fetchUserProfile();
     fetchBranding();
-    window.addEventListener('profileUpdated', fetchUserProfile);
-    return () => window.removeEventListener('profileUpdated', fetchUserProfile);
-  }, []);
+    fetchUnreadCount();
+    
+    const interval = setInterval(() => {
+      fetchUnreadCount();
+    }, 30000); // Poll every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
+
+  // Handle notification drawer open
+  const handleNotificationsOpen = async () => {
+    await fetchNotifications();
+    setNotificationsOpen(true);
+  };
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -157,6 +228,13 @@ export default function DashboardLayout() {
               />
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {/* ✅ Notification Badge */}
+              <Badge badgeContent={unreadCount} color="error">
+                <IconButton onClick={handleNotificationsOpen} sx={{ color: '#fff' }}>
+                  <NotificationsIcon />
+                </IconButton>
+              </Badge>
+
               <Box
                 sx={{
                   display: 'flex',
@@ -183,7 +261,9 @@ export default function DashboardLayout() {
           </Box>
         </Toolbar>
       </AppBar>
+
       <Sidebar mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} />
+
       <Box
         component="main"
         sx={{
@@ -198,6 +278,82 @@ export default function DashboardLayout() {
         <Outlet />
         <ChatWidget />
       </Box>
+
+      {/* ✅ Notification Drawer */}
+      <Drawer
+        anchor="right"
+        open={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        sx={{ zIndex: 1300 }}
+      >
+        <Box sx={{ width: 400, p: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">Notifications</Typography>
+            {notifications.length > 0 && (
+              <Button size="small" onClick={markAllAsRead}>
+                Mark All as Read
+              </Button>
+            )}
+          </Box>
+
+          {loadingNotifications ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : notifications.length > 0 ? (
+            <List>
+              {notifications.map((n) => (
+                <React.Fragment key={n.id}>
+                  <ListItem
+                    sx={{
+                      bgcolor: n.is_read ? 'transparent' : 'rgba(255,223,0,0.1)',
+                      borderLeft: n.severity === 'CRITICAL' ? '4px solid red' :
+                                 n.severity === 'WARNING' ? '4px solid orange' : 'none',
+                      mb: 1,
+                      borderRadius: 1
+                    }}
+                  >
+                    <ListItemText
+                      primary={n.title}
+                      secondary={
+                        <>
+                          <Typography component="span" variant="body2" color="textSecondary">
+                            {n.message}
+                          </Typography>
+                          <br />
+                          <Typography component="span" variant="caption" color="textSecondary">
+                            {dayjs(n.created_at).format('DD/MM/YYYY HH:mm')}
+                          </Typography>
+                        </>
+                      }
+                    />
+                    {!n.is_read && (
+                      <Button size="small" onClick={() => markAsRead(n.id)}>
+                        Mark Read
+                      </Button>
+                    )}
+                    {n.rental_code && (
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          window.location.href = `/rentals/active/?search=${n.rental_code}`;
+                          setNotificationsOpen(false);
+                        }}
+                        sx={{ ml: 1 }}
+                      >
+                        View Rental
+                      </Button>
+                    )}
+                  </ListItem>
+                  <Divider />
+                </React.Fragment>
+              ))}
+            </List>
+          ) : (
+            <Typography color="textSecondary">No notifications</Typography>
+          )}
+        </Box>
+      </Drawer>
     </Box>
   );
 }

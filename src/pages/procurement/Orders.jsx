@@ -97,35 +97,8 @@ function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove
           >
             <EditIcon />
           </IconButton>
-          {po.status === 'draft' && (
-            <IconButton
-              onClick={(e) => { e.stopPropagation(); onSubmitForApproval(po.id); }}
-              disabled={loading}
-              title="Submit for approval"
-            >
-              <SendIcon />
-            </IconButton>
-          )}
-          {po.status === 'submitted' && (
-            <>
-              <IconButton
-                onClick={(e) => { e.stopPropagation(); onApprove(po.id); }}
-                disabled={loading}
-                title="Approve PO"
-                color="success"
-              >
-                <ThumbUpIcon />
-              </IconButton>
-              <IconButton
-                onClick={(e) => { e.stopPropagation(); onReject(po.id); }}
-                disabled={loading}
-                title="Reject PO"
-                color="error"
-              >
-                <ThumbDownIcon />
-              </IconButton>
-            </>
-          )}
+        
+          
           <IconButton
             onClick={(e) => { e.stopPropagation(); onExportPDF(po.id); }}
             disabled={loading}

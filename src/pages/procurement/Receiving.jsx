@@ -140,16 +140,17 @@ export default function Receiving() {
     }
   }, []);
 
-  // Fetch storage bins for dropdown
+  // Fetch storage bins for dropdown - FIXED ENDPOINT
   const fetchStorageBins = useCallback(async () => {
     try {
-      const res = await API.get('inventory/storage-bins/', {
+      const res = await API.get('inventory/bins/', {  // ✅ Correct endpoint
         params: { page_size: 1000 },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
       setStorageBins(res.data.results || []);
     } catch (err) {
       console.error('Error fetching storage bins:', err);
+      setAlert('❌ Failed to load storage bins. Please try again.');
     }
   }, []);
 
@@ -302,89 +303,103 @@ export default function Receiving() {
   };
 
   // Submit receiving record
-  const handleSubmit = async () => {
-    // Validate form
-    if (!formData.po || !formData.invoice_number || !formData.invoice_date || formData.items.length === 0) {
-      setAlert('⚠️ Please fill all required fields and add at least one item.');
+  // Submit receiving record
+// Submit receiving record
+const handleSubmit = async () => {
+  // Validate form
+  if (!formData.po || !formData.invoice_number || !formData.invoice_date || formData.items.length === 0) {
+    setAlert('⚠️ Please fill all required fields and add at least one item.');
+    return;
+  }
+
+  // Validate each item
+  for (let i = 0; i < formData.items.length; i++) {
+    const item = formData.items[i];
+    if (item.received_quantity <= 0) {
+      setAlert(`⚠️ Item ${i + 1}: Received quantity must be positive.`);
       return;
     }
-
-    // Validate each item
-    for (let i = 0; i < formData.items.length; i++) {
-      const item = formData.items[i];
-
-      if (item.received_quantity <= 0) {
-        setAlert(`⚠️ Item ${i + 1}: Received quantity must be positive.`);
-        return;
-      }
-
-      if (item.accepted_quantity < 0) {
-        setAlert(`⚠️ Item ${i + 1}: Accepted quantity cannot be negative.`);
-        return;
-      }
-
-      if (item.accepted_quantity > item.received_quantity) {
-        setAlert(`⚠️ Item ${i + 1}: Accepted quantity cannot exceed received quantity.`);
-        return;
-      }
-
-      if (item.accepted_quantity > 0 && !item.storage_bin) {
-        setAlert(`⚠️ Item ${i + 1}: Storage bin is required for accepted items.`);
-        return;
-      }
-
-      if (item.rejected_quantity > 0 && !item.rejection_reason) {
-        setAlert(`⚠️ Item ${i + 1}: Rejection reason is required when rejecting items.`);
-        return;
-      }
+    if (item.accepted_quantity < 0) {
+      setAlert(`⚠️ Item ${i + 1}: Accepted quantity cannot be negative.`);
+      return;
     }
+    if (item.accepted_quantity > item.received_quantity) {
+      setAlert(`⚠️ Item ${i + 1}: Accepted quantity cannot exceed received quantity.`);
+      return;
+    }
+    if (item.accepted_quantity > 0 && !item.storage_bin) {
+      setAlert(`⚠️ Item ${i + 1}: Storage bin is required for accepted items.`);
+      return;
+    }
+    if (item.rejected_quantity > 0 && !item.rejection_reason) {
+      setAlert(`⚠️ Item ${i + 1}: Rejection reason is required when rejecting items.`);
+      return;
+    }
+  }
 
-    try {
-      setLoading(true);
-      setAlert(null);
+  try {
+    setLoading(true);
+    setAlert(null);
 
-      const payload = {
-        po: formData.po.id,
-        invoice_number: formData.invoice_number,
-        invoice_date: formData.invoice_date,
-        notes: formData.notes,
-        items: formData.items.map((item) => ({
-          po_item: item.po_item,
-          received_quantity: item.received_quantity,
-          accepted_quantity: item.accepted_quantity,
-          rejection_reason: item.rejection_reason,
-          storage_bin: item.storage_bin ? item.storage_bin.id : null,
-          batch_number: item.batch_number,
-          expiry_date: item.expiry_date || null,
-        })),
-      };
+    // ✅ DO NOT include received_by — backend sets it automatically
+    const payload = {
+      po: formData.po.id,
+      invoice_number: formData.invoice_number,
+      invoice_date: formData.invoice_date,
+      notes: formData.notes,
+      items: formData.items.map((item) => ({
+        po_item: item.po_item,
+        received_quantity: item.received_quantity,
+        accepted_quantity: item.accepted_quantity,
+        rejection_reason: item.rejection_reason || '',
+        storage_bin: item.storage_bin ? item.storage_bin.id : null,
+        batch_number: item.batch_number || '',
+        expiry_date: item.expiry_date || null,
+      })),
+    };
 
-      const response = await API.post('procurement/receivings/', payload);
-      setReceivings([response.data, ...receivings]);
-      setAlert('✅ Receiving record created successfully!');
+    // ✅ Send with auth header (you already do this correctly)
+    const response = await API.post('procurement/receivings/', payload, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+    });
 
-      setOpenModal(false);
-      fetchReceivings();
-    } catch (err) {
-      let errorMsg = '❌ Failed to save receiving record.';
-      if (err.response?.data) {
-        // Format validation errors
-        const errors = err.response.data;
-        if (typeof errors === 'object') {
-          errorMsg = Object.entries(errors)
-            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
-            .join('; ');
-        } else {
-          errorMsg = errors.detail || errorMsg;
-        }
+    setReceivings([response.data, ...receivings]);
+    setAlert('✅ Receiving record created successfully!');
+    setOpenModal(false);
+    fetchReceivings();
+  } catch (err) {
+    console.error('Submit error:', err);
+    let errorMsg = '❌ Failed to save receiving record.';
+    if (err.response?.data) {
+      const errors = err.response.data;
+      if (typeof errors === 'object') {
+        errorMsg = Object.entries(errors)
+          .map(([field, msg]) => {
+            if (field === 'items' && Array.isArray(msg)) {
+              return msg
+                .map((itemErr, idx) => {
+                  if (itemErr && typeof itemErr === 'object') {
+                    return Object.entries(itemErr)
+                      .map(([k, v]) => `Item ${idx + 1} ${k}: ${Array.isArray(v) ? v[0] : v}`)
+                      .join('; ');
+                  }
+                  return `Item ${idx + 1}: ${itemErr}`;
+                })
+                .join('; ');
+            }
+            return `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`;
+          })
+          .join('; ');
       } else {
-        errorMsg = err.message || '❌ Network error.';
+        errorMsg = errors.detail || errorMsg;
       }
-      setAlert(errorMsg);
-    } finally {
-      setLoading(false);
     }
-  };
+    setAlert(errorMsg);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // Get PO item details
   const getPOItemDetails = (poItemId) => {
@@ -760,9 +775,10 @@ export default function Receiving() {
                             </TableCell>
                             <TableCell>{item.rejected_quantity}</TableCell>
                             <TableCell>
+                              {/* ✅ FIXED STORAGE BIN AUTOCOMPLETE */}
                               <Autocomplete
                                 options={storageBins}
-                                getOptionLabel={(option) => option.name}
+                                getOptionLabel={(option) => option.bin_id || `Bin ${option.id}`}
                                 value={item.storage_bin}
                                 onChange={(event, newValue) => handleItemFieldChange(index, 'storage_bin', newValue)}
                                 renderInput={(params) => (
@@ -773,7 +789,7 @@ export default function Receiving() {
                                     helperText={item.accepted_quantity > 0 && !item.storage_bin ? 'Required' : ''}
                                   />
                                 )}
-                                isOptionEqualToValue={(option, value) => option.id === value.id}
+                                isOptionEqualToValue={(option, value) => option?.id === value?.id}
                                 disabled={item.accepted_quantity === 0}
                               />
                             </TableCell>
