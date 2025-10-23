@@ -1,3 +1,4 @@
+// src/api.js
 import axios from 'axios';
 
 // 🔑 Use env variable with a fallback
@@ -7,7 +8,7 @@ const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:8000/ap
 const API = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  withCredentials: false, // Disable for JWT endpoints
+  withCredentials: false,
 });
 
 // 🔑 Centralized Logout Function
@@ -51,7 +52,7 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-// 🔑 Response Interceptor - FIXED VERSION
+// 🔑 Response Interceptor - Token Refresh + Auto Logout
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -66,33 +67,32 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-// 🔑 Response Interceptor
 API.interceptors.response.use(
-  res => res,
-  async error => {
+  (res) => res,
+  async (error) => {
     const originalRequest = error.config;
 
     if (error.response?.status === 401) {
-      // Handle logout endpoints separately
+      // Handle logout endpoint separately
       if (originalRequest.url.includes('auth/logout/')) {
         handleLogout();
         return Promise.reject(error);
       }
 
-      // If already retrying or no refresh token, force logout
-      if (originalRequest._retry || !localStorage.getItem('refreshToken')) {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken || originalRequest._retry) {
         handleLogout();
         return Promise.reject(error);
       }
 
       if (isRefreshing) {
-        // Queue requests while refreshing
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         }).then(token => {
           originalRequest.headers.Authorization = `Bearer ${token}`;
           return API(originalRequest);
         }).catch(err => {
+          handleLogout();
           return Promise.reject(err);
         });
       }
@@ -102,17 +102,15 @@ API.interceptors.response.use(
 
       try {
         const refreshRes = await API.post('token/refresh/', {
-          refresh: localStorage.getItem('refreshToken'),
+          refresh: refreshToken,
         });
 
         const newAccessToken = refreshRes.data.access;
         localStorage.setItem('accessToken', newAccessToken);
-        
-        // Process queued requests
+
         processQueue(null, newAccessToken);
         isRefreshing = false;
 
-        // Retry original request
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return API(originalRequest);
       } catch (refreshError) {
@@ -128,4 +126,5 @@ API.interceptors.response.use(
   }
 );
 
+// ✅ Export as default so `import api from './api'` works
 export default API;

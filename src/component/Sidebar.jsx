@@ -24,10 +24,10 @@ import {
   StarBorder,
   Construction,
   ListAlt,
-  Payment,
+  //Payment,
   CameraAlt,
   ChatBubble,
-  Description,
+  //Description,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useThemeContext } from '../context/ThemeContext';
@@ -110,24 +110,7 @@ const menuItems = [
       },
     ],
   },
-  {
-    icon: <Description />,
-    text: 'Product Documentation',
-    subItems: [
-      {
-        text: 'Product Inflow',
-        path: '/dashboard/product-documentation/inflow',
-        description: 'Track manufactured products with details like SKU, quantity, and cost',
-        icon: <StarBorder />,
-      },
-      {
-        text: 'Product Outflow',
-        path: '/dashboard/product-documentation/outflow',
-        description: 'Monitor dispatched products with customer and sales order details',
-        icon: <StarBorder />,
-      },
-    ],
-  },
+
   {
     icon: <Construction />,
     text: 'Equipment Rental',
@@ -138,12 +121,7 @@ const menuItems = [
         description: 'Currently rented equipment and due dates',
         icon: <ListAlt />,
       },
-      {
-        text: 'Rental Payments',
-        path: '/dashboard/rentals/payments',
-        description: 'Payment receipts and records',
-        icon: <Payment />,
-      },
+
       {
         text: 'Equipment Catalog',
         path: '/dashboard/rentals/catalog',
