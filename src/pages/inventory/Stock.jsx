@@ -9,7 +9,6 @@ import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import ReceiptIcon from '@mui/icons-material/Receipt';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import InventoryIcon from '@mui/icons-material/Inventory';
@@ -22,7 +21,6 @@ import { useSearch } from '../../context/SearchContext';
 // Expandable Row component
 function Row({ movement, bins, onEdit, onDelete, onEditReceipt, getMovementField }) {
   const [open, setOpen] = useState(false);
-
   const getBinId = () => {
     if (movement.storage_bin?.bin_id) return movement.storage_bin.bin_id;
     if (typeof movement.storage_bin === 'number') {
@@ -32,50 +30,25 @@ function Row({ movement, bins, onEdit, onDelete, onEditReceipt, getMovementField
     return movement.bin_id || '—';
   };
 
-  // NEW: View PDF Receipt
+  // View PDF Receipt
   const handleViewReceiptPDF = async (e) => {
-  e.stopPropagation();
-  if (!movement.warehouse_receipt) {
-    alert('No receipt available for this stock-out movement.');
-    return;
-  }
-  console.log(`Viewing receipt for movement ${movement.id}, receipt ID: ${movement.warehouse_receipt}`);
-  try {
-    const response = await API.get(`/inventory/receipts/${movement.warehouse_receipt}/pdf/`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      responseType: 'blob'
-    });
-    const blob = new Blob([response.data], { type: 'application/pdf' });
-    const url = window.URL.createObjectURL(blob);
-    // The filename will be set by backend
-    window.open(url, '_blank');
-    window.URL.revokeObjectURL(url); // Clean up
-  } catch (err) {
-    console.error('Error fetching receipt PDF:', err);
-    alert('Failed to load receipt PDF: ' + (err.response?.data?.detail || err.message));
-  }
-};
-
-  // Fallback: View HTML receipt (if needed)
-  const handleViewReceiptHTML = async (e) => {
     e.stopPropagation();
     if (!movement.warehouse_receipt) {
-      alert('No receipt available.');
+      alert('No receipt available for this stock-out movement.');
       return;
     }
     try {
-      const token = localStorage.getItem('accessToken');
-      const response = await API.get(`/inventory/receipts/${movement.warehouse_receipt}/print/`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await API.get(`/inventory/receipts/${movement.warehouse_receipt}/pdf/`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
         responseType: 'blob'
       });
-      const blob = new Blob([response.data], { type: 'text/html' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       window.open(url, '_blank');
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Error fetching HTML receipt:', err);
-      alert('Failed to load receipt: ' + (err.response?.data?.detail || err.message));
+      console.error('Error fetching receipt PDF:', err);
+      alert('Failed to load receipt PDF: ' + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -646,7 +619,6 @@ export default function StockInOut() {
           {success}
         </Alert>
       )}
-
       <Typography variant="h4" gutterBottom>Stock In/Out</Typography>
       <Accordion sx={{ mb: 2 }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -670,7 +642,6 @@ export default function StockInOut() {
           </Box>
         </AccordionDetails>
       </Accordion>
-
       <Paper sx={{ p: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Typography variant="h6">Stock Movements</Typography>
@@ -747,7 +718,6 @@ export default function StockInOut() {
           />
         </Box>
       </Paper>
-
       {/* Stock Movement Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
@@ -914,7 +884,6 @@ export default function StockInOut() {
           </Button>
         </DialogActions>
       </Dialog>
-
       {/* Delete Confirmation Dialog */}
       <Dialog open={openDeleteDialog} onClose={handleDeleteClose}>
         <DialogTitle>Confirm Delete</DialogTitle>
@@ -933,7 +902,6 @@ export default function StockInOut() {
           </Button>
         </DialogActions>
       </Dialog>
-
       {/* Receipt Edit Dialog */}
       <Dialog open={receiptDialogOpen} onClose={() => setReceiptDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>Edit Warehouse Receipt</DialogTitle>

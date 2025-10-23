@@ -1,5 +1,4 @@
-import API from '../api';
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   Box,
   Drawer,
@@ -15,40 +14,30 @@ import {
 import {
   Dashboard,
   Inventory,
-  Settings,
   Warehouse,
   Receipt,
-  Timeline,
   Analytics,
-  Warning,
   People,
   ExitToApp,
   ExpandLess,
   ExpandMore,
   StarBorder,
-  AttachMoney,
-  Assessment,
-  //Category,
-  Description,
-  PostAdd,
-  Draw,
-  Archive,
   Construction,
   ListAlt,
   Payment,
   CameraAlt,
   ChatBubble,
+  Description,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useThemeContext } from '../context/ThemeContext';
-import axios from 'axios';
+import API from '../api';
 
 const DEFAULT_AVATAR = '/default_avatar.png';
 
 const drawerWidth = 280;
 
 const menuItems = [
-  // [Unchanged menuItems array from your code]
   {
     icon: <Dashboard />,
     text: 'Dashboard',
@@ -83,7 +72,6 @@ const menuItems = [
         description: 'View aisle and rack status with color-coded availability',
         icon: <StarBorder />,
       },
-      
       {
         text: 'Expiry Tracking',
         path: '/dashboard/inventory/expiry',
@@ -108,7 +96,6 @@ const menuItems = [
         description: 'Internal PR workflows with email routing',
         icon: <StarBorder />,
       },
-      
       {
         text: 'Approval',
         path: '/dashboard/procurement/approval',
@@ -141,8 +128,6 @@ const menuItems = [
       },
     ],
   },
- 
-  
   {
     icon: <Construction />,
     text: 'Equipment Rental',
@@ -167,14 +152,12 @@ const menuItems = [
       },
     ],
   },
- 
   {
     icon: <ChatBubble />,
     text: 'Chat',
     path: '/dashboard/chat/chat',
     description: 'Role-based access control (Admin only)',
   },
-  
   {
     icon: <Analytics />,
     text: 'Analytics',
@@ -185,12 +168,6 @@ const menuItems = [
         description: 'Turnover rates and space utilization heatmaps',
         icon: <StarBorder />,
       },
-      //{
-        //text: 'Dwell Time',
-        //path: '/dashboard/analytics/dwell',
-        //description: 'Average storage duration metrics',
-        //icon: <StarBorder />,
-      //},
       {
         text: 'EOQ Reports',
         path: '/dashboard/analytics/eoq',
@@ -199,14 +176,12 @@ const menuItems = [
       },
     ],
   },
- 
   {
     icon: <People />,
     text: 'User Management',
     path: '/dashboard/users',
     description: 'Role-based access control (Admin only)',
   },
-  
 ];
 
 export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
@@ -224,7 +199,7 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
   const [previewImage, setPreviewImage] = useState(null);
   const fileInputRef = useRef(null);
 
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       const res = await API.get('/auth/profile/');
       console.log('[USER FETCHED]', res.data);
@@ -246,21 +221,19 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
         role: 'staff',
       });
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchUser();
-    // Add event listener for profile updates
     const handleProfileUpdate = () => {
       console.log('[Profile Updated Event Received]');
-      fetchUser(); // Refetch user data
+      fetchUser();
     };
     window.addEventListener('profileUpdated', handleProfileUpdate);
-    // Cleanup on component unmount
     return () => window.removeEventListener('profileUpdated', handleProfileUpdate);
-  }, []);
+  }, [fetchUser]);
 
-  const handleImageChange = async (e) => {
+  const handleImageChange = useCallback(async (e) => {
     console.log('[Image Change Triggered]');
     const file = e.target.files?.[0];
 
@@ -285,17 +258,17 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
     try {
       const res = await API.post('/auth/profile/upload/', formData);
       console.log('[Upload Success]', res.data);
-      setPreviewImage(null); // Clear preview
-      await fetchUser(); // Refresh user data after upload
+      setPreviewImage(null);
+      await fetchUser();
     } catch (err) {
       console.error('[Upload Failed]', err.response || err);
       alert('Failed to upload image: ' + (err.response?.data?.detail || 'Please try again.'));
     }
-  };
+  }, [fetchUser]);
 
-  const handleSubMenuToggle = (menu) => {
+  const handleSubMenuToggle = useCallback((menu) => {
     setOpenSubMenus((prev) => ({ ...prev, [menu]: !prev[menu] }));
-  };
+  }, []);
 
   const drawerContent = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -422,11 +395,9 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
             try {
               const access = localStorage.getItem('accessToken');
               const refresh = localStorage.getItem('refreshToken');
-              await axios.post(
-                'http://127.0.0.1:8000/api/auth/logout/',
-                { refresh },
-                { headers: { Authorization: `Bearer ${access}` } }
-              );
+              if (access && refresh) {
+                await API.post('/auth/logout/', { refresh });
+              }
             } catch (error) {
               console.warn('Logout request failed:', error.message);
             }

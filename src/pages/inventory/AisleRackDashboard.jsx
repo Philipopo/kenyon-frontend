@@ -55,27 +55,22 @@ export default function AisleRackDashboard() {
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [formData, setFormData] = useState({
-    name: '', code: '', description: '', address: '', capacity: '', is_active: true
+    name: '', code: '', description: '', address: '', city: '', state: '', country: 'Nigeria', capacity: '', is_active: true
   });
   const [analyticsData, setAnalyticsData] = useState(null);
   const { searchTerm, setSearchTerm } = useSearch();
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
 
-  // NEW: Bin management states
+  // Bin management states
   const [binDialog, setBinDialog] = useState(false);
   const [binFormData, setBinFormData] = useState({
     bin_id: '', row: '', rack: '', shelf: '', type: '', capacity: ''
   });
   const [selectedWarehouseId, setSelectedWarehouseId] = useState(null);
-  const [warehouseBins, setWarehouseBins] = useState([]);
   const [loadingBins, setLoadingBins] = useState(false);
-
-  // NEW: Bin view modal state
   const [binViewModal, setBinViewModal] = useState(false);
   const [selectedWarehouseBins, setSelectedWarehouseBins] = useState([]);
-
-  // Modal-specific alerts
   const [modalError, setModalError] = useState('');
   const [modalSuccess, setModalSuccess] = useState('');
 
@@ -129,7 +124,7 @@ export default function AisleRackDashboard() {
       const res = await API.get(`/inventory/warehouses/${warehouseId}/bins/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setWarehouseBins(res.data);
+      setSelectedWarehouseBins(res.data);
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to fetch warehouse bins';
       setModalError(`❌ ${errorMsg}`);
@@ -397,7 +392,7 @@ export default function AisleRackDashboard() {
     }
   };
 
-  // NEW: Handle "View Bins" button click
+  // Handle "View Bins" button click
   const handleViewBins = async (warehouse) => {
     try {
       const token = localStorage.getItem('accessToken');
@@ -405,6 +400,7 @@ export default function AisleRackDashboard() {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSelectedWarehouseBins(res.data);
+      setSelectedWarehouseId(warehouse.id); // Set for bin actions
       setBinViewModal(true);
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to fetch bins';
@@ -415,6 +411,7 @@ export default function AisleRackDashboard() {
   const handleCloseBinViewModal = () => {
     setBinViewModal(false);
     setSelectedWarehouseBins([]);
+    setSelectedWarehouseId(null);
   };
 
   // Chart data functions
@@ -704,6 +701,17 @@ export default function AisleRackDashboard() {
                       >
                         View Bins
                       </Button>
+                      {hasCreateBinPermission && (
+                        <Button 
+                          size="small" 
+                          startIcon={<AddIcon />}
+                          onClick={() => handleOpenBinDialog(null, warehouse.id)}
+                          variant="contained"
+                          color="secondary"
+                        >
+                          Add Bin
+                        </Button>
+                      )}
                     </Box>
                   </CardContent>
                 </Card>
@@ -1020,7 +1028,7 @@ export default function AisleRackDashboard() {
         </DialogActions>
       </Dialog>
 
-      {/* NEW: Bin View Modal */}
+      {/* Bin View Modal */}
       <Dialog open={binViewModal} onClose={handleCloseBinViewModal} maxWidth="md" fullWidth>
         <DialogTitle>
           Bins in {selectedWarehouseBins.length > 0 ? selectedWarehouseBins[0]?.warehouse?.name : 'Warehouse'}
@@ -1033,6 +1041,19 @@ export default function AisleRackDashboard() {
           </IconButton>
         </DialogTitle>
         <DialogContent>
+          {modalError && <Alert severity="error" sx={{ mb: 2 }}>{modalError}</Alert>}
+          {modalSuccess && <Alert severity="success" sx={{ mb: 2 }}>{modalSuccess}</Alert>}
+          {hasCreateBinPermission && (
+            <Box sx={{ mb: 2 }}>
+              <Button 
+                variant="contained" 
+                startIcon={<AddIcon />}
+                onClick={() => handleOpenBinDialog(null, selectedWarehouseId)}
+              >
+                Add Bin
+              </Button>
+            </Box>
+          )}
           {selectedWarehouseBins.length === 0 ? (
             <Typography>No bins found in this warehouse.</Typography>
           ) : (
@@ -1045,6 +1066,7 @@ export default function AisleRackDashboard() {
                     <TableCell>Type</TableCell>
                     <TableCell>Capacity</TableCell>
                     <TableCell>Usage</TableCell>
+                    <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1064,6 +1086,25 @@ export default function AisleRackDashboard() {
                           }
                           sx={{ height: 6 }}
                         />
+                      </TableCell>
+                      <TableCell>
+                        {hasCreateBinPermission && (
+                          <>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleOpenBinDialog(bin, selectedWarehouseId)}
+                            >
+                              <EditIcon />
+                            </IconButton>
+                            <IconButton 
+                              size="small" 
+                              color="error"
+                              onClick={() => handleDeleteBin(bin)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

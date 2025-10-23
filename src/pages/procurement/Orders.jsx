@@ -1,4 +1,3 @@
-// src/pages/procurement/Orders.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
@@ -28,8 +27,8 @@ import {
   Autocomplete,
   Collapse,
   Card,
-  CardContent,
   CardHeader,
+  CardContent,
   Tooltip,
   MenuItem,
 } from '@mui/material';
@@ -97,8 +96,27 @@ function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove
           >
             <EditIcon />
           </IconButton>
-        
-          
+          <IconButton
+            onClick={(e) => { e.stopPropagation(); onSubmitForApproval(po.id); }}
+            disabled={!permissions.submit_purchase_order || po.status !== 'draft' || loading}
+            title="Submit PO for Approval (only for drafts)"
+          >
+            <SendIcon />
+          </IconButton>
+          <IconButton
+            onClick={(e) => { e.stopPropagation(); onApprove(po.id); }}
+            disabled={!permissions.approve_purchase_order || po.status !== 'submitted' || loading}
+            title="Approve PO (only for submitted)"
+          >
+            <ThumbUpIcon />
+          </IconButton>
+          <IconButton
+            onClick={(e) => { e.stopPropagation(); onReject(po.id); }}
+            disabled={!permissions.reject_purchase_order || po.status !== 'submitted' || loading}
+            title="Reject PO (only for submitted)"
+          >
+            <ThumbDownIcon />
+          </IconButton>
           <IconButton
             onClick={(e) => { e.stopPropagation(); onExportPDF(po.id); }}
             disabled={loading}
@@ -186,6 +204,9 @@ export default function PurchaseOrders() {
     create_purchase_order: false,
     update_purchase_order: false,
     delete_purchase_order: false,
+    submit_purchase_order: false,
+    approve_purchase_order: false,
+    reject_purchase_order: false,
   });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -263,7 +284,7 @@ export default function PurchaseOrders() {
         params: { search: searchValue, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('Purchase orders API response:', res.data);
+      console.log('Purchase orders API6000');
       setPurchaseOrders(res.data.results || res.data || []);
       setTotalPages(Math.ceil((res.data.count || res.data.length || 0) / itemsPerPage));
       setAlert(null);
@@ -348,7 +369,14 @@ export default function PurchaseOrders() {
         }
 
         // Fetch all action permissions in parallel
-        const actions = ['create_purchase_order', 'update_purchase_order', 'delete_purchase_order'];
+        const actions = [
+          'create_purchase_order',
+          'update_purchase_order',
+          'delete_purchase_order',
+          'submit_purchase_order',
+          'approve_purchase_order',
+          'reject_purchase_order',
+        ];
         const permissionPromises = actions.map((action) =>
           API.get(`/auth/permissions/action/${action}/`, {
             headers: { Authorization: `Bearer ${token}` },
@@ -664,7 +692,7 @@ export default function PurchaseOrders() {
         payment_terms: formData.payment_terms || '',
         notes: formData.notes || '',
         items: formData.items.map((item) => ({
-          item: item.item, // Ensure this is the item ID
+          item: item.item,
           quantity: parseInt(item.quantity, 10),
           unit_price: parseFloat(item.unit_price),
           notes: item.notes || '',
