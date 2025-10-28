@@ -1,4 +1,3 @@
-// src/pages/procurement/Approval.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
@@ -36,13 +35,13 @@ import {
 import {
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
-  ThumbUp as ThumbUpIcon,
-  ThumbDown as ThumbDownIcon,
   Delete as DeleteIcon,
   PersonAdd as PersonAddIcon,
   HowToReg as HowToRegIcon,
   Assignment as AssignmentIcon,
   Group as GroupIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { debounce } from 'lodash';
 import API from '../../api';
@@ -53,6 +52,17 @@ const PRIORITY_COLORS = {
   medium: 'info',
   high: 'warning',
   urgent: 'error',
+};
+
+// Format currency based on code
+const formatCurrency = (value, currency = 'NGN') => {
+  if (value == null || value === '') return '—';
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency,
+    minimumFractionDigits: 2,
+  });
+  return formatter.format(value);
 };
 
 export default function Approval() {
@@ -187,25 +197,9 @@ export default function Approval() {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
 
-      // Debug logging
-      console.log('Available users fetched:', res.data.results);
-
-      // Extract user IDs from approval board (handle both nested object and ID cases)
-      const boardUserIds = approvalBoard
-        .map((member) => {
-          if (typeof member.user === 'object' && member.user !== null) {
-            return member.user.id;
-          } else if (typeof member.user === 'number') {
-            return member.user;
-          }
-          return null;
-        })
-        .filter(Boolean);
-
-      // Filter out users already in approval board
+      // Extract user IDs from approval board
+      const boardUserIds = approvalBoard.map((member) => member.user?.id || member.user).filter(Boolean);
       const available = res.data.results.filter((user) => !boardUserIds.includes(user.id));
-
-      console.log('Filtered available users:', available);
       setAvailableUsers(available || []);
     } catch (err) {
       console.error('Error fetching users:', err);
@@ -338,7 +332,6 @@ export default function Approval() {
       setModalAlert('✅ Requisition approved successfully!');
       setApproveModalOpen(false);
       fetchSubmittedRequisitions();
-      // Auto-refresh approval board to reflect changes
       fetchApprovalBoard();
     } catch (err) {
       let errorMsg = '❌ Failed to approve requisition.';
@@ -403,7 +396,6 @@ export default function Approval() {
       setModalAlert('✅ User added to approval board successfully!');
       setAddUserModalOpen(false);
       fetchApprovalBoard();
-      // Clear the selection
       setNewUser(null);
     } catch (err) {
       let errorMsg = '❌ Failed to add user to approval board.';
@@ -429,7 +421,6 @@ export default function Approval() {
       setLoading(true);
       setModalAlert(null);
 
-      // Soft delete by setting is_active=false
       await API.patch(`procurement/approval-board/${selectedBoardMember.id}/`, {
         is_active: false,
       });
@@ -451,10 +442,9 @@ export default function Approval() {
   };
 
   // Calculate total cost for requisition
-  const calculateTotalCost = (items) => {
-    return items.reduce((total, item) => {
-      return total + (item.quantity * (item.unit_cost || 0));
-    }, 0);
+  const calculateTotalCost = (items, currency = 'NGN') => {
+    const total = items.reduce((sum, item) => sum + (item.quantity * (item.unit_cost || 0)), 0);
+    return formatCurrency(total, currency);
   };
 
   if (checkingPermissions) {
@@ -625,11 +615,7 @@ export default function Approval() {
                           <TableCell>
                             {req.items.length > 0 && (
                               <Typography variant="body2">
-                                {calculateTotalCost(req.items).toLocaleString('en-US', {
-                                  style: 'currency',
-                                  currency: 'USD',
-                                  minimumFractionDigits: 2,
-                                })}
+                                {calculateTotalCost(req.items, req.currency)}
                               </Typography>
                             )}
                           </TableCell>
@@ -639,7 +625,6 @@ export default function Approval() {
                                 variant="contained"
                                 color="error"
                                 size="small"
-                                startIcon={<ThumbDownIcon />}
                                 onClick={() => handleOpenRejectModal(req)}
                               >
                                 Reject
@@ -648,7 +633,6 @@ export default function Approval() {
                                 variant="contained"
                                 color="success"
                                 size="small"
-                                startIcon={<ThumbUpIcon />}
                                 onClick={() => handleOpenApproveModal(req)}
                               >
                                 Approve
@@ -813,7 +797,7 @@ export default function Approval() {
       <Dialog open={approveModalOpen} onClose={() => setApproveModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box display="flex" alignItems="center" color="success.main">
-            <ThumbUpIcon sx={{ mr: 1 }} />
+            <CheckCircleIcon sx={{ mr: 1 }} />
             Confirm Approval
           </Box>
         </DialogTitle>
@@ -834,12 +818,12 @@ export default function Approval() {
               <br />
               <strong>Department:</strong> {selectedRequisition?.department}
               <br />
+              <strong>Currency:</strong> {selectedRequisition?.currency === 'NGN' ? 'Nigerian Naira (₦)' : 'US Dollar ($)'}
+              <br />
               <strong>Total Cost:</strong>{' '}
-              {selectedRequisition?.items?.reduce((total, item) => total + item.quantity * (item.unit_cost || 0), 0).toLocaleString('en-US', {
-                style: 'currency',
-                currency: 'USD',
-                minimumFractionDigits: 2,
-              })}
+              {selectedRequisition?.items?.length > 0
+                ? calculateTotalCost(selectedRequisition.items, selectedRequisition.currency)
+                : '—'}
             </Typography>
             <br />
             <Typography variant="body2">
@@ -856,7 +840,6 @@ export default function Approval() {
             color="success"
             onClick={handleApprove}
             disabled={loading}
-            startIcon={loading ? <CircularProgress size={20} /> : <ThumbUpIcon />}
           >
             {loading ? 'Approving...' : 'Approve Requisition'}
           </Button>
@@ -867,7 +850,7 @@ export default function Approval() {
       <Dialog open={rejectModalOpen} onClose={() => setRejectModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box display="flex" alignItems="center" color="error.main">
-            <ThumbDownIcon sx={{ mr: 1 }} />
+            <ErrorIcon sx={{ mr: 1 }} />
             Reject Requisition
           </Box>
         </DialogTitle>
@@ -913,7 +896,6 @@ export default function Approval() {
             color="error"
             onClick={handleReject}
             disabled={loading || !rejectionReason.trim()}
-            startIcon={loading ? <CircularProgress size={20} /> : <ThumbDownIcon />}
           >
             {loading ? 'Rejecting...' : 'Reject Requisition'}
           </Button>
@@ -947,7 +929,14 @@ export default function Approval() {
             getOptionLabel={(option) => `${option.name || option.email} (${option.email})`}
             value={newUser}
             onChange={(event, newValue) => setNewUser(newValue)}
-            renderInput={(params) => <TextField {...params} label="Select User *" required />}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Select User *"
+                required
+                sx={{ minWidth: 250 }}
+              />
+            )}
             noOptionsText="No users available or all users are already in approval board"
           />
         </DialogContent>

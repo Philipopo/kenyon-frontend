@@ -1,4 +1,3 @@
-// src/pages/UserManagement.jsx
 import React, { useState, useEffect } from "react";
 import {
   Container,
@@ -27,6 +26,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import LockResetIcon from "@mui/icons-material/LockReset";
 import api from "../api";
 
 // Role options (match backend roles)
@@ -63,7 +63,7 @@ const INVENTORY_ACTIONS = [
   "delete_expiry_tracked_item",
 ];
 
-// Procurement permission keys (must match accounts/models.py)
+// Procurement permission keys
 const PROCUREMENT_PAGES = [
   "requisitions",
   "purchase_orders",
@@ -87,46 +87,42 @@ const PROCUREMENT_ACTIONS = [
   "delete_vendor",
 ];
 
-// Receipt permission keys (must match accounts/models.py)
+// Receipt permission keys
 const RECEIPT_PAGES = [
   "receipt_archive",
   "stock_receipts",
   "signing_receipts",
 ];
-
 const RECEIPT_ACTIONS = [
   "create_receipt",
   "create_stock_receipt",
   "create_signing_receipt",
 ];
 
-
-// Rentals permission keys (must match accounts/models.py)
+// Rentals permission keys
 const RENTALS_PAGES = [
   "rentals_active",
   "rentals_equipment",
   "rentals_payments",
-  "branches"  // ← was missing!
+  "branches"
 ];
-
 const RENTALS_ACTIONS = [
   "create_rental", "update_rental", "delete_rental",
   "create_equipment", "update_equipment", "delete_equipment",
   "create_payment", "update_payment", "delete_payment",
-  "create_branch", "update_branch", "delete_branch",        // ← were missing
+  "create_branch", "update_branch", "delete_branch",
   "create_reservation", "update_reservation", "delete_reservation",
   "mark_rental_returned",
   "view_overdue_rentals"
 ];
 
-// Analytics permission keys (must match accounts/models.py)
+// Analytics permission keys
 const ANALYTICS_PAGES = [
   "analytics_dwell",
   "analytics_eoq",
   "analytics_stock",
   "analytics_dashboard",
 ];
-
 const ANALYTICS_ACTIONS = [
   "create_dwell",
   "create_eoq",
@@ -149,19 +145,19 @@ export default function UserManagement() {
   const [form, setForm] = useState({ name: "", email: "", role: "staff" });
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
+
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permError, setPermError] = useState("");
   const [permSuccess, setPermSuccess] = useState("");
   const [permLoading, setPermLoading] = useState(false);
 
-  // Permissions state for all modules
+  // Permissions state
   const [invPagePerms, setInvPagePerms] = useState([]);
   const [invActionPerms, setInvActionPerms] = useState([]);
   const [proPagePerms, setProPagePerms] = useState([]);
   const [proActionPerms, setProActionPerms] = useState([]);
   const [recPagePerms, setRecPagePerms] = useState([]);
   const [recActionPerms, setRecActionPerms] = useState([]);
-
   const [rentPagePerms, setRentPagePerms] = useState([]);
   const [rentActionPerms, setRentActionPerms] = useState([]);
   const [anaPagePerms, setAnaPagePerms] = useState([]);
@@ -169,6 +165,15 @@ export default function UserManagement() {
 
   const [resolvedPageEndpoint, setResolvedPageEndpoint] = useState(null);
   const [resolvedActionEndpoint, setResolvedActionEndpoint] = useState(null);
+
+  // Role & Password Dialogs
+  const [editRoleDialogOpen, setEditRoleDialogOpen] = useState(false);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [newRole, setNewRole] = useState("staff");
+  const [newPassword, setNewPassword] = useState("");
+  const [dialogError, setDialogError] = useState("");
+  const [dialogSuccess, setDialogSuccess] = useState("");
 
   const itemsPerPage = 10;
 
@@ -180,26 +185,25 @@ export default function UserManagement() {
         if (res.data.role === "admin") {
           fetchUsers();
         } else {
-          setUsers([]); // Ensure users is an array even if not admin
+          setUsers([]);
         }
       })
       .catch((err) => {
         console.error("Failed to fetch current user:", err);
-        setUsers([]); // Fallback to empty array on error
+        setUsers([]);
       });
   }, []);
 
   const fetchUsers = async () => {
-  try {
-    const res = await api.get("auth/users/");
-    // Backend returns { results: [...], count: N }
-    const usersArray = Array.isArray(res.data.results) ? res.data.results : [];
-    setUsers(usersArray);
-  } catch (err) {
-    console.error("Failed to fetch users:", err);
-    setUsers([]);
-  }
-};
+    try {
+      const res = await api.get("auth/users/");
+      const usersArray = Array.isArray(res.data.results) ? res.data.results : [];
+      setUsers(usersArray);
+    } catch (err) {
+      console.error("Failed to fetch users:", err);
+      setUsers([]);
+    }
+  };
 
   const handleCreateUser = async () => {
     setFormError("");
@@ -232,7 +236,7 @@ export default function UserManagement() {
   const handleDeleteUser = async (id) => {
     if (!window.confirm("Are you sure you want to delete this user?")) return;
     try {
-      await api.delete(`auth/users/${id}/`);
+      await api.delete(`auth/admin/delete-user/${id}/`);
       setUsers((prev) => prev.filter((u) => u.id !== id));
     } catch (err) {
       alert("❌ Failed to delete user.");
@@ -240,7 +244,55 @@ export default function UserManagement() {
     }
   };
 
-  // Permissions handling
+  // === Role & Password Handlers ===
+
+  const handleEditRole = (user) => {
+    setSelectedUser(user);
+    setNewRole(user.role);
+    setEditRoleDialogOpen(true);
+    setDialogError("");
+    setDialogSuccess("");
+  };
+
+  const handleResetPassword = (user) => {
+    setSelectedUser(user);
+    setNewPassword("");
+    setResetPasswordDialogOpen(true);
+    setDialogError("");
+    setDialogSuccess("");
+  };
+
+  const handleUpdateRole = async () => {
+    setDialogError("");
+    setDialogSuccess("");
+    try {
+      await api.patch(`auth/admin/update-user-role/${selectedUser.id}/`, { role: newRole });
+      setDialogSuccess("✅ Role updated successfully");
+      fetchUsers();
+      setTimeout(() => setEditRoleDialogOpen(false), 1000);
+    } catch (err) {
+      setDialogError(err.response?.data?.detail || "❌ Failed to update role.");
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (newPassword.length < 6) {
+      setDialogError("Password must be at least 6 characters.");
+      return;
+    }
+    setDialogError("");
+    setDialogSuccess("");
+    try {
+      await api.post(`auth/admin/reset-user-password/${selectedUser.id}/`, { new_password: newPassword });
+      setDialogSuccess("✅ Password reset successfully");
+      setTimeout(() => setResetPasswordDialogOpen(false), 1000);
+    } catch (err) {
+      setDialogError(err.response?.data?.detail || "❌ Failed to reset password.");
+    }
+  };
+
+  // === Permissions Logic (unchanged) ===
+
   const handleOpenPermissions = async () => {
     setPermError("");
     setPermSuccess("");
@@ -257,11 +309,8 @@ export default function UserManagement() {
         const res = await api.get(path);
         return { res, path };
       } catch (err) {
-        if (err.response && err.response.status === 404) {
-          continue;
-        } else {
-          throw err;
-        }
+        if (err.response && err.response.status === 404) continue;
+        else throw err;
       }
     }
     const e = new Error("Not found");
@@ -281,187 +330,78 @@ export default function UserManagement() {
       const { res: pagesRes, path: pagesPath } = await tryGet(pageCandidates);
       const { res: actionsRes, path: actionsPath } = await tryGet(actionCandidates);
 
-      const pagesFromServer = Array.isArray(pagesRes.data)
-        ? pagesRes.data
-        : pagesRes.data.results || [];
+      const pagesFromServer = Array.isArray(pagesRes.data) ? pagesRes.data : pagesRes.data.results || [];
+      const actionsFromServer = Array.isArray(actionsRes.data) ? actionsRes.data : actionsRes.data.results || [];
 
-      const actionsFromServer = Array.isArray(actionsRes.data)
-        ? actionsRes.data
-        : actionsRes.data.results || [];
+      const buildPerm = (keys, serverList, keyField, nameField) =>
+        keys.map((key) => {
+          const found = serverList.find((item) => item[keyField] === key);
+          return found
+            ? { id: found.id, [keyField]: found[keyField], min_role: found.min_role }
+            : { id: null, [keyField]: key, min_role: "staff" };
+        });
 
-      // Build Inventory arrays
-      const invPages = INVENTORY_PAGES.map((key) => {
-        const found = pagesFromServer.find((p) => p.page_name === key);
-        return found
-          ? { id: found.id, page_name: found.page_name, min_role: found.min_role }
-          : { id: null, page_name: key, min_role: "staff" };
-      });
-      const invActions = INVENTORY_ACTIONS.map((key) => {
-        const found = actionsFromServer.find((a) => a.action_name === key);
-        return found
-          ? { id: found.id, action_name: found.action_name, min_role: found.min_role }
-          : { id: null, action_name: key, min_role: "staff" };
-      });
-
-      // Build Procurement arrays
-      const proPages = PROCUREMENT_PAGES.map((key) => {
-        const found = pagesFromServer.find((p) => p.page_name === key);
-        return found
-          ? { id: found.id, page_name: found.page_name, min_role: found.min_role }
-          : { id: null, page_name: key, min_role: "staff" };
-      });
-      const proActions = PROCUREMENT_ACTIONS.map((key) => {
-        const found = actionsFromServer.find((a) => a.action_name === key);
-        return found
-          ? { id: found.id, action_name: found.action_name, min_role: found.min_role }
-          : { id: null, action_name: key, min_role: "staff" };
-      });
-
-      // Build Receipt arrays
-      const recPages = RECEIPT_PAGES.map((key) => {
-        const found = pagesFromServer.find((p) => p.page_name === key);
-        return found
-          ? { id: found.id, page_name: found.page_name, min_role: found.min_role }
-          : { id: null, page_name: key, min_role: "staff" };
-      });
-      const recActions = RECEIPT_ACTIONS.map((key) => {
-        const found = actionsFromServer.find((a) => a.action_name === key);
-        return found
-          ? { id: found.id, action_name: found.action_name, min_role: found.min_role }
-          : { id: null, action_name: key, min_role: "staff" };
-      });
-
-     
-
-      // Build Rentals arrays
-      const rentPages = RENTALS_PAGES.map((key) => {
-        const found = pagesFromServer.find((p) => p.page_name === key);
-        return found
-          ? { id: found.id, page_name: found.page_name, min_role: found.min_role }
-          : { id: null, page_name: key, min_role: "staff" };
-      });
-      const rentActions = RENTALS_ACTIONS.map((key) => {
-        const found = actionsFromServer.find((a) => a.action_name === key);
-        return found
-          ? { id: found.id, action_name: found.action_name, min_role: found.min_role }
-          : { id: null, action_name: key, min_role: "staff" };
-      });
-
-      // Build Analytics arrays
-      const anaPages = ANALYTICS_PAGES.map((key) => {
-        const found = pagesFromServer.find((p) => p.page_name === key);
-        return found
-          ? { id: found.id, page_name: found.page_name, min_role: found.min_role }
-          : { id: null, page_name: key, min_role: "staff" };
-      });
-      const anaActions = ANALYTICS_ACTIONS.map((key) => {
-        const found = actionsFromServer.find((a) => a.action_name === key);
-        return found
-          ? { id: found.id, action_name: found.action_name, min_role: found.min_role }
-          : { id: null, action_name: key, min_role: "staff" };
-      });
-
-      setInvPagePerms(invPages);
-      setInvActionPerms(invActions);
-      setProPagePerms(proPages);
-      setProActionPerms(proActions);
-      setRecPagePerms(recPages);
-      setRecActionPerms(recActions);
- 
-      setRentPagePerms(rentPages);
-      setRentActionPerms(rentActions);
-      setAnaPagePerms(anaPages);
-      setAnaActionPerms(anaActions);
+      setInvPagePerms(buildPerm(INVENTORY_PAGES, pagesFromServer, "page_name", "page_name"));
+      setInvActionPerms(buildPerm(INVENTORY_ACTIONS, actionsFromServer, "action_name", "action_name"));
+      setProPagePerms(buildPerm(PROCUREMENT_PAGES, pagesFromServer, "page_name", "page_name"));
+      setProActionPerms(buildPerm(PROCUREMENT_ACTIONS, actionsFromServer, "action_name", "action_name"));
+      setRecPagePerms(buildPerm(RECEIPT_PAGES, pagesFromServer, "page_name", "page_name"));
+      setRecActionPerms(buildPerm(RECEIPT_ACTIONS, actionsFromServer, "action_name", "action_name"));
+      setRentPagePerms(buildPerm(RENTALS_PAGES, pagesFromServer, "page_name", "page_name"));
+      setRentActionPerms(buildPerm(RENTALS_ACTIONS, actionsFromServer, "action_name", "action_name"));
+      setAnaPagePerms(buildPerm(ANALYTICS_PAGES, pagesFromServer, "page_name", "page_name"));
+      setAnaActionPerms(buildPerm(ANALYTICS_ACTIONS, actionsFromServer, "action_name", "action_name"));
 
       setResolvedPageEndpoint(ensureTrailingSlash(pagesPath));
       setResolvedActionEndpoint(ensureTrailingSlash(actionsPath));
     } catch (err) {
       console.error("Failed to load permissions:", err);
-      if (err.notFound) {
-        setPermError("Permissions endpoints not found (404). Check backend routing.");
-      } else if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+      const fallback = (keys, keyField) => keys.map((k) => ({ id: null, [keyField]: k, min_role: "staff" }));
+      setInvPagePerms(fallback(INVENTORY_PAGES, "page_name"));
+      setInvActionPerms(fallback(INVENTORY_ACTIONS, "action_name"));
+      setProPagePerms(fallback(PROCUREMENT_PAGES, "page_name"));
+      setProActionPerms(fallback(PROCUREMENT_ACTIONS, "action_name"));
+      setRecPagePerms(fallback(RECEIPT_PAGES, "page_name"));
+      setRecActionPerms(fallback(RECEIPT_ACTIONS, "action_name"));
+      setRentPagePerms(fallback(RENTALS_PAGES, "page_name"));
+      setRentActionPerms(fallback(RENTALS_ACTIONS, "action_name"));
+      setAnaPagePerms(fallback(ANALYTICS_PAGES, "page_name"));
+      setAnaActionPerms(fallback(ANALYTICS_ACTIONS, "action_name"));
+
+      if (err.notFound) setPermError("Permissions endpoints not found (404). Check backend routing.");
+      else if (err.response?.status === 401 || err.response?.status === 403)
         setPermError("Unauthorized – you need admin access.");
-      } else {
-        setPermError("Failed to load permissions. Please refresh and try again.");
-      }
-      setInvPagePerms(INVENTORY_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
-      setInvActionPerms(INVENTORY_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
-      setProPagePerms(PROCUREMENT_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
-      setProActionPerms(PROCUREMENT_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
-      setRecPagePerms(RECEIPT_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
-      setRecActionPerms(RECEIPT_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
-     
-      setRentPagePerms(RENTALS_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
-      setRentActionPerms(RENTALS_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
-      setAnaPagePerms(ANALYTICS_PAGES.map((k) => ({ id: null, page_name: k, min_role: "staff" })));
-      setAnaActionPerms(ANALYTICS_ACTIONS.map((k) => ({ id: null, action_name: k, min_role: "staff" })));
+      else setPermError("Failed to load permissions. Please refresh and try again.");
     } finally {
       setPermLoading(false);
     }
   };
 
-  // Change handlers (Inventory)
-  const handleInvPagePermChange = (pageName, newRole) => {
-    setInvPagePerms((prev) =>
-      prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p))
-    );
-  };
-  const handleInvActionPermChange = (actionName, newRole) => {
-    setInvActionPerms((prev) =>
-      prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a))
-    );
-  };
+  // Permission change handlers (Inventory, Procurement, etc.) – unchanged
+  const handleInvPagePermChange = (pageName, newRole) =>
+    setInvPagePerms((prev) => prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p)));
+  const handleInvActionPermChange = (actionName, newRole) =>
+    setInvActionPerms((prev) => prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a)));
 
-  // Change handlers (Procurement)
-  const handleProPagePermChange = (pageName, newRole) => {
-    setProPagePerms((prev) =>
-      prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p))
-    );
-  };
-  const handleProActionPermChange = (actionName, newRole) => {
-    setProActionPerms((prev) =>
-      prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a))
-    );
-  };
+  const handleProPagePermChange = (pageName, newRole) =>
+    setProPagePerms((prev) => prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p)));
+  const handleProActionPermChange = (actionName, newRole) =>
+    setProActionPerms((prev) => prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a)));
 
-  // Change handlers (Receipt)
-  const handleRecPagePermChange = (pageName, newRole) => {
-    setRecPagePerms((prev) =>
-      prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p))
-    );
-  };
-  const handleRecActionPermChange = (actionName, newRole) => {
-    setRecActionPerms((prev) =>
-      prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a))
-    );
-  };
+  const handleRecPagePermChange = (pageName, newRole) =>
+    setRecPagePerms((prev) => prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p)));
+  const handleRecActionPermChange = (actionName, newRole) =>
+    setRecActionPerms((prev) => prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a)));
 
-  // Change handlers (Finance)
-  
+  const handleRentPagePermChange = (pageName, newRole) =>
+    setRentPagePerms((prev) => prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p)));
+  const handleRentActionPermChange = (actionName, newRole) =>
+    setRentActionPerms((prev) => prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a)));
 
-  // Change handlers (Rentals)
-  const handleRentPagePermChange = (pageName, newRole) => {
-    setRentPagePerms((prev) =>
-      prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p))
-    );
-  };
-  const handleRentActionPermChange = (actionName, newRole) => {
-    setRentActionPerms((prev) =>
-      prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a))
-    );
-  };
-
-  // Change handlers (Analytics)
-  const handleAnaPagePermChange = (pageName, newRole) => {
-    setAnaPagePerms((prev) =>
-      prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p))
-    );
-  };
-  const handleAnaActionPermChange = (actionName, newRole) => {
-    setAnaActionPerms((prev) =>
-      prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a))
-    );
-  };
+  const handleAnaPagePermChange = (pageName, newRole) =>
+    setAnaPagePerms((prev) => prev.map((p) => (p.page_name === pageName ? { ...p, min_role: newRole } : p)));
+  const handleAnaActionPermChange = (actionName, newRole) =>
+    setAnaActionPerms((prev) => prev.map((a) => (a.action_name === actionName ? { ...a, min_role: newRole } : a)));
 
   const handleUpdatePermissions = async () => {
     setPermError("");
@@ -475,112 +415,39 @@ export default function UserManagement() {
       if (!pageEndpoint || !actionEndpoint) {
         const pageCandidates = ["auth/page-permissions", "page-permissions"];
         const actionCandidates = ["auth/action-permissions", "action-permissions"];
-        try {
-          const { path: pagesPath } = await tryGet(pageCandidates);
-          const { path: actionsPath } = await tryGet(actionCandidates);
-          pageEndpoint = ensureTrailingSlash(pagesPath);
-          actionEndpoint = ensureTrailingSlash(actionsPath);
-          setResolvedPageEndpoint(pageEndpoint);
-          setResolvedActionEndpoint(actionEndpoint);
-        } catch (err) {
-          throw new Error("Could not resolve permissions endpoints for update. Check backend routing.");
-        }
+        const { path: pagesPath } = await tryGet(pageCandidates);
+        const { path: actionsPath } = await tryGet(actionCandidates);
+        pageEndpoint = ensureTrailingSlash(pagesPath);
+        actionEndpoint = ensureTrailingSlash(actionsPath);
+        setResolvedPageEndpoint(pageEndpoint);
+        setResolvedActionEndpoint(actionEndpoint);
       }
 
       const requests = [];
 
-      // Patch/create Inventory pages
-      invPagePerms.forEach((p) => {
-        if (p.id) {
-          requests.push(api.patch(`${pageEndpoint}${p.id}/`, { min_role: p.min_role }));
-        } else {
-          requests.push(api.post(pageEndpoint, { page_name: p.page_name, min_role: p.min_role }));
-        }
-      });
+      const submitPerms = (perms, endpoint, idField, nameField) => {
+        perms.forEach((p) => {
+          if (p.id) {
+            requests.push(api.patch(`${endpoint}${p.id}/`, { min_role: p.min_role }));
+          } else {
+            const payload = {};
+            payload[nameField] = p[nameField];
+            payload.min_role = p.min_role;
+            requests.push(api.post(endpoint, payload));
+          }
+        });
+      };
 
-      // Patch/create Inventory actions
-      invActionPerms.forEach((a) => {
-        if (a.id) {
-          requests.push(api.patch(`${actionEndpoint}${a.id}/`, { min_role: a.min_role }));
-        } else {
-          requests.push(api.post(actionEndpoint, { action_name: a.action_name, min_role: a.min_role }));
-        }
-      });
-
-      // Patch/create Procurement pages
-      proPagePerms.forEach((p) => {
-        if (p.id) {
-          requests.push(api.patch(`${pageEndpoint}${p.id}/`, { min_role: p.min_role }));
-        } else {
-          requests.push(api.post(pageEndpoint, { page_name: p.page_name, min_role: p.min_role }));
-        }
-      });
-
-      // Patch/create Procurement actions
-      proActionPerms.forEach((a) => {
-        if (a.id) {
-          requests.push(api.patch(`${actionEndpoint}${a.id}/`, { min_role: a.min_role }));
-        } else {
-          requests.push(api.post(actionEndpoint, { action_name: a.action_name, min_role: a.min_role }));
-        }
-      });
-
-      // Patch/create Receipt pages
-      recPagePerms.forEach((p) => {
-        if (p.id) {
-          requests.push(api.patch(`${pageEndpoint}${p.id}/`, { min_role: p.min_role }));
-        } else {
-          requests.push(api.post(pageEndpoint, { page_name: p.page_name, min_role: p.min_role }));
-        }
-      });
-
-      // Patch/create Receipt actions
-      recActionPerms.forEach((a) => {
-        if (a.id) {
-          requests.push(api.patch(`${actionEndpoint}${a.id}/`, { min_role: a.min_role }));
-        } else {
-          requests.push(api.post(actionEndpoint, { action_name: a.action_name, min_role: a.min_role }));
-        }
-      });
-
-      
-      
-
-      // Patch/create Rentals pages
-      rentPagePerms.forEach((p) => {
-        if (p.id) {
-          requests.push(api.patch(`${pageEndpoint}${p.id}/`, { min_role: p.min_role }));
-        } else {
-          requests.push(api.post(pageEndpoint, { page_name: p.page_name, min_role: p.min_role }));
-        }
-      });
-
-      // Patch/create Rentals actions
-      rentActionPerms.forEach((a) => {
-        if (a.id) {
-          requests.push(api.patch(`${actionEndpoint}${a.id}/`, { min_role: a.min_role }));
-        } else {
-          requests.push(api.post(actionEndpoint, { action_name: a.action_name, min_role: a.min_role }));
-        }
-      });
-
-      // Patch/create Analytics pages
-      anaPagePerms.forEach((p) => {
-        if (p.id) {
-          requests.push(api.patch(`${pageEndpoint}${p.id}/`, { min_role: p.min_role }));
-        } else {
-          requests.push(api.post(pageEndpoint, { page_name: p.page_name, min_role: p.min_role }));
-        }
-      });
-
-      // Patch/create Analytics actions
-      anaActionPerms.forEach((a) => {
-        if (a.id) {
-          requests.push(api.patch(`${actionEndpoint}${a.id}/`, { min_role: a.min_role }));
-        } else {
-          requests.push(api.post(actionEndpoint, { action_name: a.action_name, min_role: a.min_role }));
-        }
-      });
+      submitPerms(invPagePerms, pageEndpoint, "id", "page_name");
+      submitPerms(invActionPerms, actionEndpoint, "id", "action_name");
+      submitPerms(proPagePerms, pageEndpoint, "id", "page_name");
+      submitPerms(proActionPerms, actionEndpoint, "id", "action_name");
+      submitPerms(recPagePerms, pageEndpoint, "id", "page_name");
+      submitPerms(recActionPerms, actionEndpoint, "id", "action_name");
+      submitPerms(rentPagePerms, pageEndpoint, "id", "page_name");
+      submitPerms(rentActionPerms, actionEndpoint, "id", "action_name");
+      submitPerms(anaPagePerms, pageEndpoint, "id", "page_name");
+      submitPerms(anaActionPerms, actionEndpoint, "id", "action_name");
 
       await Promise.all(requests);
       await loadPermissions();
@@ -598,7 +465,6 @@ export default function UserManagement() {
     }
   };
 
-  // Ensure users is an array before calling filter
   const filtered = Array.isArray(users)
     ? users.filter(
         (user) =>
@@ -678,9 +544,32 @@ export default function UserManagement() {
                     <TableCell>{user.role}</TableCell>
                     <TableCell>{user.status ?? "Active"}</TableCell>
                     <TableCell>
-                      <Button color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteUser(user.id)}>
-                        Delete
-                      </Button>
+                      <Box display="flex" gap={1}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleEditRole(user)}
+                        >
+                          Edit Role
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="warning"
+                          startIcon={<LockResetIcon />}
+                          onClick={() => handleResetPassword(user)}
+                        >
+                          Reset Password
+                        </Button>
+                        <Button
+                          size="small"
+                          color="error"
+                          startIcon={<DeleteIcon />}
+                          onClick={() => handleDeleteUser(user.id)}
+                        >
+                          Delete
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))
@@ -705,18 +594,35 @@ export default function UserManagement() {
         </Box>
       </Paper>
 
+      {/* Create User Dialog */}
       <Dialog open={formOpen} onClose={() => setFormOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Create New User</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              <TextField label="Full Name" name="name" fullWidth value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <TextField
+                label="Full Name"
+                fullWidth
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
             </Grid>
             <Grid item xs={12}>
-              <TextField label="Email" name="email" fullWidth value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <TextField
+                label="Email"
+                fullWidth
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
             </Grid>
             <Grid item xs={12}>
-              <TextField label="Role" name="role" select fullWidth value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+              <TextField
+                label="Role"
+                select
+                fullWidth
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+              >
                 {ROLE_OPTIONS.map((r) => (
                   <MenuItem key={r.value} value={r.value}>
                     {r.label}
@@ -725,16 +631,8 @@ export default function UserManagement() {
               </TextField>
             </Grid>
           </Grid>
-          {formError && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {formError}
-            </Alert>
-          )}
-          {formSuccess && (
-            <Alert severity="success" sx={{ mt: 2 }}>
-              {formSuccess}
-            </Alert>
-          )}
+          {formError && <Alert severity="error" sx={{ mt: 2 }}>{formError}</Alert>}
+          {formSuccess && <Alert severity="success" sx={{ mt: 2 }}>{formSuccess}</Alert>}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setFormOpen(false)}>Cancel</Button>
@@ -744,6 +642,60 @@ export default function UserManagement() {
         </DialogActions>
       </Dialog>
 
+      {/* Edit Role Dialog */}
+      <Dialog open={editRoleDialogOpen} onClose={() => setEditRoleDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Role for {selectedUser?.full_name}</DialogTitle>
+        <DialogContent>
+          <TextField
+            select
+            label="Role"
+            fullWidth
+            value={newRole}
+            onChange={(e) => setNewRole(e.target.value)}
+            sx={{ mt: 2 }}
+          >
+            {ROLE_OPTIONS.map((r) => (
+              <MenuItem key={r.value} value={r.value}>
+                {r.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          {dialogError && <Alert severity="error" sx={{ mt: 2 }}>{dialogError}</Alert>}
+          {dialogSuccess && <Alert severity="success" sx={{ mt: 2 }}>{dialogSuccess}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditRoleDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleUpdateRole} variant="contained">
+            Update Role
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={resetPasswordDialogOpen} onClose={() => setResetPasswordDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Reset Password for {selectedUser?.full_name}</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="New Password"
+            type="password"
+            fullWidth
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            sx={{ mt: 2 }}
+            helperText="At least 6 characters"
+          />
+          {dialogError && <Alert severity="error" sx={{ mt: 2 }}>{dialogError}</Alert>}
+          {dialogSuccess && <Alert severity="success" sx={{ mt: 2 }}>{dialogSuccess}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetPasswordDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handlePasswordReset} variant="contained" color="warning">
+            Reset Password
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Permissions Dialog */}
       <Dialog open={permissionsOpen} onClose={() => setPermissionsOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>Edit User Permissions</DialogTitle>
         <DialogContent dividers>
@@ -752,25 +704,13 @@ export default function UserManagement() {
             Select the minimum role required for each page or action. (Admin is the highest role.)
           </Typography>
 
-          {permError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {permError}
-            </Alert>
-          )}
-          {permSuccess && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              {permSuccess}
-            </Alert>
-          )}
+          {permError && <Alert severity="error" sx={{ mb: 2 }}>{permError}</Alert>}
+          {permSuccess && <Alert severity="success" sx={{ mb: 2 }}>{permSuccess}</Alert>}
 
-          {/* Inventory Section */}
+          {/* Inventory */}
           <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" gutterBottom>
-              Inventory
-            </Typography>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Pages
-            </Typography>
+            <Typography variant="h6" gutterBottom>Inventory</Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Pages</Typography>
             <Grid container spacing={2} sx={{ mb: 2 }}>
               {invPagePerms.map((p) => (
                 <Grid item xs={12} sm={6} key={p.page_name}>
@@ -791,9 +731,7 @@ export default function UserManagement() {
                 </Grid>
               ))}
             </Grid>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Actions
-            </Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Actions</Typography>
             <Grid container spacing={2}>
               {invActionPerms.map((a) => (
                 <Grid item xs={12} sm={6} key={a.action_name}>
@@ -816,14 +754,10 @@ export default function UserManagement() {
             </Grid>
           </Box>
 
-          {/* Procurement Section */}
+          {/* Procurement */}
           <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" gutterBottom>
-              Procurement
-            </Typography>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Pages
-            </Typography>
+            <Typography variant="h6" gutterBottom>Procurement</Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Pages</Typography>
             <Grid container spacing={2} sx={{ mb: 2 }}>
               {proPagePerms.map((p) => (
                 <Grid item xs={12} sm={6} key={p.page_name}>
@@ -844,9 +778,7 @@ export default function UserManagement() {
                 </Grid>
               ))}
             </Grid>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Actions
-            </Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Actions</Typography>
             <Grid container spacing={2}>
               {proActionPerms.map((a) => (
                 <Grid item xs={12} sm={6} key={a.action_name}>
@@ -869,14 +801,10 @@ export default function UserManagement() {
             </Grid>
           </Box>
 
-          {/* Receipt Section */}
+          {/* Receipt */}
           <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" gutterBottom>
-              Receipt
-            </Typography>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Pages
-            </Typography>
+            <Typography variant="h6" gutterBottom>Receipt</Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Pages</Typography>
             <Grid container spacing={2} sx={{ mb: 2 }}>
               {recPagePerms.map((p) => (
                 <Grid item xs={12} sm={6} key={p.page_name}>
@@ -897,9 +825,7 @@ export default function UserManagement() {
                 </Grid>
               ))}
             </Grid>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Actions
-            </Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Actions</Typography>
             <Grid container spacing={2}>
               {recActionPerms.map((a) => (
                 <Grid item xs={12} sm={6} key={a.action_name}>
@@ -922,16 +848,10 @@ export default function UserManagement() {
             </Grid>
           </Box>
 
-         
-
-          {/* Rentals Section */}
+          {/* Rentals */}
           <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" gutterBottom>
-              Rentals
-            </Typography>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Pages
-            </Typography>
+            <Typography variant="h6" gutterBottom>Rentals</Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Pages</Typography>
             <Grid container spacing={2} sx={{ mb: 2 }}>
               {rentPagePerms.map((p) => (
                 <Grid item xs={12} sm={6} key={p.page_name}>
@@ -952,9 +872,7 @@ export default function UserManagement() {
                 </Grid>
               ))}
             </Grid>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Actions
-            </Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Actions</Typography>
             <Grid container spacing={2}>
               {rentActionPerms.map((a) => (
                 <Grid item xs={12} sm={6} key={a.action_name}>
@@ -977,14 +895,10 @@ export default function UserManagement() {
             </Grid>
           </Box>
 
-          {/* Analytics Section */}
+          {/* Analytics */}
           <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" gutterBottom>
-              Analytics
-            </Typography>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Pages
-            </Typography>
+            <Typography variant="h6" gutterBottom>Analytics</Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Pages</Typography>
             <Grid container spacing={2} sx={{ mb: 2 }}>
               {anaPagePerms.map((p) => (
                 <Grid item xs={12} sm={6} key={p.page_name}>
@@ -1005,9 +919,7 @@ export default function UserManagement() {
                 </Grid>
               ))}
             </Grid>
-            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>
-              Actions
-            </Typography>
+            <Typography variant="subtitle1" sx={{ mt: 1, mb: 1 }}>Actions</Typography>
             <Grid container spacing={2}>
               {anaActionPerms.map((a) => (
                 <Grid item xs={12} sm={6} key={a.action_name}>
@@ -1030,7 +942,6 @@ export default function UserManagement() {
             </Grid>
           </Box>
         </DialogContent>
-
         <DialogActions>
           <Button onClick={() => setPermissionsOpen(false)}>Cancel</Button>
           <Button onClick={handleUpdatePermissions} variant="contained" disabled={permLoading}>

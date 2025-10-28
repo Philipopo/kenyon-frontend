@@ -31,6 +31,9 @@ import {
   CardContent,
   Tooltip,
   MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -43,8 +46,6 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   PictureAsPdf as PictureAsPdfIcon,
-  ThumbUp as ThumbUpIcon,
-  ThumbDown as ThumbDownIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { debounce } from 'lodash';
@@ -61,8 +62,26 @@ const STATUS_COLORS = {
   cancelled: 'error',
 };
 
-function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove, onReject, onExportPDF, permissions, loading, formatCurrency }) {
+const CURRENCY_OPTIONS = [
+  { value: 'NGN', label: 'Nigerian Naira (₦)' },
+  { value: 'USD', label: 'US Dollar ($)' },
+];
+
+// Format currency based on code
+const formatCurrency = (value, currency = 'NGN') => {
+  if (value == null || value === '') return '—';
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency,
+    minimumFractionDigits: 2,
+  });
+  return formatter.format(value);
+};
+
+function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove, onReject, onExportPDF, permissions, loading }) {
   const [open, setOpen] = useState(false);
+  const canCurrentUserApprove = permissions.approve_purchase_order;
+  const canCurrentUserReject = permissions.reject_purchase_order;
 
   return (
     <>
@@ -86,52 +105,75 @@ function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove
             color={STATUS_COLORS[po.status] || 'default'}
           />
         </TableCell>
-        <TableCell>{formatCurrency(po.total_amount)}</TableCell>
+        <TableCell>{formatCurrency(po.total_amount, po.currency)}</TableCell>
         <TableCell>{new Date(po.created_at).toLocaleDateString()}</TableCell>
         <TableCell>
-          <IconButton
-            onClick={(e) => { e.stopPropagation(); onEdit(po); }}
-            disabled={!permissions.update_purchase_order || po.status !== 'draft' || loading}
-            title="Edit PO (only for drafts)"
-          >
-            <EditIcon />
-          </IconButton>
-          <IconButton
-            onClick={(e) => { e.stopPropagation(); onSubmitForApproval(po.id); }}
-            disabled={!permissions.submit_purchase_order || po.status !== 'draft' || loading}
-            title="Submit PO for Approval (only for drafts)"
-          >
-            <SendIcon />
-          </IconButton>
-          <IconButton
-            onClick={(e) => { e.stopPropagation(); onApprove(po.id); }}
-            disabled={!permissions.approve_purchase_order || po.status !== 'submitted' || loading}
-            title="Approve PO (only for submitted)"
-          >
-            <ThumbUpIcon />
-          </IconButton>
-          <IconButton
-            onClick={(e) => { e.stopPropagation(); onReject(po.id); }}
-            disabled={!permissions.reject_purchase_order || po.status !== 'submitted' || loading}
-            title="Reject PO (only for submitted)"
-          >
-            <ThumbDownIcon />
-          </IconButton>
-          <IconButton
-            onClick={(e) => { e.stopPropagation(); onExportPDF(po.id); }}
-            disabled={loading}
-            title="Export as PDF"
-          >
-            <PictureAsPdfIcon />
-          </IconButton>
-          <IconButton
-            onClick={(e) => { e.stopPropagation(); onDelete(po.id); }}
-            disabled={!permissions.delete_purchase_order || po.status !== 'draft' || loading}
-            title="Delete PO (only for drafts)"
-            color="error"
-          >
-            <DeleteIcon />
-          </IconButton>
+          <Box display="flex" gap={1}>
+            {/* Edit - only draft + permission */}
+            {po.status === 'draft' && permissions.update_purchase_order && (
+              <IconButton
+                onClick={(e) => { e.stopPropagation(); onEdit(po); }}
+                disabled={loading}
+                title="Edit PO (only for drafts)"
+              >
+                <EditIcon />
+              </IconButton>
+            )}
+            {/* Submit - only draft + permission */}
+            {po.status === 'draft' && permissions.submit_purchase_order && (
+              <IconButton
+                onClick={(e) => { e.stopPropagation(); onSubmitForApproval(po.id); }}
+                disabled={loading}
+                title="Submit PO for Approval (only for drafts)"
+              >
+                <SendIcon />
+              </IconButton>
+            )}
+            {/* Approve/Reject - only submitted + permission */}
+            {po.status === 'submitted' && (
+              <>
+                {canCurrentUserApprove && (
+                  <Button
+                    onClick={(e) => { e.stopPropagation(); onApprove(po.id); }}
+                    variant="contained"
+                    color="success"
+                    size="small"
+                  >
+                    Approve
+                  </Button>
+                )}
+                {canCurrentUserReject && (
+                  <Button
+                    onClick={(e) => { e.stopPropagation(); onReject(po.id); }}
+                    variant="contained"
+                    color="error"
+                    size="small"
+                  >
+                    Reject
+                  </Button>
+                )}
+              </>
+            )}
+            {/* Export PDF - ALWAYS SHOW (if user can see the list) */}
+            <IconButton
+              onClick={(e) => { e.stopPropagation(); onExportPDF(po.id); }}
+              disabled={loading}
+              title="Export as PDF"
+            >
+              <PictureAsPdfIcon />
+            </IconButton>
+            {/* Delete - only draft + permission */}
+            {po.status === 'draft' && permissions.delete_purchase_order && (
+              <IconButton
+                onClick={(e) => { e.stopPropagation(); onDelete(po.id); }}
+                disabled={loading}
+                title="Delete PO (only for drafts)"
+                color="error"
+              >
+                <DeleteIcon />
+              </IconButton>
+            )}
+          </Box>
         </TableCell>
       </TableRow>
       <TableRow>
@@ -142,6 +184,9 @@ function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Requisition:</strong> {po.requisition?.code || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Currency:</strong> {po.currency === 'NGN' ? 'Nigerian Naira (₦)' : 'US Dollar ($)'}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Delivery Address:</strong> {po.delivery_address || '—'}</Typography>
@@ -169,15 +214,18 @@ function PurchaseOrderRow({ po, onEdit, onDelete, onSubmitForApproval, onApprove
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {po.items.map((item, index) => (
-                          <TableRow key={index}>
-                            <TableCell>{item.item?.name || 'Unknown Item'}</TableCell>
-                            <TableCell>{item.quantity}</TableCell>
-                            <TableCell>{formatCurrency(item.unit_price)}</TableCell>
-                            <TableCell>{formatCurrency(item.quantity * item.unit_price)}</TableCell>
-                            <TableCell>{item.notes || '—'}</TableCell>
-                          </TableRow>
-                        ))}
+                        {po.items.map((item, index) => {
+                          const total = item.quantity * (item.unit_price || 0);
+                          return (
+                            <TableRow key={index}>
+                              <TableCell>{item.item?.name || 'Unknown Item'}</TableCell>
+                              <TableCell>{item.quantity}</TableCell>
+                              <TableCell>{item.unit_price != null ? formatCurrency(item.unit_price, po.currency) : '—'}</TableCell>
+                              <TableCell>{total > 0 ? formatCurrency(total, po.currency) : '—'}</TableCell>
+                              <TableCell>{item.notes || '—'}</TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   ) : (
@@ -207,6 +255,7 @@ export default function PurchaseOrders() {
     submit_purchase_order: false,
     approve_purchase_order: false,
     reject_purchase_order: false,
+    view_purchase_order: false,
   });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -220,7 +269,7 @@ export default function PurchaseOrders() {
 
   // Modal states
   const [openModal, setOpenModal] = useState(false);
-  const [modalMode, setModalMode] = useState('create'); // 'create' or 'edit'
+  const [modalMode, setModalMode] = useState('create');
   const [selectedPO, setSelectedPO] = useState(null);
 
   // Form state
@@ -232,6 +281,7 @@ export default function PurchaseOrders() {
     expected_delivery_date: '',
     payment_terms: '',
     notes: '',
+    currency: 'NGN',
     items: [],
   });
 
@@ -251,46 +301,43 @@ export default function PurchaseOrders() {
   // Tutorial state
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSetSearch = useCallback(
-    debounce((value) => {
+  // ✅ Fixed: debounce + useCallback warning
+  const debouncedRef = useRef();
+
+  useEffect(() => {
+    debouncedRef.current = debounce((value) => {
       setSearch(value);
       setPage(1);
-    }, 500),
-    []
-  );
+    }, 500);
 
-  // Format currency in Naira
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 2,
-    }).format(value);
+    return () => {
+      debouncedRef.current?.cancel();
+    };
+  }, []);
+
+  const debouncedSetSearch = useCallback((value) => {
+    debouncedRef.current(value);
+  }, []);
+
+  const calculateTotalAmount = (items, currency = 'NGN') => {
+    const total = items.reduce((sum, item) => sum + (item.quantity * (item.unit_price || 0)), 0);
+    return formatCurrency(total, currency);
   };
 
-  // Calculate total amount for PO
-  const calculateTotalAmount = (items) => {
-    return items.reduce((total, item) => total + (item.quantity * (item.unit_price || 0)), 0);
-  };
-
-  // Fetch purchase orders
   const fetchPurchaseOrders = useCallback(async () => {
     try {
       setLoading(true);
       const searchValue = search || searchTerm;
-      console.log('Fetching purchase orders with params:', { search: searchValue, page, page_size: itemsPerPage });
       const res = await API.get('procurement/purchase-orders/', {
         params: { search: searchValue, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('Purchase orders API6000');
-      setPurchaseOrders(res.data.results || res.data || []);
-      setTotalPages(Math.ceil((res.data.count || res.data.length || 0) / itemsPerPage));
+      setPurchaseOrders(res.data.results || []);
+      setTotalPages(Math.ceil(res.data.count / itemsPerPage));
       setAlert(null);
     } catch (err) {
       console.error('Error fetching purchase orders:', err.response?.data || err.message);
-      setAlert(`❌ Failed to fetch purchase orders: ${err.response?.data?.detail || err.message}`);
+      setAlert(`Failed to fetch purchase orders: ${err.response?.data?.detail || err.message}`);
       setPurchaseOrders([]);
       setTotalPages(1);
     } finally {
@@ -298,77 +345,62 @@ export default function PurchaseOrders() {
     }
   }, [search, searchTerm, page, itemsPerPage]);
 
-  // Fetch approved requisitions for dropdown
   const fetchApprovedRequisitions = useCallback(async () => {
     try {
       const res = await API.get('procurement/requisitions/', {
         params: { status: 'approved', page_size: 1000 },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('Requisitions API response:', res.data);
-      const approvedReqs = (res.data.results || res.data || []).filter((req) => req.status === 'approved');
-      setRequisitions(approvedReqs);
+      setRequisitions(res.data.results || []);
     } catch (err) {
       console.error('Error fetching approved requisitions:', err.response?.data || err.message);
-      setAlert(`❌ Failed to fetch requisitions: ${err.response?.data?.detail || err.message}`);
+      setAlert(`Failed to fetch requisitions: ${err.response?.data?.detail || err.message}`);
     }
   }, []);
 
-  // Fetch vendors for dropdown
   const fetchVendors = useCallback(async () => {
     try {
       const res = await API.get('procurement/vendors/', {
         params: { status: 'active', page_size: 1000 },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('Vendors API response:', res.data);
-      setVendors(res.data.results || res.data || []);
+      setVendors(res.data.results || []);
     } catch (err) {
       console.error('Error fetching vendors:', err.response?.data || err.message);
-      setAlert(`❌ Failed to fetch vendors: ${err.response?.data?.detail || err.message}`);
+      setAlert(`Failed to fetch vendors: ${err.response?.data?.detail || err.message}`);
     }
   }, []);
 
-  // Fetch inventory items for autocomplete
   const fetchInventoryItems = useCallback(async () => {
     try {
       const res = await API.get('inventory/items/', {
         params: { page_size: 1000 },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      console.log('Inventory items API response:', res.data);
-      setInventoryItems(res.data.results || res.data || []);
+      setInventoryItems(res.data.results || []);
     } catch (err) {
       console.error('Error fetching inventory items:', err.response?.data || err.message);
-      setAlert(`❌ Failed to fetch inventory items: ${err.response?.data?.detail || err.message}`);
+      setAlert(`Failed to fetch inventory items: ${err.response?.data?.detail || err.message}`);
     }
   }, []);
 
-  // Check permissions and fetch data
   useEffect(() => {
     const checkPermissions = async () => {
       try {
         const token = localStorage.getItem('accessToken');
         if (!token) {
-          setAlert('⚠️ No authentication token found. Please log in.');
+          setAlert('No authentication token found. Please log in.');
           setHasPermission(false);
           setCheckingPermissions(false);
           return;
         }
-
-        // Check page-level permission
-        const pageResponse = await API.get('/auth/permissions/page/purchase_orders/', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const pageResponse = await API.get('/auth/permissions/page/purchase_orders/');
         setHasPermission(pageResponse.data.allowed || false);
-
         if (!pageResponse.data.allowed) {
-          setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
+          setAlert(`You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
           setCheckingPermissions(false);
           return;
         }
-
-        // Fetch all action permissions in parallel
         const actions = [
           'create_purchase_order',
           'update_purchase_order',
@@ -376,40 +408,29 @@ export default function PurchaseOrders() {
           'submit_purchase_order',
           'approve_purchase_order',
           'reject_purchase_order',
+          'view_purchase_order',
         ];
         const permissionPromises = actions.map((action) =>
-          API.get(`/auth/permissions/action/${action}/`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch((err) => {
-            console.error(`Error checking ${action} permission:`, err.response?.data || err.message);
-            return { data: { allowed: false } }; // Fallback to false
-          })
+          API.get(`/auth/permissions/action/${action}/`).catch(() => ({ data: { allowed: false } }))
         );
-
         const permissionResponses = await Promise.all(permissionPromises);
         const actionPerms = actions.reduce((acc, action, index) => {
           acc[action] = permissionResponses[index].data.allowed || false;
           return acc;
         }, {});
-
-        console.log('Permissions fetched:', actionPerms);
         setPermissions(actionPerms);
-
-        // Fetch data only if page permission is granted
         await Promise.all([fetchPurchaseOrders(), fetchApprovedRequisitions(), fetchVendors(), fetchInventoryItems()]);
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
-        setAlert(`⚠️ Failed to check permissions: ${err.response?.data?.detail || err.message}`);
+        setAlert(`Failed to check permissions: ${err.response?.data?.detail || err.message}`);
         setHasPermission(false);
       } finally {
         setCheckingPermissions(false);
       }
     };
-
     checkPermissions();
   }, [fetchPurchaseOrders, fetchApprovedRequisitions, fetchVendors, fetchInventoryItems]);
 
-  // Handle search and pagination
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
       setPage(1);
@@ -419,26 +440,22 @@ export default function PurchaseOrders() {
     if (hasPermission) fetchPurchaseOrders();
   }, [search, searchTerm, page, hasPermission, fetchPurchaseOrders]);
 
-  // Handle form input changes
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Handle requisition selection
   const handleRequisitionChange = (newValue) => {
     setFormData((prev) => ({
       ...prev,
       requisition: newValue,
       department: newValue ? newValue.department : '',
+      currency: newValue ? newValue.currency : 'NGN',
       items: newValue
         ? newValue.items.map((item) => ({
             item: item.item?.id || null,
             quantity: item.quantity || 0,
-            unit_price: item.unit_cost || 0,
+            unit_price: item.unit_cost || null,
             notes: item.notes || '',
           }))
         : [],
@@ -446,67 +463,43 @@ export default function PurchaseOrders() {
     setModalAlert(null);
   };
 
-  // Handle vendor selection
   const handleVendorChange = (newValue) => {
-    setFormData((prev) => ({
-      ...prev,
-      vendor: newValue,
-    }));
+    setFormData((prev) => ({ ...prev, vendor: newValue }));
   };
 
-  // Handle new item input changes
   const handleNewItemChange = (field, value) => {
-    setNewItem((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setNewItem((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Add new item to PO
   const handleAddItem = () => {
-    if (!newItem.item || !newItem.quantity || !newItem.unit_price) {
-      setModalAlert('⚠️ Please fill all required fields for the item (Item, Quantity, Unit Price).');
-      console.log('Missing fields:', { item: newItem.item, quantity: newItem.quantity, unit_price: newItem.unit_price });
+    if (!newItem.item || !newItem.quantity) {
+      setModalAlert('Please select an item and enter quantity.');
       return;
     }
-
     const quantity = parseInt(newItem.quantity, 10);
-    const unitPrice = parseFloat(newItem.unit_price);
-
     if (isNaN(quantity) || quantity <= 0) {
-      setModalAlert('⚠️ Quantity must be a positive number.');
+      setModalAlert('Quantity must be a positive number.');
       return;
     }
-
-    if (isNaN(unitPrice) || unitPrice <= 0) {
-      setModalAlert('⚠️ Unit price must be a positive number.');
+    const unitPrice = newItem.unit_price === '' ? null : parseFloat(newItem.unit_price);
+    if (newItem.unit_price !== '' && (isNaN(unitPrice) || unitPrice < 0)) {
+      setModalAlert('Unit price must be a non-negative number.');
       return;
     }
-
     const newItemObj = {
       item: newItem.item.id,
       quantity,
       unit_price: unitPrice,
       notes: newItem.notes || '',
     };
-
-    console.log('Adding item:', newItemObj);
-
     setFormData((prev) => ({
       ...prev,
       items: [...prev.items, newItemObj],
     }));
-
-    setNewItem({
-      item: null,
-      quantity: '',
-      unit_price: '',
-      notes: '',
-    });
+    setNewItem({ item: null, quantity: '', unit_price: '', notes: '' });
     setModalAlert(null);
   };
 
-  // Remove item from PO
   const handleRemoveItem = (index) => {
     setFormData((prev) => ({
       ...prev,
@@ -514,176 +507,103 @@ export default function PurchaseOrders() {
     }));
   };
 
-  // Open modal for creating new PO
-  const handleOpenCreateModal = async () => {
-    setLoading(true);
-    try {
-      console.log('Checking create_purchase_order permission...');
-      const response = await API.get('/auth/permissions/action/create_purchase_order/', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      console.log('Create permission response:', response.data);
-      if (!response.data.allowed) {
-        setAlert('⚠️ You do not have permission to create purchase orders.');
-        return;
-      }
-
-      setModalMode('create');
-      setFormData({
-        requisition: null,
-        vendor: null,
-        department: '',
-        delivery_address: '',
-        expected_delivery_date: '',
-        payment_terms: '',
-        notes: '',
-        items: [],
-      });
-      setNewItem({
-        item: null,
-        quantity: '',
-        unit_price: '',
-        notes: '',
-      });
-      setModalAlert(null);
-      setOpenModal(true);
-    } catch (err) {
-      console.error('Create permission error:', err.response?.data || err.message);
-      setAlert(`⚠️ Failed to check create permission: ${err.response?.data?.detail || err.message}`);
-    } finally {
-      setLoading(false);
+  const handleOpenCreateModal = () => {
+    if (!permissions.create_purchase_order) {
+      setAlert('You do not have permission to create purchase orders.');
+      return;
     }
+    setModalMode('create');
+    setFormData({
+      requisition: null,
+      vendor: null,
+      department: '',
+      delivery_address: '',
+      expected_delivery_date: '',
+      payment_terms: '',
+      notes: '',
+      currency: 'NGN',
+      items: [],
+    });
+    setNewItem({ item: null, quantity: '', unit_price: '', notes: '' });
+    setModalAlert(null);
+    setOpenModal(true);
   };
 
-  // Open modal for editing PO
-  const handleOpenEditModal = async (po) => {
-    setLoading(true);
-    try {
-      const response = await API.get('/auth/permissions/action/update_purchase_order/', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      if (!response.data.allowed) {
-        setAlert('⚠️ You do not have permission to edit purchase orders.');
-        return;
-      }
-
-      if (po.status !== 'draft') {
-        setAlert('⚠️ Only draft purchase orders can be edited.');
-        return;
-      }
-
-      setModalMode('edit');
-      setSelectedPO(po);
-      setFormData({
-        requisition: po.requisition || null,
-        vendor: po.vendor || null,
-        department: po.department || '',
-        delivery_address: po.delivery_address || '',
-        expected_delivery_date: po.expected_delivery_date || '',
-        payment_terms: po.payment_terms || '',
-        notes: po.notes || '',
-        items: po.items?.map((item) => ({
-          item: item.item?.id || null,
-          quantity: item.quantity || 0,
-          unit_price: item.unit_price || 0,
-          notes: item.notes || '',
-        })) || [],
-      });
-      setNewItem({
-        item: null,
-        quantity: '',
-        unit_price: '',
-        notes: '',
-      });
-      setModalAlert(null);
-      setOpenModal(true);
-    } catch (err) {
-      console.error('Edit permission error:', err.response?.data || err.message);
-      setAlert(`⚠️ Failed to check edit permission: ${err.response?.data?.detail || err.message}`);
-    } finally {
-      setLoading(false);
+  const handleOpenEditModal = (po) => {
+    if (!permissions.update_purchase_order) {
+      setAlert('You do not have permission to edit purchase orders.');
+      return;
     }
+    if (po.status !== 'draft') {
+      setAlert('Only draft purchase orders can be edited.');
+      return;
+    }
+    setModalMode('edit');
+    setSelectedPO(po);
+    setFormData({
+      requisition: po.requisition || null,
+      vendor: po.vendor || null,
+      department: po.department || '',
+      delivery_address: po.delivery_address || '',
+      expected_delivery_date: po.expected_delivery_date || '',
+      payment_terms: po.payment_terms || '',
+      notes: po.notes || '',
+      currency: po.currency,
+      items: po.items?.map((item) => ({
+        item: item.item?.id || null,
+        quantity: item.quantity || 0,
+        unit_price: item.unit_price || null,
+        notes: item.notes || '',
+      })) || [],
+    });
+    setNewItem({ item: null, quantity: '', unit_price: '', notes: '' });
+    setModalAlert(null);
+    setOpenModal(true);
   };
 
-  // Open delete dialog
-  const handleOpenDeleteDialog = async (id) => {
-    setLoading(true);
-    try {
-      const response = await API.get('/auth/permissions/action/delete_purchase_order/', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      if (!response.data.allowed) {
-        setAlert('⚠️ You do not have permission to delete purchase orders.');
-        return;
-      }
-      const po = purchaseOrders.find((p) => p.id === id);
-      if (po.status !== 'draft') {
-        setAlert('⚠️ Only draft purchase orders can be deleted.');
-        return;
-      }
-      setDeleteId(id);
-      setOpenDeleteDialog(true);
-    } catch (err) {
-      console.error('Delete permission error:', err.response?.data || err.message);
-      setAlert(`⚠️ Failed to check delete permission: ${err.response?.data?.detail || err.message}`);
-    } finally {
-      setLoading(false);
+  const handleOpenDeleteDialog = (id) => {
+    if (!permissions.delete_purchase_order) {
+      setAlert('You do not have permission to delete purchase orders.');
+      return;
     }
+    const po = purchaseOrders.find((p) => p.id === id);
+    if (po.status !== 'draft') {
+      setAlert('Only draft purchase orders can be deleted.');
+      return;
+    }
+    setDeleteId(id);
+    setOpenDeleteDialog(true);
   };
 
-  // Close delete dialog
   const handleCloseDeleteDialog = () => {
     setOpenDeleteDialog(false);
     setDeleteId(null);
-    setAlert(null);
-    setModalAlert(null);
   };
 
-  // Delete PO
   const handleDelete = async () => {
     setLoading(true);
     try {
       setAlert(null);
-      await API.delete(`procurement/purchase-orders/${deleteId}/`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      setAlert('✅ Purchase order deleted successfully!');
+      await API.delete(`procurement/purchase-orders/${deleteId}/`);
+      setAlert('Purchase order deleted successfully!');
       fetchPurchaseOrders();
       handleCloseDeleteDialog();
     } catch (err) {
       console.error('Delete error:', err.response?.data || err.message);
-      let errorMsg = '❌ Failed to delete purchase order.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
-      setAlert(errorMsg);
+      setAlert(`Failed to delete purchase order: ${err.response?.data?.detail || err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Submit PO (create or update)
   const handleSubmit = async () => {
-    // Validate required fields
     if (!formData.vendor || !formData.department || !formData.delivery_address || !formData.expected_delivery_date || formData.items.length === 0) {
-      setModalAlert('⚠️ Please fill all required fields and add at least one item.');
+      setModalAlert('Please fill all required fields and add at least one item.');
       return;
     }
-
-    // Validate items
-    const invalidItems = formData.items.filter((item) => !item.item || isNaN(item.quantity) || item.quantity <= 0 || isNaN(item.unit_price) || item.unit_price <= 0);
-    if (invalidItems.length > 0) {
-      setModalAlert('⚠️ All items must have a valid item, positive quantity, and positive unit price.');
-      console.log('Invalid items:', invalidItems);
-      return;
-    }
-
     try {
       setLoading(true);
       setModalAlert(null);
-
       const payload = {
         vendor: formData.vendor.id,
         department: formData.department,
@@ -691,56 +611,33 @@ export default function PurchaseOrders() {
         expected_delivery_date: formData.expected_delivery_date,
         payment_terms: formData.payment_terms || '',
         notes: formData.notes || '',
+        currency: formData.currency,
         items: formData.items.map((item) => ({
           item: item.item,
           quantity: parseInt(item.quantity, 10),
-          unit_price: parseFloat(item.unit_price),
+          unit_price: item.unit_price,
           notes: item.notes || '',
         })),
       };
+      if (formData.requisition) payload.requisition = formData.requisition.id;
 
-      if (formData.requisition) {
-        payload.requisition = formData.requisition.id;
-      }
-
-      console.log('Submitting payload:', JSON.stringify(payload, null, 2));
-
-      let response;
       if (modalMode === 'create') {
-        response = await API.post('procurement/purchase-orders/', payload, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        });
-        setPurchaseOrders([response.data, ...purchaseOrders]);
-        setAlert('✅ Purchase order created successfully!');
+        await API.post('procurement/purchase-orders/', payload);
+        setAlert('Purchase order created successfully!');
       } else {
-        response = await API.patch(`procurement/purchase-orders/${selectedPO.id}/`, payload, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        });
-        setPurchaseOrders(purchaseOrders.map((po) => (po.id === selectedPO.id ? response.data : po)));
-        setAlert('✅ Purchase order updated successfully!');
+        await API.patch(`procurement/purchase-orders/${selectedPO.id}/`, payload);
+        setAlert('Purchase order updated successfully!');
       }
-
       setOpenModal(false);
       fetchPurchaseOrders();
     } catch (err) {
       console.error('Submit error:', err.response?.data || err.message);
-      let errorMsg = '❌ Failed to save purchase order.';
+      let errorMsg = 'Failed to save purchase order.';
       if (err.response?.data) {
         const errors = err.response.data;
-        if (typeof errors === 'object') {
-          errorMsg = Object.entries(errors)
-            .map(([field, msg]) => {
-              if (field === 'items' && Array.isArray(msg)) {
-                return msg.map((itemError, index) => `Item ${index + 1}: ${JSON.stringify(itemError)}`).join('; ');
-              }
-              return `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`;
-            })
-            .join('; ');
-        } else {
-          errorMsg = errors.detail || errorMsg;
-        }
-      } else {
-        errorMsg = err.message || '❌ Network error.';
+        errorMsg = Object.entries(errors)
+          .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+          .join('; ');
       }
       setModalAlert(errorMsg);
     } finally {
@@ -748,98 +645,55 @@ export default function PurchaseOrders() {
     }
   };
 
-  // Submit PO for approval
   const handleSubmitForApproval = async (poId) => {
     setLoading(true);
     try {
       setAlert(null);
-      await API.patch(
-        `procurement/purchase-orders/${poId}/`,
-        { status: 'submitted' },
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        }
-      );
-      setAlert('✅ Purchase order submitted for approval!');
+      await API.patch(`procurement/purchase-orders/${poId}/`, { status: 'submitted' });
+      setAlert('Purchase order submitted for approval!');
       fetchPurchaseOrders();
     } catch (err) {
-      console.error('Submit for approval error:', err.response?.data || err.message);
-      let errorMsg = '❌ Failed to submit purchase order.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
-      setAlert(errorMsg);
+      setAlert(`Failed to submit: ${err.response?.data?.detail || err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Approve PO
   const handleApprovePO = async (poId) => {
     setLoading(true);
     try {
       setAlert(null);
-      await API.post(
-        `procurement/purchase-orders/${poId}/approve/`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        }
-      );
-      setAlert('✅ Purchase order approved successfully!');
+      await API.post(`procurement/purchase-orders/${poId}/approve/`);
+      setAlert('Purchase order approved successfully!');
       fetchPurchaseOrders();
     } catch (err) {
-      console.error('Approve error:', err.response?.data || err.message);
-      let errorMsg = '❌ Failed to approve purchase order.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
-      setAlert(errorMsg);
+      setAlert(`Failed to approve: ${err.response?.data?.detail || err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Reject PO
   const handleRejectPO = async (poId) => {
     setLoading(true);
     try {
       setAlert(null);
-      await API.post(
-        `procurement/purchase-orders/${poId}/reject/`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        }
-      );
-      setAlert('✅ Purchase order rejected successfully!');
+      await API.post(`procurement/purchase-orders/${poId}/reject/`);
+      setAlert('Purchase order rejected successfully!');
       fetchPurchaseOrders();
     } catch (err) {
-      console.error('Reject error:', err.response?.data || err.message);
-      let errorMsg = '❌ Failed to reject purchase order.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
-      setAlert(errorMsg);
+      setAlert(`Failed to reject: ${err.response?.data?.detail || err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Export PO as PDF
   const handleExportPDF = async (poId) => {
     setLoading(true);
     try {
       setAlert(null);
       const response = await API.get(`procurement/purchase-orders/${poId}/export_pdf/`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
         responseType: 'blob',
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
@@ -848,16 +702,10 @@ export default function PurchaseOrders() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      setAlert('✅ Purchase order PDF exported successfully!');
+      setAlert('Purchase order PDF exported successfully!');
     } catch (err) {
       console.error('Export PDF error:', err.response?.data || err.message);
-      let errorMsg = '❌ Failed to export purchase order as PDF.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
-      setAlert(errorMsg);
+      setAlert(`Failed to export PDF: ${err.response?.data?.detail || err.message}`);
     } finally {
       setLoading(false);
     }
@@ -866,9 +714,7 @@ export default function PurchaseOrders() {
   if (checkingPermissions) {
     return (
       <Container>
-        <Typography variant="h6" sx={{ mt: 4 }}>
-          Loading permissions...
-        </Typography>
+        <Typography variant="h6" sx={{ mt: 4 }}>Loading permissions...</Typography>
         <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
@@ -878,7 +724,7 @@ export default function PurchaseOrders() {
     return (
       <Container>
         <Alert severity="error" sx={{ mt: 4 }} onClose={() => setAlert(null)}>
-          {alert || '⚠️ You do not have permission to view this page.'}
+          {alert || 'You do not have permission to view this page.'}
         </Alert>
       </Container>
     );
@@ -889,13 +735,12 @@ export default function PurchaseOrders() {
       {alert && !openModal && !openDeleteDialog && (
         <Alert
           sx={{ mt: 2, mb: 2 }}
-          severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
+          severity={alert.includes('Failed') ? 'error' : alert.includes('Warning') ? 'warning' : 'success'}
           onClose={() => setAlert(null)}
         >
           {alert}
         </Alert>
       )}
-
       <Paper elevation={3} sx={{ p: 4, mt: 4 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
           <Typography variant="h5">Purchase Orders Management</Typography>
@@ -908,8 +753,6 @@ export default function PurchaseOrders() {
             Create Purchase Order
           </Button>
         </Box>
-
-        {/* Tutorial Section */}
         <Card variant="outlined" sx={{ mb: 4, borderColor: 'primary.main', bgcolor: 'background.paper' }}>
           <CardHeader
             title={
@@ -931,27 +774,14 @@ export default function PurchaseOrders() {
                 Key Features:
               </Typography>
               <ul>
-                <li>
-                  <strong>Create PO from Requisition:</strong> Select an approved requisition to auto-populate department and items
-                </li>
-                <li>
-                  <strong>Standalone PO:</strong> Create a PO without a requisition for ad-hoc purchases
-                </li>
-                <li>
-                  <strong>Vendor Selection:</strong> Choose from your approved vendor list
-                </li>
-                <li>
-                  <strong>Delivery Details:</strong> Set delivery address and expected date
-                </li>
-                <li>
-                  <strong>PO Status Tracking:</strong> Monitor PO progress from Draft → Submitted → Approved → Received
-                </li>
-                <li>
-                  <strong>Approval Workflow:</strong> Managers can approve or reject submitted POs
-                </li>
-                <li>
-                  <strong>PDF Export:</strong> Generate professional PDF documents for vendors
-                </li>
+                <li><strong>Create PO from Requisition:</strong> Select an approved requisition to auto-populate department and items</li>
+                <li><strong>Standalone PO:</strong> Create a PO without a requisition for ad-hoc purchases</li>
+                <li><strong>Vendor Selection:</strong> Choose from your approved vendor list</li>
+                <li><strong>Currency Selection:</strong> Choose NGN or USD at creation (cannot be changed later)</li>
+                <li><strong>Optional Pricing:</strong> Unit price is no longer required</li>
+                <li><strong>PO Status Tracking:</strong> Monitor PO progress from Draft to Submitted to Approved to Received</li>
+                <li><strong>Approval Workflow:</strong> Managers can approve or reject submitted POs</li>
+                <li><strong>PDF Export:</strong> Generate professional PDF documents for vendors</li>
               </ul>
               <Typography variant="subtitle1" gutterBottom>
                 Workflow:
@@ -970,12 +800,12 @@ export default function PurchaseOrders() {
                 <li>Only Draft POs can be edited or deleted</li>
                 <li>Submitted POs require approval before processing</li>
                 <li>All fields marked with * are required</li>
-                <li>Total amount is automatically calculated from line items in Naira</li>
+                <li>Currency selection is immutable after creation</li>
+                <li>Total amount is automatically calculated from line items</li>
               </ul>
             </CardContent>
           </Collapse>
         </Card>
-
         <Grid container spacing={2} mb={3}>
           <Grid item xs={12} md={6}>
             <Typography variant="body1" color="text.secondary">
@@ -989,20 +819,13 @@ export default function PurchaseOrders() {
               value={search}
               onChange={(e) => debouncedSetSearch(e.target.value)}
               InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon />
-                  </InputAdornment>
-                ),
+                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
               }}
             />
           </Grid>
         </Grid>
-
         <Divider sx={{ my: 3 }} />
-
         <Typography variant="h6" gutterBottom>Purchase Orders</Typography>
-
         {purchaseOrders.length > 0 ? (
           <>
             <TableContainer>
@@ -1032,13 +855,11 @@ export default function PurchaseOrders() {
                       onExportPDF={handleExportPDF}
                       permissions={permissions}
                       loading={loading}
-                      formatCurrency={formatCurrency}
                     />
                   ))}
                 </TableBody>
               </Table>
             </TableContainer>
-
             {totalPages > 1 && (
               <Box mt={3} display="flex" justifyContent="center">
                 <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
@@ -1063,7 +884,7 @@ export default function PurchaseOrders() {
         )}
       </Paper>
 
-      {/* Purchase Order Modal */}
+      {/* Create/Edit Modal */}
       <Dialog open={openModal} onClose={() => setOpenModal(false)} fullWidth maxWidth="md" PaperProps={{ sx: { minHeight: '80vh' } }}>
         <DialogTitle>
           <Box display="flex" justifyContent="space-between" alignItems="center">
@@ -1073,12 +894,11 @@ export default function PurchaseOrders() {
             </IconButton>
           </Box>
         </DialogTitle>
-
         <DialogContent dividers>
           {modalAlert && (
             <Alert
               sx={{ mb: 2 }}
-              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
+              severity={modalAlert.includes('Failed') ? 'error' : modalAlert.includes('Warning') ? 'warning' : 'success'}
               onClose={() => setModalAlert(null)}
             >
               {modalAlert}
@@ -1098,7 +918,6 @@ export default function PurchaseOrders() {
                 Select an approved requisition to auto-populate department and items
               </Typography>
             </Grid>
-
             <Grid item xs={12}>
               <Autocomplete
                 required
@@ -1106,11 +925,10 @@ export default function PurchaseOrders() {
                 getOptionLabel={(option) => option.name}
                 value={formData.vendor}
                 onChange={(event, newValue) => handleVendorChange(newValue)}
-                renderInput={(params) => <TextField {...params} label="Vendor *" required />}
+                renderInput={(params) => <TextField {...params} label="Vendor *" required sx={{ minWidth: 250 }} />}
                 isOptionEqualToValue={(option, value) => option.id === value?.id}
               />
             </Grid>
-
             <Grid item xs={12} md={6}>
               <TextField
                 required
@@ -1120,6 +938,7 @@ export default function PurchaseOrders() {
                 onChange={handleInputChange}
                 fullWidth
                 select
+                sx={{ minWidth: 250 }}
               >
                 <MenuItem value="IT">IT</MenuItem>
                 <MenuItem value="HR">Human Resources</MenuItem>
@@ -1132,7 +951,22 @@ export default function PurchaseOrders() {
                 <MenuItem value="Admin">Administration</MenuItem>
               </TextField>
             </Grid>
-
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth required sx={{ minWidth: 250 }}>
+                <InputLabel>Currency *</InputLabel>
+                <Select
+                  name="currency"
+                  value={formData.currency}
+                  onChange={handleInputChange}
+                  label="Currency *"
+                  disabled={modalMode === 'edit'}
+                >
+                  {CURRENCY_OPTIONS.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
             <Grid item xs={12} md={6}>
               <TextField
                 required
@@ -1143,9 +977,9 @@ export default function PurchaseOrders() {
                 onChange={handleInputChange}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
+                sx={{ minWidth: 250 }}
               />
             </Grid>
-
             <Grid item xs={12}>
               <TextField
                 required
@@ -1159,7 +993,6 @@ export default function PurchaseOrders() {
                 placeholder="Enter full delivery address..."
               />
             </Grid>
-
             <Grid item xs={12} md={6}>
               <TextField
                 label="Payment Terms"
@@ -1170,9 +1003,9 @@ export default function PurchaseOrders() {
                 multiline
                 minRows={2}
                 placeholder="e.g., Net 30, 50% upfront, etc."
+                sx={{ minWidth: 250 }}
               />
             </Grid>
-
             <Grid item xs={12} md={6}>
               <TextField
                 label="Notes"
@@ -1183,14 +1016,11 @@ export default function PurchaseOrders() {
                 multiline
                 minRows={2}
                 placeholder="Additional notes or instructions..."
+                sx={{ minWidth: 250 }}
               />
             </Grid>
-
             <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Items
-              </Typography>
-
+              <Typography variant="h6" gutterBottom>Items</Typography>
               <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={4}>
@@ -1199,11 +1029,10 @@ export default function PurchaseOrders() {
                       getOptionLabel={(option) => option.name}
                       value={newItem.item}
                       onChange={(event, newValue) => handleNewItemChange('item', newValue)}
-                      renderInput={(params) => <TextField {...params} label="Select Item *" required />}
+                      renderInput={(params) => <TextField {...params} label="Select Item *" required sx={{ minWidth: 250 }} />}
                       isOptionEqualToValue={(option, value) => option.id === value?.id}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={2}>
                     <TextField
                       required
@@ -1213,30 +1042,29 @@ export default function PurchaseOrders() {
                       onChange={(e) => handleNewItemChange('quantity', e.target.value)}
                       fullWidth
                       inputProps={{ min: 1 }}
+                      sx={{ minWidth: 250 }}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={2}>
                     <TextField
-                      required
-                      label="Unit Price (₦)*"
+                      label="Unit Price (Optional)"
                       type="number"
                       value={newItem.unit_price}
                       onChange={(e) => handleNewItemChange('unit_price', e.target.value)}
                       fullWidth
-                      inputProps={{ min: 0.01, step: 0.01 }}
+                      inputProps={{ min: 0, step: 0.01 }}
+                      sx={{ minWidth: 250 }}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={3}>
                     <TextField
                       label="Notes"
                       value={newItem.notes}
                       onChange={(e) => handleNewItemChange('notes', e.target.value)}
                       fullWidth
+                      sx={{ minWidth: 250 }}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={1} display="flex" alignItems="flex-end">
                     <Button variant="contained" onClick={handleAddItem} fullWidth disabled={loading}>
                       Add
@@ -1244,7 +1072,6 @@ export default function PurchaseOrders() {
                   </Grid>
                 </Grid>
               </Paper>
-
               {formData.items.length > 0 ? (
                 <TableContainer>
                   <Table size="small">
@@ -1261,14 +1088,13 @@ export default function PurchaseOrders() {
                     <TableBody>
                       {formData.items.map((item, index) => {
                         const inventoryItem = inventoryItems.find((i) => i.id === item.item);
-                        const total = item.quantity * item.unit_price;
-
+                        const total = item.quantity * (item.unit_price || 0);
                         return (
                           <TableRow key={index}>
                             <TableCell>{inventoryItem ? inventoryItem.name : 'Unknown Item'}</TableCell>
                             <TableCell>{item.quantity}</TableCell>
-                            <TableCell>{formatCurrency(item.unit_price)}</TableCell>
-                            <TableCell>{formatCurrency(total)}</TableCell>
+                            <TableCell>{item.unit_price != null ? formatCurrency(item.unit_price, formData.currency) : '—'}</TableCell>
+                            <TableCell>{total > 0 ? formatCurrency(total, formData.currency) : '—'}</TableCell>
                             <TableCell>{item.notes || '-'}</TableCell>
                             <TableCell>
                               <IconButton size="small" onClick={() => handleRemoveItem(index)} color="error">
@@ -1286,16 +1112,14 @@ export default function PurchaseOrders() {
                   No items added yet. Add items using the form above.
                 </Typography>
               )}
-
               {formData.items.length > 0 && (
                 <Box mt={2} display="flex" justifyContent="flex-end">
-                  <Typography variant="h6">Total Amount: {formatCurrency(calculateTotalAmount(formData.items))}</Typography>
+                  <Typography variant="h6">Total Amount: {calculateTotalAmount(formData.items, formData.currency)}</Typography>
                 </Box>
               )}
             </Grid>
           </Grid>
         </DialogContent>
-
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setOpenModal(false)} disabled={loading}>
             Cancel
@@ -1318,7 +1142,7 @@ export default function PurchaseOrders() {
           {alert && (
             <Alert
               sx={{ mb: 2 }}
-              severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
+              severity={alert.includes('Failed') ? 'error' : alert.includes('Warning') ? 'warning' : 'success'}
               onClose={() => setAlert(null)}
             >
               {alert}

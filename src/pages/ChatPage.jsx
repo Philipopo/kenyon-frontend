@@ -70,15 +70,21 @@ const ChatPage = () => {
 
   // fetch list of conversations
   const fetchConversations = useCallback(async () => {
-    try {
-      const res = await API.get('/chat/conversations/');
-      setConversations(res.data || []);
-    } catch (err) {
-      console.error('fetchConversations error', err);
-      if (err?.response?.status === 401) navigate('/login');
+  try {
+    const res = await API.get('/chat/conversations/');
+    let data = [];
+    if (Array.isArray(res.data)) {
+      data = res.data;
+    } else if (res.data && Array.isArray(res.data.results)) {
+      data = res.data.results;
     }
-  }, [navigate, setConversations]); // Add dependencies
-
+    setConversations(data);
+  } catch (err) {
+    console.error('fetchConversations error', err);
+    if (err?.response?.status === 401) navigate('/login');
+    setConversations([]);
+  }
+}, [navigate]);
   // fetch messages for a conversation and store them keyed by id
   const fetchMessages = async (conversationId) => {
     if (!conversationId) return;

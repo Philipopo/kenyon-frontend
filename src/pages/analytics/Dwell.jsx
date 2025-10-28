@@ -299,7 +299,7 @@ export default function DwellTime() {
               <strong>📊 Key Metrics:</strong>
               <ul>
                 <li><strong>Storage Duration:</strong> Days an item has been in inventory.</li>
-                <li><strong>Aging Status:</strong> Indicates if an item is at risk of becoming obsolete (e.g., duration > threshold).</li>
+                <li><strong>Aging Status:</strong> Indicates if an item is at risk of becoming obsolete (e.g., duration  threshold).</li>
                 <li><strong>Storage Cost:</strong> Cost incurred for holding the item (₦).</li>
               </ul>
             </Typography>

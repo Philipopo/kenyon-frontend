@@ -1,4 +1,3 @@
-// src/pages/procurement/Requisitions.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container,
@@ -42,16 +41,14 @@ import {
   Checkbox,
   AlertTitle,
 } from '@mui/material';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import {
   Add as AddIcon,
   Search as SearchIcon,
   Edit as EditIcon,
   Close as CloseIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   Send as SendIcon,
-  ThumbUp as ThumbUpIcon,
-  ThumbDown as ThumbDownIcon,
   Delete as DeleteIcon,
   Description as DescriptionIcon,
   CheckCircle as CheckCircleIcon,
@@ -99,6 +96,22 @@ const PRIORITY_ICONS = {
   urgent: <TrendingUpIcon color="error" />,
 };
 
+const CURRENCY_OPTIONS = [
+  { value: 'NGN', label: 'Nigerian Naira (₦)' },
+  { value: 'USD', label: 'US Dollar ($)' },
+];
+
+// Helper to format currency based on code
+const formatCurrency = (value, currency = 'NGN') => {
+  if (value == null || value === '') return '—';
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency,
+    minimumFractionDigits: 2,
+  });
+  return formatter.format(value);
+};
+
 // Expandable row component for requisition details
 function RequisitionRow({
   requisition,
@@ -114,17 +127,17 @@ function RequisitionRow({
 }) {
   const [open, setOpen] = useState(false);
 
-  // Calculate total cost
   const calculateTotalCost = (items) => {
     return items.reduce((total, item) => {
       return total + item.quantity * (item.unit_cost || 0);
     }, 0);
   };
 
-  // Check if current user can approve
   const canCurrentUserApprove = approvalBoard.some(
     (member) => member.user_id === currentUser.id && member.can_approve_requisitions
   );
+
+  // ❌ Removed unused: const currencySymbol = requisition.currency === 'NGN' ? '₦' : '$';
 
   return (
     <>
@@ -173,17 +186,13 @@ function RequisitionRow({
         <TableCell>
           {requisition.items.length > 0 && (
             <Typography variant="body2">
-              {calculateTotalCost(requisition.items).toLocaleString('en-US', {
-                style: 'currency',
-                currency: 'USD',
-                minimumFractionDigits: 2,
-              })}
+              {formatCurrency(calculateTotalCost(requisition.items), requisition.currency)}
             </Typography>
           )}
         </TableCell>
         <TableCell>
           <Box display="flex" gap={1}>
-            {/* Edit button - only for draft status and update permission */}
+            {/* Edit - only draft + permission */}
             {requisition.status === 'draft' && hasUpdatePermission && (
               <IconButton
                 onClick={(e) => {
@@ -197,8 +206,7 @@ function RequisitionRow({
                 <EditIcon />
               </IconButton>
             )}
-
-            {/* Delete button - only for draft status and delete permission */}
+            {/* Delete - only draft + permission */}
             {requisition.status === 'draft' && hasDeletePermission && (
               <IconButton
                 onClick={(e) => {
@@ -212,8 +220,7 @@ function RequisitionRow({
                 <DeleteIcon />
               </IconButton>
             )}
-
-            {/* Submit button - only for draft status and update permission */}
+            {/* Submit - only draft + permission */}
             {requisition.status === 'draft' && hasUpdatePermission && (
               <IconButton
                 onClick={(e) => {
@@ -227,8 +234,7 @@ function RequisitionRow({
                 <SendIcon />
               </IconButton>
             )}
-
-            {/* Approve/Reject buttons - only for submitted status and current user can approve */}
+            {/* Approve/Reject - only submitted + approver */}
             {requisition.status === 'submitted' && canCurrentUserApprove && (
               <>
                 <Button
@@ -239,8 +245,6 @@ function RequisitionRow({
                   variant="contained"
                   color="success"
                   size="small"
-                  startIcon={<ThumbUpIcon />}
-                  sx={{ mr: 1 }}
                 >
                   Approve
                 </Button>
@@ -252,14 +256,12 @@ function RequisitionRow({
                   variant="contained"
                   color="error"
                   size="small"
-                  startIcon={<ThumbDownIcon />}
                 >
                   Reject
                 </Button>
               </>
             )}
-
-            {/* Show empty cell if no actions available */}
+            {/* Show empty if no actions */}
             {!(requisition.status === 'draft' && (hasUpdatePermission || hasDeletePermission)) &&
               !(requisition.status === 'submitted' && canCurrentUserApprove) && (
                 <Typography variant="body2" color="text.secondary">
@@ -278,19 +280,13 @@ function RequisitionRow({
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <Typography>
-                    <strong>ID:</strong> {requisition.id}
-                  </Typography>
+                  <Typography><strong>ID:</strong> {requisition.id}</Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <Typography>
-                    <strong>Code:</strong> {requisition.code}
-                  </Typography>
+                  <Typography><strong>Code:</strong> {requisition.code}</Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <Typography>
-                    <strong>Department:</strong> {requisition.department}
-                  </Typography>
+                  <Typography><strong>Department:</strong> {requisition.department}</Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Typography>
@@ -318,6 +314,11 @@ function RequisitionRow({
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Typography>
+                    <strong>Currency:</strong> {requisition.currency === 'NGN' ? 'Nigerian Naira (₦)' : 'US Dollar ($)'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography>
                     <strong>Created By:</strong>{' '}
                     {requisition.created_by_name || requisition.created_by?.name || requisition.created_by?.email || 'System'}
                   </Typography>
@@ -335,14 +336,10 @@ function RequisitionRow({
                   </Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <Typography>
-                    <strong>Created:</strong> {new Date(requisition.created_at).toLocaleString()}
-                  </Typography>
+                  <Typography><strong>Created:</strong> {new Date(requisition.created_at).toLocaleString()}</Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <Typography>
-                    <strong>Updated:</strong> {new Date(requisition.updated_at).toLocaleString()}
-                  </Typography>
+                  <Typography><strong>Updated:</strong> {new Date(requisition.updated_at).toLocaleString()}</Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Typography>
@@ -351,9 +348,7 @@ function RequisitionRow({
                   </Typography>
                 </Grid>
                 <Grid item xs={12}>
-                  <Typography>
-                    <strong>Purpose:</strong> {requisition.purpose}
-                  </Typography>
+                  <Typography><strong>Purpose:</strong> {requisition.purpose}</Typography>
                 </Grid>
                 <Grid item xs={12}>
                   <Typography variant="h6" gutterBottom>
@@ -378,20 +373,12 @@ function RequisitionRow({
                               <TableCell>{item.item_details?.name || 'Unknown Item'}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
                               <TableCell>
-                                {item.unit_cost
-                                  ? item.unit_cost.toLocaleString('en-US', {
-                                      style: 'currency',
-                                      currency: 'USD',
-                                      minimumFractionDigits: 2,
-                                    })
-                                  : '-'}
+                                {item.unit_cost != null
+                                  ? formatCurrency(item.unit_cost, requisition.currency)
+                                  : '—'}
                               </TableCell>
                               <TableCell>
-                                {total.toLocaleString('en-US', {
-                                  style: 'currency',
-                                  currency: 'USD',
-                                  minimumFractionDigits: 2,
-                                })}
+                                {total > 0 ? formatCurrency(total, requisition.currency) : '—'}
                               </TableCell>
                               <TableCell>{item.notes || '-'}</TableCell>
                             </TableRow>
@@ -406,11 +393,7 @@ function RequisitionRow({
                 <Grid item xs={12}>
                   <Typography>
                     <strong>Total Cost:</strong>{' '}
-                    {calculateTotalCost(requisition.items).toLocaleString('en-US', {
-                      style: 'currency',
-                      currency: 'USD',
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatCurrency(calculateTotalCost(requisition.items), requisition.currency)}
                   </Typography>
                 </Grid>
               </Grid>
@@ -442,12 +425,6 @@ export default function Requisitions() {
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
-
-  // Approval board state
-  const [approvalBoard, setApprovalBoard] = useState([]);
-  const [approvalBoardLoading, setApprovalBoardLoading] = useState(false);
-
-  // Get current user from localStorage
   const currentUser = {
     id: parseInt(localStorage.getItem('userId')) || null,
     email: localStorage.getItem('userEmail') || '',
@@ -459,7 +436,7 @@ export default function Requisitions() {
   const [openModal, setOpenModal] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
-  const [modalMode, setModalMode] = useState('create'); // 'create' or 'edit'
+  const [modalMode, setModalMode] = useState('create');
   const [selectedRequisition, setSelectedRequisition] = useState(null);
 
   // Approval modals
@@ -468,7 +445,9 @@ export default function Requisitions() {
   const [selectedRequisitionForApproval, setSelectedRequisitionForApproval] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
-  // Approval board modal state
+  // Approval board
+  const [approvalBoard, setApprovalBoard] = useState([]);
+  const [approvalBoardLoading, setApprovalBoardLoading] = useState(false);
   const [approvalBoardModalOpen, setApprovalBoardModalOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
@@ -478,18 +457,15 @@ export default function Requisitions() {
     department: '',
     purpose: '',
     priority: 'medium',
+    currency: 'NGN',
     items: [],
   });
-
-  // New item form state
   const [newItem, setNewItem] = useState({
     item: null,
     quantity: '',
     unit_cost: '',
     notes: '',
   });
-
-  // Inventory items for autocomplete
   const [inventoryItems, setInventoryItems] = useState([]);
   const [showTutorial, setShowTutorial] = useState(false);
 
@@ -508,11 +484,7 @@ export default function Requisitions() {
       setLoading(true);
       const searchValue = search || searchTerm;
       const res = await API.get('procurement/requisitions/', {
-        params: {
-          search: searchValue,
-          page,
-          page_size: itemsPerPage,
-        },
+        params: { search: searchValue, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
       setRequisitions(res.data.results || []);
@@ -528,7 +500,6 @@ export default function Requisitions() {
     }
   }, [search, searchTerm, page, itemsPerPage]);
 
-  // Fetch inventory items for autocomplete
   const fetchInventoryItems = useCallback(async () => {
     try {
       const res = await API.get('inventory/items/', {
@@ -541,16 +512,13 @@ export default function Requisitions() {
     }
   }, []);
 
-  // Fetch approval board
   const fetchApprovalBoard = useCallback(async () => {
     try {
       setApprovalBoardLoading(true);
       const res = await API.get('procurement/requisitions/approval_board/', {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      // ✅ Extract the array from the response
-      const approvalBoardArray = res.data?.approval_board_members || [];
-      setApprovalBoard(approvalBoardArray);
+      setApprovalBoard(res.data?.approval_board_members || []);
       setAlert(null);
     } catch (err) {
       console.error('Error fetching approval board:', err.response?.data || err.message);
@@ -561,10 +529,8 @@ export default function Requisitions() {
     }
   }, []);
 
-  // Fetch available users for approval board
   const fetchAvailableUsers = useCallback(async () => {
     try {
-      // Fetch all users (you might want to filter by role in production)
       const res = await API.get('auth/users/', {
         params: { page_size: 1000 },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
@@ -575,7 +541,7 @@ export default function Requisitions() {
     }
   }, []);
 
-  // Check permissions and fetch data
+  // Check permissions
   useEffect(() => {
     const checkPermissions = async () => {
       try {
@@ -586,30 +552,18 @@ export default function Requisitions() {
           setCheckingPermissions(false);
           return;
         }
-
-        // Check page permission
         const pageResponse = await API.get('/auth/permissions/page/requisitions/');
         setHasPermission(pageResponse.data.allowed || false);
-
         if (!pageResponse.data.allowed) {
           setAlert(`⚠️ You do not have permission to view this page: ${pageResponse.data.reason || 'No reason provided'}`);
         } else {
-          // Check action permissions
-          const actions = [
-            'create_requisition',
-            'update_requisition',
-            'delete_requisition',
-            'add_approval_board_member',
-            'view_approval_board',
-          ];
+          const actions = ['create_requisition', 'update_requisition', 'delete_requisition', 'add_approval_board_member', 'view_approval_board'];
           const actionPerms = {};
           for (const action of actions) {
             const actionResponse = await API.get(`/auth/permissions/action/${action}/`);
             actionPerms[action] = actionResponse.data.allowed || false;
           }
           setPermissions(actionPerms);
-
-          // Fetch data
           fetchRequisitions();
           fetchInventoryItems();
           fetchApprovalBoard();
@@ -622,11 +576,9 @@ export default function Requisitions() {
         setCheckingPermissions(false);
       }
     };
-
     checkPermissions();
   }, [fetchRequisitions, fetchInventoryItems, fetchApprovalBoard]);
 
-  // Handle search and pagination
   useEffect(() => {
     if (hasPermission && (search !== prevSearchRef.current || searchTerm !== prevSearchTermRef.current)) {
       setPage(1);
@@ -636,117 +588,77 @@ export default function Requisitions() {
     if (hasPermission) fetchRequisitions();
   }, [search, searchTerm, page, hasPermission, fetchRequisitions]);
 
-  // Handle form input changes
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Handle new item input changes
   const handleNewItemChange = (field, value) => {
-    setNewItem((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setNewItem((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Add new item to requisition
   const handleAddItem = () => {
-    if (!newItem.item || !newItem.quantity || !newItem.unit_cost) {
-      setAlert('⚠️ Please fill all required fields for the item.');
+    if (!newItem.item || !newItem.quantity) {
+      setAlert('⚠️ Please select an item and enter quantity.');
       return;
     }
-
-    // Validate quantity and unit cost
     const quantity = parseInt(newItem.quantity);
-    const unitCost = parseFloat(newItem.unit_cost);
-
     if (isNaN(quantity) || quantity <= 0) {
       setAlert('⚠️ Quantity must be a positive number.');
       return;
     }
-
-    if (isNaN(unitCost) || unitCost <= 0) {
-      setAlert('⚠️ Unit cost must be a positive number.');
+    const unitCost = newItem.unit_cost === '' ? null : parseFloat(newItem.unit_cost);
+    if (newItem.unit_cost !== '' && (isNaN(unitCost) || unitCost < 0)) {
+      setAlert('⚠️ Unit cost must be a non-negative number.');
       return;
     }
-
     const newItemObj = {
       item: newItem.item.id,
       quantity: quantity,
       unit_cost: unitCost,
       notes: newItem.notes || '',
     };
-
-    setFormData((prev) => ({
-      ...prev,
-      items: [...prev.items, newItemObj],
-    }));
-
-    // Reset new item form
-    setNewItem({
-      item: null,
-      quantity: '',
-      unit_cost: '',
-      notes: '',
-    });
+    setFormData((prev) => ({ ...prev, items: [...prev.items, newItemObj] }));
+    setNewItem({ item: null, quantity: '', unit_cost: '', notes: '' });
   };
 
-  // Remove item from requisition
   const handleRemoveItem = (index) => {
-    setFormData((prev) => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index),
-    }));
+    setFormData((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
   };
 
-  // Open modal for creating new requisition
   const handleOpenCreateModal = () => {
     if (!permissions.create_requisition) {
       setAlert('⚠️ You do not have permission to create requisitions.');
       return;
     }
-
     setModalMode('create');
     setFormData({
       department: '',
       purpose: '',
       priority: 'medium',
+      currency: 'NGN',
       items: [],
     });
-    setNewItem({
-      item: null,
-      quantity: '',
-      unit_cost: '',
-      notes: '',
-    });
+    setNewItem({ item: null, quantity: '', unit_cost: '', notes: '' });
     setOpenModal(true);
   };
 
-  // Open modal for editing requisition
   const handleOpenEditModal = (requisition) => {
     if (!permissions.update_requisition) {
       setAlert('⚠️ You do not have permission to edit requisitions.');
       return;
     }
-
-    // Only allow editing draft requisitions
     if (requisition.status !== 'draft') {
       setAlert('⚠️ Only draft requisitions can be edited.');
       return;
     }
-
     setModalMode('edit');
     setSelectedRequisition(requisition);
-
-    // Populate form data
     setFormData({
       department: requisition.department,
       purpose: requisition.purpose,
       priority: requisition.priority,
+      currency: requisition.currency,
       items: requisition.items.map((item) => ({
         item: item.item.id,
         quantity: item.quantity,
@@ -754,18 +666,10 @@ export default function Requisitions() {
         notes: item.notes,
       })),
     });
-
-    setNewItem({
-      item: null,
-      quantity: '',
-      unit_cost: '',
-      notes: '',
-    });
-
+    setNewItem({ item: null, quantity: '', unit_cost: '', notes: '' });
     setOpenModal(true);
   };
 
-  // Open delete confirmation
   const handleOpenDelete = (id) => {
     if (!permissions.delete_requisition) {
       setAlert('⚠️ You do not have permission to delete requisitions.');
@@ -775,86 +679,66 @@ export default function Requisitions() {
     setDeleteOpen(true);
   };
 
-  // Close delete confirmation
   const handleCloseDelete = () => {
     setDeleteOpen(false);
     setDeleteId(null);
   };
 
-  // Open approval board modal
   const handleOpenApprovalBoardModal = () => {
     if (!permissions.add_approval_board_member) {
       setAlert('⚠️ You do not have permission to manage the approval board.');
       return;
     }
-
     fetchAvailableUsers();
-    // Pre-select current approval board members
     const currentMemberIds = approvalBoard.map((member) => member.user_id);
     setSelectedUsers(currentMemberIds);
     setApprovalBoardModalOpen(true);
   };
 
-  // Close approval board modal
   const handleCloseApprovalBoardModal = () => {
     setApprovalBoardModalOpen(false);
     setSelectedUsers([]);
   };
 
-  // Handle approval board user selection
   const handleUserToggle = (userId) => {
     setSelectedUsers((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
     );
   };
 
-  // Save approval board changes
   const handleSaveApprovalBoard = async () => {
     try {
       setLoading(true);
       setAlert(null);
-
-      // Get users to add/remove
       const currentMemberIds = approvalBoard.map((member) => member.user_id);
       const usersToAdd = selectedUsers.filter((id) => !currentMemberIds.includes(id));
       const usersToRemove = currentMemberIds.filter((id) => !selectedUsers.includes(id));
-
-      // Add new members
       for (const userId of usersToAdd) {
         await API.post('procurement/approval-board/', {
           user: userId,
           can_approve_requisitions: true,
-          can_approve_purchase_orders: false, // You can make this configurable
+          can_approve_purchase_orders: false,
         });
       }
-
-      // Remove members (soft delete by setting is_active=false)
       for (const userId of usersToRemove) {
         const member = approvalBoard.find((m) => m.user_id === userId);
         if (member) {
-          await API.patch(`procurement/approval-board/${member.id}/`, {
-            is_active: false,
-          });
+          await API.patch(`procurement/approval-board/${member.id}/`, { is_active: false });
         }
       }
-
       setAlert('✅ Approval board updated successfully!');
       handleCloseApprovalBoardModal();
       fetchApprovalBoard();
     } catch (err) {
       let errorMsg = '❌ Failed to update approval board.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
+      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      else errorMsg = err.message || '❌ Network error.';
       setAlert(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Open approve modal
   const handleOpenApproveModal = (requisitionId) => {
     const requisition = requisitions.find((req) => req.id === requisitionId);
     if (requisition) {
@@ -863,7 +747,6 @@ export default function Requisitions() {
     }
   };
 
-  // Open reject modal
   const handleOpenRejectModal = (requisitionId) => {
     const requisition = requisitions.find((req) => req.id === requisitionId);
     if (requisition) {
@@ -873,93 +756,70 @@ export default function Requisitions() {
     }
   };
 
-  // Handle approve
   const handleApprove = async () => {
     if (!selectedRequisitionForApproval) return;
-
     try {
       setLoading(true);
       setAlert(null);
-
       await API.post(`procurement/requisitions/${selectedRequisitionForApproval.id}/approve/`);
-
       setAlert('✅ Requisition approved successfully!');
       setApproveModalOpen(false);
       fetchRequisitions();
     } catch (err) {
       let errorMsg = '❌ Failed to approve requisition.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
+      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      else errorMsg = err.message || '❌ Network error.';
       setAlert(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle reject
   const handleReject = async () => {
     if (!selectedRequisitionForApproval || !rejectionReason.trim()) {
       setAlert('⚠️ Please provide a rejection reason.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
-
-      // Update status to rejected with reason (you might want to add this to your backend)
       await API.post(`procurement/requisitions/${selectedRequisitionForApproval.id}/reject/`);
-
       setAlert('✅ Requisition rejected successfully!');
       setRejectModalOpen(false);
       setRejectionReason('');
       fetchRequisitions();
     } catch (err) {
       let errorMsg = '❌ Failed to reject requisition.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
+      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      else errorMsg = err.message || '❌ Network error.';
       setAlert(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Submit requisition (create or update)
   const handleSubmit = async () => {
-    // Validate form
     if (!formData.department || !formData.purpose || formData.items.length === 0) {
       setAlert('⚠️ Please fill all required fields and add at least one item.');
       return;
     }
-
     try {
       setLoading(true);
       setAlert(null);
-
       const payload = {
         department: formData.department,
         purpose: formData.purpose,
         priority: formData.priority,
+        currency: formData.currency,
         items: formData.items,
       };
 
-      let response;
-
+      // ❌ Removed unused 'response' variable
       if (modalMode === 'create') {
-        response = await API.post('procurement/requisitions/', payload);
-        setRequisitions([response.data, ...requisitions]);
+        await API.post('procurement/requisitions/', payload);
         setAlert('✅ Requisition created successfully!');
       } else {
-        response = await API.patch(`procurement/requisitions/${selectedRequisition.id}/`, payload);
-        setRequisitions(
-          requisitions.map((req) => (req.id === selectedRequisition.id ? response.data : req))
-        );
+        await API.patch(`procurement/requisitions/${selectedRequisition.id}/`, payload);
         setAlert('✅ Requisition updated successfully!');
       }
 
@@ -968,7 +828,6 @@ export default function Requisitions() {
     } catch (err) {
       let errorMsg = '❌ Failed to save requisition.';
       if (err.response?.data) {
-        // Format validation errors
         const errors = err.response.data;
         if (typeof errors === 'object') {
           errorMsg = Object.entries(errors)
@@ -986,72 +845,45 @@ export default function Requisitions() {
     }
   };
 
-  // Delete requisition
   const handleDelete = async () => {
     try {
       setLoading(true);
       setAlert(null);
-
       await API.delete(`procurement/requisitions/${deleteId}/`);
-
-      setRequisitions(requisitions.filter((req) => req.id !== deleteId));
       setAlert('✅ Requisition deleted successfully!');
       handleCloseDelete();
       fetchRequisitions();
     } catch (err) {
       let errorMsg = '❌ Failed to delete requisition.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
+      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      else errorMsg = err.message || '❌ Network error.';
       setAlert(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Submit requisition for approval
   const handleSubmitForApproval = async (requisitionId) => {
     try {
       setLoading(true);
       setAlert(null);
-
-      // Update status to 'submitted'
-      await API.patch(`procurement/requisitions/${requisitionId}/`, {
-        status: 'submitted',
-      });
-
+      await API.patch(`procurement/requisitions/${requisitionId}/`, { status: 'submitted' });
       setAlert('✅ Requisition submitted for approval!');
       fetchRequisitions();
     } catch (err) {
       let errorMsg = '❌ Failed to submit requisition.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
-      }
+      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
+      else errorMsg = err.message || '❌ Network error.';
       setAlert(errorMsg);
     } finally {
       setLoading(false);
     }
-  };
-
-  // Format currency
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
   };
 
   if (checkingPermissions) {
     return (
       <Container>
-        <Typography variant="h6" sx={{ mt: 4 }}>
-          Loading permissions...
-        </Typography>
+        <Typography variant="h6" sx={{ mt: 4 }}>Loading permissions...</Typography>
         <CircularProgress sx={{ mt: 2 }} />
       </Container>
     );
@@ -1072,7 +904,7 @@ export default function Requisitions() {
       {alert && (
         <Alert
           sx={{ mt: 2, mb: 2 }}
-          severity={alert.includes('❌') ? 'error' : alert.includes('⚠') ? 'warning' : 'success'}
+          severity={alert.includes('❌') ? 'error' : alert.includes('⚠️') ? 'warning' : 'success'}
           onClose={() => setAlert(null)}
         >
           {alert}
@@ -1104,7 +936,7 @@ export default function Requisitions() {
           </Box>
         </Box>
 
-        {/* Tutorial Section */}
+        {/* Tutorial */}
         <Accordion expanded={showTutorial} onChange={() => setShowTutorial(!showTutorial)} sx={{ mb: 4 }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -1117,51 +949,11 @@ export default function Requisitions() {
               This is where you initiate purchase requests for your department. Create a requisition with the items you
               need, then submit it for approval.
             </Typography>
-
-            <Typography variant="subtitle1" gutterBottom>
-              Key Features:
-            </Typography>
             <ul>
-              <li>
-                <strong>Create requisitions</strong> with required items, department, and purpose
-              </li>
-              <li>
-                <strong>Priority levels</strong>: Set priority as Low, Medium, High, or Urgent
-              </li>
-              <li>
-                <strong>Status tracking</strong>: Monitor requisition progress from Draft → Submitted → Approved/Rejected
-              </li>
-              <li>
-                <strong>Approval Board</strong>: Only users in the approval board can approve requisitions
-              </li>
-              <li>
-                <strong>Expandable rows</strong>: Click the expand icon to see all requisition details including items and
-                costs
-              </li>
-              <li>
-                <strong>Full CRUD operations</strong>: Create, edit, delete, and submit requisitions
-              </li>
-            </ul>
-
-            <Typography variant="subtitle1" gutterBottom>
-              Workflow:
-            </Typography>
-            <ol>
-              <li>Create a requisition with required items</li>
-              <li>Submit for approval (changes status to "Submitted")</li>
-              <li>Only users in the approval board can approve or reject</li>
-              <li>Approved requisitions become Purchase Orders (Page 2)</li>
-            </ol>
-
-            <Typography variant="subtitle1" gutterBottom>
-              Important Notes:
-            </Typography>
-            <ul>
-              <li>You can only edit requisitions in "Draft" status</li>
-              <li>Once submitted, only approval board members can make changes</li>
-              <li>All fields marked with * are required</li>
-              <li>Created by field is automatically populated with your user information</li>
-              <li>Approved by field shows who approved the requisition</li>
+              <li><strong>Currency selection</strong>: Choose NGN or USD at creation (cannot be changed later)</li>
+              <li><strong>Optional pricing</strong>: Unit cost is no longer required</li>
+              <li><strong>Status tracking</strong>: See "Approved", "Rejected" tags clearly</li>
+              <li><strong>No thumbs icons</strong>: Clean approve/reject buttons</li>
             </ul>
           </AccordionDetails>
         </Accordion>
@@ -1175,32 +967,17 @@ export default function Requisitions() {
                 Approval Board ({approvalBoard.length} members)
               </Typography>
             </Box>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              Only these users can approve requisitions.
-              {permissions.add_approval_board_member && (
-                <span> Click "Manage Approval Board" above to add or remove members.</span>
-              )}
-            </Typography>
             {approvalBoardLoading ? (
               <CircularProgress size={24} />
             ) : approvalBoard.length > 0 ? (
               <Box display="flex" flexWrap="wrap" gap={1}>
                 {approvalBoard.map((member) => (
-                  <Chip
-                    key={member.id}
-                    label={member.user_name || member.user_email}
-                    size="small"
-                    color="primary"
-                    variant="outlined"
-                  />
+                  <Chip key={member.id} label={member.user_name || member.user_email} size="small" color="primary" variant="outlined" />
                 ))}
               </Box>
             ) : (
               <Typography variant="body2" color="text.secondary">
                 No approval board members configured.
-                {permissions.add_approval_board_member && (
-                  <span> Click "Manage Approval Board" to add members.</span>
-                )}
               </Typography>
             )}
           </Paper>
@@ -1209,8 +986,7 @@ export default function Requisitions() {
         <Grid container spacing={2} mb={3}>
           <Grid item xs={12} md={6}>
             <Typography variant="body1" color="text.secondary">
-              Initiate purchase requests for your department. Create a requisition with the items you need, then submit it
-              for approval.
+              Initiate purchase requests. Select currency (NGN/USD) at creation.
             </Typography>
           </Grid>
           <Grid item xs={12} md={6} display="flex" justifyContent="flex-end">
@@ -1231,7 +1007,6 @@ export default function Requisitions() {
         </Grid>
 
         <Divider sx={{ my: 3 }} />
-
         <Typography variant="h6" gutterBottom>My Requisitions</Typography>
 
         {requisitions.length > 0 ? (
@@ -1274,12 +1049,7 @@ export default function Requisitions() {
 
             {totalPages > 1 && (
               <Box mt={3} display="flex" justifyContent="center">
-                <Pagination
-                  count={totalPages}
-                  page={page}
-                  onChange={(_, value) => setPage(value)}
-                  color="primary"
-                />
+                <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
               </Box>
             )}
           </>
@@ -1306,15 +1076,11 @@ export default function Requisitions() {
         <DialogTitle>
           <Box display="flex" justifyContent="space-between" alignItems="center">
             {modalMode === 'create' ? 'Create New Requisition' : 'Edit Requisition'}
-            <IconButton onClick={() => setOpenModal(false)}>
-              <CloseIcon />
-            </IconButton>
+            <IconButton onClick={() => setOpenModal(false)}><CloseIcon /></IconButton>
           </Box>
         </DialogTitle>
-
         <DialogContent dividers>
           <Grid container spacing={3}>
-            {/* Department */}
             <Grid item xs={12} md={6}>
               <TextField
                 required
@@ -1324,6 +1090,7 @@ export default function Requisitions() {
                 onChange={handleInputChange}
                 fullWidth
                 select
+                sx={{ minWidth: 250 }}
               >
                 <MenuItem value="IT">IT</MenuItem>
                 <MenuItem value="HR">Human Resources</MenuItem>
@@ -1336,10 +1103,24 @@ export default function Requisitions() {
                 <MenuItem value="Admin">Administration</MenuItem>
               </TextField>
             </Grid>
-
-            {/* Priority */}
             <Grid item xs={12} md={6}>
-              <FormControl fullWidth required>
+              <FormControl fullWidth required sx={{ minWidth: 250 }}>
+                <InputLabel>Currency *</InputLabel>
+                <Select
+                  name="currency"
+                  value={formData.currency}
+                  onChange={handleInputChange}
+                  label="Currency *"
+                  disabled={modalMode === 'edit'}
+                >
+                  {CURRENCY_OPTIONS.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth required sx={{ minWidth: 250 }}>
                 <InputLabel>Priority *</InputLabel>
                 <Select name="priority" value={formData.priority} onChange={handleInputChange} label="Priority *">
                   <MenuItem value="low">Low</MenuItem>
@@ -1349,8 +1130,6 @@ export default function Requisitions() {
                 </Select>
               </FormControl>
             </Grid>
-
-            {/* Purpose */}
             <Grid item xs={12}>
               <TextField
                 required
@@ -1364,14 +1143,8 @@ export default function Requisitions() {
                 placeholder="Describe why this requisition is needed..."
               />
             </Grid>
-
-            {/* Items Section */}
             <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Items
-              </Typography>
-
-              {/* Add New Item Form */}
+              <Typography variant="h6" gutterBottom>Items</Typography>
               <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={4}>
@@ -1380,10 +1153,9 @@ export default function Requisitions() {
                       getOptionLabel={(option) => option.name}
                       value={newItem.item}
                       onChange={(event, newValue) => handleNewItemChange('item', newValue)}
-                      renderInput={(params) => <TextField {...params} label="Select Item *" required />}
+                      renderInput={(params) => <TextField {...params} label="Select Item *" required sx={{ minWidth: 250 }} />}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={2}>
                     <TextField
                       required
@@ -1393,30 +1165,29 @@ export default function Requisitions() {
                       onChange={(e) => handleNewItemChange('quantity', e.target.value)}
                       fullWidth
                       inputProps={{ min: 1 }}
+                      sx={{ minWidth: 250 }}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={2}>
                     <TextField
-                      required
-                      label="Unit Cost ($)*"
+                      label="Unit Cost (Optional)"
                       type="number"
                       value={newItem.unit_cost}
                       onChange={(e) => handleNewItemChange('unit_cost', e.target.value)}
                       fullWidth
-                      inputProps={{ min: 0.01, step: 0.01 }}
+                      inputProps={{ min: 0, step: 0.01 }}
+                      sx={{ minWidth: 250 }}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={3}>
                     <TextField
                       label="Notes"
                       value={newItem.notes}
                       onChange={(e) => handleNewItemChange('notes', e.target.value)}
                       fullWidth
+                      sx={{ minWidth: 250 }}
                     />
                   </Grid>
-
                   <Grid item xs={12} md={1} display="flex" alignItems="flex-end">
                     <Button variant="contained" onClick={handleAddItem} fullWidth>
                       Add
@@ -1424,8 +1195,6 @@ export default function Requisitions() {
                   </Grid>
                 </Grid>
               </Paper>
-
-              {/* Items List */}
               {formData.items.length > 0 ? (
                 <TableContainer>
                   <Table size="small">
@@ -1442,14 +1211,13 @@ export default function Requisitions() {
                     <TableBody>
                       {formData.items.map((item, index) => {
                         const inventoryItem = inventoryItems.find((i) => i.id === item.item);
-                        const total = item.quantity * item.unit_cost;
-
+                        const total = item.quantity * (item.unit_cost || 0);
                         return (
                           <TableRow key={index}>
                             <TableCell>{inventoryItem ? inventoryItem.name : 'Unknown Item'}</TableCell>
                             <TableCell>{item.quantity}</TableCell>
-                            <TableCell>{formatCurrency(item.unit_cost)}</TableCell>
-                            <TableCell>{formatCurrency(total)}</TableCell>
+                            <TableCell>{item.unit_cost != null ? formatCurrency(item.unit_cost, formData.currency) : '—'}</TableCell>
+                            <TableCell>{total > 0 ? formatCurrency(total, formData.currency) : '—'}</TableCell>
                             <TableCell>{item.notes || '-'}</TableCell>
                             <TableCell>
                               <IconButton size="small" onClick={() => handleRemoveItem(index)} color="error">
@@ -1464,17 +1232,14 @@ export default function Requisitions() {
                 </TableContainer>
               ) : (
                 <Typography color="text.secondary" textAlign="center" py={2}>
-                  No items added yet. Add items using the form above.
+                  No items added yet.
                 </Typography>
               )}
             </Grid>
           </Grid>
         </DialogContent>
-
         <DialogActions sx={{ p: 3 }}>
-          <Button onClick={() => setOpenModal(false)} disabled={loading}>
-            Cancel
-          </Button>
+          <Button onClick={() => setOpenModal(false)} disabled={loading}>Cancel</Button>
           <Button
             variant="contained"
             onClick={handleSubmit}
@@ -1486,82 +1251,61 @@ export default function Requisitions() {
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation */}
       <Dialog open={deleteOpen} onClose={handleCloseDelete}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete this requisition? This action cannot be undone.</Typography>
+          <Typography>Are you sure you want to delete this requisition?</Typography>
           <Alert severity="warning" sx={{ mt: 2 }}>
             <WarningIcon sx={{ mr: 1 }} />
-            <strong>Warning:</strong> Deleting a requisition will permanently remove it from the system. Make sure you
-            really want to delete this requisition.
+            <strong>Warning:</strong> This action cannot be undone.
           </Alert>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDelete}>Cancel</Button>
-          <Button
-            onClick={handleDelete}
-            color="error"
-            variant="contained"
-            disabled={loading}
-            startIcon={loading ? <CircularProgress size={20} /> : null}
-          >
+          <Button onClick={handleDelete} color="error" variant="contained" disabled={loading}>
             {loading ? 'Deleting...' : 'Delete Requisition'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Approval Board Management Modal */}
+      {/* Approval Board Modal */}
       <Dialog open={approvalBoardModalOpen} onClose={handleCloseApprovalBoardModal} fullWidth maxWidth="sm">
         <DialogTitle>
           <Box display="flex" justifyContent="space-between" alignItems="center">
             Manage Approval Board
-            <IconButton onClick={handleCloseApprovalBoardModal}>
-              <CloseIcon />
-            </IconButton>
+            <IconButton onClick={handleCloseApprovalBoardModal}><CloseIcon /></IconButton>
           </Box>
         </DialogTitle>
-
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" paragraph>
-            Select users who can approve requisitions. Only selected users will be able to approve submitted requisitions.
+            Select users who can approve requisitions.
           </Typography>
-
           {availableUsers.length > 0 ? (
             <List dense>
               {availableUsers.map((user) => {
                 const isChecked = selectedUsers.includes(user.id);
                 return (
                   <ListItem key={user.id} button onClick={() => handleUserToggle(user.id)} disabled={loading}>
-                    <ListItemIcon>
-                      <Checkbox edge="start" checked={isChecked} tabIndex={-1} disableRipple />
-                    </ListItemIcon>
+                    <ListItemIcon><Checkbox edge="start" checked={isChecked} tabIndex={-1} disableRipple /></ListItemIcon>
                     <ListItemText primary={user.name || user.email} secondary={user.email} />
                   </ListItem>
                 );
               })}
             </List>
           ) : (
-            <Typography color="text.secondary">No users available. Please contact your administrator.</Typography>
+            <Typography color="text.secondary">No users available.</Typography>
           )}
         </DialogContent>
-
         <DialogActions sx={{ p: 3 }}>
-          <Button onClick={handleCloseApprovalBoardModal} disabled={loading}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleSaveApprovalBoard}
-            disabled={loading}
-            startIcon={loading ? <CircularProgress size={20} /> : null}
-          >
+          <Button onClick={handleCloseApprovalBoardModal} disabled={loading}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveApprovalBoard} disabled={loading}>
             {loading ? 'Saving...' : 'Save Changes'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Approve Confirmation Modal */}
+      {/* Approve Modal */}
       <Dialog open={approveModalOpen} onClose={() => setApproveModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box display="flex" alignItems="center" color="success.main">
@@ -1571,87 +1315,54 @@ export default function Requisitions() {
         </DialogTitle>
         <DialogContent>
           <Alert severity="info">
-            <AlertTitle>Are you sure you want to approve this requisition?</AlertTitle>
+            <AlertTitle>Approve this requisition?</AlertTitle>
             <Typography variant="body2">
-              <strong>Requisition Code:</strong> {selectedRequisitionForApproval?.code}
-              <br />
-              <strong>Department:</strong> {selectedRequisitionForApproval?.department}
-              <br />
-              <strong>Total Cost:</strong>{' '}
-              {selectedRequisitionForApproval?.items
-                ?.reduce((total, item) => total + item.quantity * (item.unit_cost || 0), 0)
-                .toLocaleString('en-US', {
-                  style: 'currency',
-                  currency: 'USD',
-                  minimumFractionDigits: 2,
-                })}
-            </Typography>
-            <br />
-            <Typography variant="body2">
-              Once approved, this requisition will be converted to a Purchase Order and cannot be modified.
+              <strong>Code:</strong> {selectedRequisitionForApproval?.code}<br />
+              <strong>Department:</strong> {selectedRequisitionForApproval?.department}<br />
+              <strong>Total:</strong> {formatCurrency(
+                selectedRequisitionForApproval?.items?.reduce((t, i) => t + i.quantity * (i.unit_cost || 0), 0),
+                selectedRequisitionForApproval?.currency
+              )}
             </Typography>
           </Alert>
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
-          <Button onClick={() => setApproveModalOpen(false)} disabled={loading}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            color="success"
-            onClick={handleApprove}
-            disabled={loading}
-            startIcon={loading ? <CircularProgress size={20} /> : <ThumbUpIcon />}
-          >
+          <Button onClick={() => setApproveModalOpen(false)} disabled={loading}>Cancel</Button>
+          <Button variant="contained" color="success" onClick={handleApprove} disabled={loading}>
             {loading ? 'Approving...' : 'Approve Requisition'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Reject Confirmation Modal */}
+      {/* Reject Modal */}
       <Dialog open={rejectModalOpen} onClose={() => setRejectModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box display="flex" alignItems="center" color="error.main">
-            <ThumbDownIcon sx={{ mr: 1 }} />
+            <ErrorIcon sx={{ mr: 1 }} />
             Reject Requisition
           </Box>
         </DialogTitle>
         <DialogContent>
           <Alert severity="warning">
-            <AlertTitle>Are you sure you want to reject this requisition?</AlertTitle>
+            <AlertTitle>Reject this requisition?</AlertTitle>
             <Typography variant="body2" paragraph>
-              <strong>Requisition Code:</strong> {selectedRequisitionForApproval?.code}
-              <br />
-              <strong>Department:</strong> {selectedRequisitionForApproval?.department}
-            </Typography>
-            <Typography variant="body2" paragraph>
-              Please provide a reason for rejection. This will be recorded in the audit log and communicated to the
-              requester.
+              <strong>Code:</strong> {selectedRequisitionForApproval?.code}
             </Typography>
           </Alert>
-
           <TextField
-            label="Rejection Reason *"
+            label="Rejection Reason"
             multiline
             minRows={3}
             fullWidth
             value={rejectionReason}
             onChange={(e) => setRejectionReason(e.target.value)}
-            placeholder="Please explain why this requisition is being rejected..."
+            placeholder="Explain why this requisition is being rejected..."
             sx={{ mt: 2 }}
           />
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
-          <Button onClick={() => setRejectModalOpen(false)} disabled={loading}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleReject}
-            disabled={loading || !rejectionReason.trim()}
-            startIcon={loading ? <CircularProgress size={20} /> : <ThumbDownIcon />}
-          >
+          <Button onClick={() => setRejectModalOpen(false)} disabled={loading}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleReject} disabled={loading}>
             {loading ? 'Rejecting...' : 'Reject Requisition'}
           </Button>
         </DialogActions>
