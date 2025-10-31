@@ -152,6 +152,12 @@ const menuItems = [
         description: 'Economic Order Quantity optimization',
         icon: <StarBorder />,
       },
+      {
+        text: 'Analytics',
+        path: '/dashboard/analytics/analytics',
+        description: 'Economic Order Quantity optimization',
+        icon: <StarBorder />,
+      },
     ],
   },
   {

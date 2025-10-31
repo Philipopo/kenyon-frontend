@@ -43,6 +43,7 @@ import Vendor from './pages/procurement/vendormanagement';
 import StockAnalytics from './pages/analytics/Stock';
 import DwellTime from './pages/analytics/Dwell';
 import EOQReports from './pages/analytics/EOQ';
+import Analytics from './pages/analytics/analytics';
 
 // Settings
 import ERPIntegration from './pages/settings/ERP';
@@ -135,6 +136,7 @@ function App() {
                 <Route path="/dashboard/analytics/stock" element={<StockAnalytics />} />
                 <Route path="/dashboard/analytics/dwell" element={<DwellTime />} />
                 <Route path="/dashboard/analytics/eoq" element={<EOQReports />} />
+                <Route path="/dashboard/analytics/analytics" element={<Analytics />} />
 
                 {/* Settings */}
                 <Route path="/dashboard/settings/erp" element={<ERPIntegration />} />
