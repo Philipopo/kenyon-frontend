@@ -331,8 +331,8 @@ export default function Approval() {
 
       setModalAlert('✅ Requisition approved successfully!');
       setApproveModalOpen(false);
-      fetchSubmittedRequisitions();
-      fetchApprovalBoard();
+      // Remove from local list immediately
+      setSubmittedRequisitions(prev => prev.filter(r => r.id !== selectedRequisition.id));
     } catch (err) {
       let errorMsg = '❌ Failed to approve requisition.';
       if (err.response?.data) {
@@ -362,7 +362,8 @@ export default function Approval() {
       setModalAlert('✅ Requisition rejected successfully!');
       setRejectModalOpen(false);
       setRejectionReason('');
-      fetchSubmittedRequisitions();
+      // Remove from local list immediately
+      setSubmittedRequisitions(prev => prev.filter(r => r.id !== selectedRequisition.id));
     } catch (err) {
       let errorMsg = '❌ Failed to reject requisition.';
       if (err.response?.data) {
@@ -376,35 +377,45 @@ export default function Approval() {
     }
   };
 
-  // Add user to approval board
+  // Add user to approval board — FULLY FIXED
   const handleAddUser = async () => {
     if (!newUser || !permissions.add_approval_board_member) {
       setModalAlert('⚠️ Please select a user to add.');
       return;
     }
 
+    const payload = {
+      user: parseInt(newUser.id, 10), // 🔑 Ensure number
+      can_approve_requisitions: true,
+      can_approve_purchase_orders: false,
+      is_active: true // 🔑 Required to avoid 400
+    };
+
     try {
       setLoading(true);
       setModalAlert(null);
 
-      await API.post('procurement/approval-board/', {
-        user: newUser.id,
-        can_approve_requisitions: true,
-        can_approve_purchase_orders: false,
-      });
+      await API.post('procurement/approval-board/', payload);
 
       setModalAlert('✅ User added to approval board successfully!');
       setAddUserModalOpen(false);
-      fetchApprovalBoard();
       setNewUser(null);
+      fetchApprovalBoard();
     } catch (err) {
-      let errorMsg = '❌ Failed to add user to approval board.';
-      if (err.response?.data) {
-        errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      } else {
-        errorMsg = err.message || '❌ Network error.';
+      console.error('Add user error:', err.response?.data || err.message);
+      const data = err.response?.data;
+      let message = '❌ Failed to add user.';
+      if (data) {
+        if (typeof data === 'object') {
+          const fieldErrors = Object.entries(data)
+            .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs[0] : msgs}`)
+            .join('; ');
+          message = `❌ ${fieldErrors}`;
+        } else {
+          message = `❌ ${data}`;
+        }
       }
-      setModalAlert(errorMsg);
+      setModalAlert(message);
     } finally {
       setLoading(false);
     }
@@ -477,6 +488,15 @@ export default function Approval() {
           onClose={() => setAlert(null)}
         >
           {alert}
+        </Alert>
+      )}
+      {modalAlert && (
+        <Alert
+          sx={{ mt: 2, mb: 2 }}
+          severity={modalAlert.includes('✅') ? 'success' : modalAlert.includes('⚠') ? 'warning' : 'error'}
+          onClose={() => setModalAlert(null)}
+        >
+          {modalAlert}
         </Alert>
       )}
 
@@ -610,7 +630,7 @@ export default function Approval() {
                               color={PRIORITY_COLORS[req.priority] || 'default'}
                             />
                           </TableCell>
-                          <TableCell>{req.created_by_name || req.created_by?.name || req.created_by?.email || 'System'}</TableCell>
+                          <TableCell>{req.created_by_name || '—'}</TableCell>
                           <TableCell>{new Date(req.created_at).toLocaleDateString()}</TableCell>
                           <TableCell>
                             {req.items.length > 0 && (
@@ -719,17 +739,17 @@ export default function Approval() {
                           <TableCell>
                             <Box display="flex" alignItems="center">
                               <HowToRegIcon color="primary" sx={{ mr: 1 }} />
-                              <strong>{member.user.name || member.user.email}</strong>
+                              <strong>{member.user_name || '—'}</strong>
                             </Box>
                           </TableCell>
-                          <TableCell>{member.user.email}</TableCell>
-                          <TableCell>{member.added_by?.name || member.added_by?.email || 'System'}</TableCell>
+                          <TableCell>{member.user_email || '—'}</TableCell>
+                          <TableCell>{member.added_by_name || 'System'}</TableCell>
                           <TableCell>{new Date(member.added_at).toLocaleDateString()}</TableCell>
                           <TableCell>
                             <Chip
                               label="Requisitions"
                               size="small"
-                              color="success"
+                              color={member.can_approve_requisitions ? "success" : "default"}
                               variant="outlined"
                               sx={{ mr: 1 }}
                             />
@@ -802,15 +822,6 @@ export default function Approval() {
           </Box>
         </DialogTitle>
         <DialogContent>
-          {modalAlert && (
-            <Alert
-              sx={{ mb: 2 }}
-              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
-              onClose={() => setModalAlert(null)}
-            >
-              {modalAlert}
-            </Alert>
-          )}
           <Alert severity="info">
             <AlertTitle>Are you sure you want to approve this requisition?</AlertTitle>
             <Typography variant="body2">
@@ -855,15 +866,6 @@ export default function Approval() {
           </Box>
         </DialogTitle>
         <DialogContent>
-          {modalAlert && (
-            <Alert
-              sx={{ mb: 2 }}
-              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
-              onClose={() => setModalAlert(null)}
-            >
-              {modalAlert}
-            </Alert>
-          )}
           <Alert severity="warning">
             <AlertTitle>Are you sure you want to reject this requisition?</AlertTitle>
             <Typography variant="body2" paragraph>
@@ -911,15 +913,6 @@ export default function Approval() {
           </Box>
         </DialogTitle>
         <DialogContent>
-          {modalAlert && (
-            <Alert
-              sx={{ mb: 2 }}
-              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
-              onClose={() => setModalAlert(null)}
-            >
-              {modalAlert}
-            </Alert>
-          )}
           <Alert severity="info" sx={{ mb: 2 }}>
             Select a user to add to the approval board. Only administrators can perform this action.
           </Alert>
@@ -964,21 +957,12 @@ export default function Approval() {
           </Box>
         </DialogTitle>
         <DialogContent>
-          {modalAlert && (
-            <Alert
-              sx={{ mb: 2 }}
-              severity={modalAlert.includes('❌') ? 'error' : modalAlert.includes('⚠') ? 'warning' : 'success'}
-              onClose={() => setModalAlert(null)}
-            >
-              {modalAlert}
-            </Alert>
-          )}
           <Alert severity="warning">
             <AlertTitle>Are you sure you want to remove this user?</AlertTitle>
             <Typography variant="body2">
-              <strong>User:</strong> {selectedBoardMember?.user?.name || selectedBoardMember?.user?.email}
+              <strong>User:</strong> {selectedBoardMember?.user_name || '—'}
               <br />
-              <strong>Email:</strong> {selectedBoardMember?.user?.email}
+              <strong>Email:</strong> {selectedBoardMember?.user_email || '—'}
             </Typography>
             <br />
             <Typography variant="body2">

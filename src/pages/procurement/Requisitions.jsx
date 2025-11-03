@@ -60,7 +60,6 @@ import {
   People as PeopleIcon,
   HowToReg as HowToRegIcon,
 } from '@mui/icons-material';
-import { debounce } from 'lodash';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
 
@@ -72,7 +71,6 @@ const STATUS_COLORS = {
   cancelled: 'warning',
   completed: 'success',
 };
-
 const STATUS_ICONS = {
   draft: <DescriptionIcon color="default" />,
   submitted: <SendIcon color="info" />,
@@ -81,21 +79,18 @@ const STATUS_ICONS = {
   cancelled: <WarningIcon color="warning" />,
   completed: <CheckCircleIcon color="success" />,
 };
-
 const PRIORITY_COLORS = {
   low: 'default',
   medium: 'info',
   high: 'warning',
   urgent: 'error',
 };
-
 const PRIORITY_ICONS = {
   low: <TrendingDownIcon color="default" />,
   medium: <TrendingFlatIcon color="info" />,
   high: <TrendingUpIcon color="warning" />,
   urgent: <TrendingUpIcon color="error" />,
 };
-
 const CURRENCY_OPTIONS = [
   { value: 'NGN', label: 'Nigerian Naira (₦)' },
   { value: 'USD', label: 'US Dollar ($)' },
@@ -126,19 +121,14 @@ function RequisitionRow({
   currentUser,
 }) {
   const [open, setOpen] = useState(false);
-
   const calculateTotalCost = (items) => {
     return items.reduce((total, item) => {
       return total + item.quantity * (item.unit_cost || 0);
     }, 0);
   };
-
   const canCurrentUserApprove = approvalBoard.some(
     (member) => member.user_id === currentUser.id && member.can_approve_requisitions
   );
-
-  // ❌ Removed unused: const currencySymbol = requisition.currency === 'NGN' ? '₦' : '$';
-
   return (
     <>
       <TableRow sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }} onClick={() => setOpen(!open)}>
@@ -425,6 +415,10 @@ export default function Requisitions() {
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
   const prevSearchRef = useRef(search);
+
+  // 🔑 FIX: Use ref to hold debounce timeout
+  const searchTimeoutRef = useRef(null);
+
   const currentUser = {
     id: parseInt(localStorage.getItem('userId')) || null,
     email: localStorage.getItem('userEmail') || '',
@@ -438,20 +432,17 @@ export default function Requisitions() {
   const [deleteId, setDeleteId] = useState(null);
   const [modalMode, setModalMode] = useState('create');
   const [selectedRequisition, setSelectedRequisition] = useState(null);
-
   // Approval modals
   const [approveModalOpen, setApproveModalOpen] = useState(false);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [selectedRequisitionForApproval, setSelectedRequisitionForApproval] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
-
   // Approval board
   const [approvalBoard, setApprovalBoard] = useState([]);
   const [approvalBoardLoading, setApprovalBoardLoading] = useState(false);
   const [approvalBoardModalOpen, setApprovalBoardModalOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
-
   // Form state
   const [formData, setFormData] = useState({
     department: '',
@@ -469,14 +460,27 @@ export default function Requisitions() {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSetSearch = useCallback(
-    debounce((value) => {
+  // 🔑 FIX: Replace debouncedSetSearch with manual timeout handler
+  const handleSearchChange = (value) => {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    // Set new timeout
+    searchTimeoutRef.current = setTimeout(() => {
       setSearch(value);
       setPage(1);
-    }, 500),
-    []
-  );
+    }, 500);
+  };
+
+  // 🔑 FIX: Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Fetch requisitions
   const fetchRequisitions = useCallback(async () => {
@@ -515,10 +519,10 @@ export default function Requisitions() {
   const fetchApprovalBoard = useCallback(async () => {
     try {
       setApprovalBoardLoading(true);
-      const res = await API.get('procurement/requisitions/approval_board/', {
+      const res = await API.get('procurement/approval-board/', {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      setApprovalBoard(res.data?.approval_board_members || []);
+      setApprovalBoard(res.data.results || []);
       setAlert(null);
     } catch (err) {
       console.error('Error fetching approval board:', err.response?.data || err.message);
@@ -660,7 +664,7 @@ export default function Requisitions() {
       priority: requisition.priority,
       currency: requisition.currency,
       items: requisition.items.map((item) => ({
-        item: item.item.id,
+        item: item.item_details?.id || item.item,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
         notes: item.notes,
@@ -715,7 +719,7 @@ export default function Requisitions() {
       const usersToRemove = currentMemberIds.filter((id) => !selectedUsers.includes(id));
       for (const userId of usersToAdd) {
         await API.post('procurement/approval-board/', {
-          user: userId,
+          user_id: userId,
           can_approve_requisitions: true,
           can_approve_purchase_orders: false,
         });
@@ -731,8 +735,15 @@ export default function Requisitions() {
       fetchApprovalBoard();
     } catch (err) {
       let errorMsg = '❌ Failed to update approval board.';
-      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      else errorMsg = err.message || '❌ Network error.';
+      if (err.response?.data?.user_id) {
+        errorMsg = `❌ ${err.response.data.user_id[0]}`;
+      } else if (err.response?.data?.non_field_errors) {
+        errorMsg = `❌ ${err.response.data.non_field_errors[0]}`;
+      } else if (err.response?.data) {
+        errorMsg = JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
       setAlert(errorMsg);
     } finally {
       setLoading(false);
@@ -756,19 +767,23 @@ export default function Requisitions() {
     }
   };
 
-  const handleApprove = async () => {
-    if (!selectedRequisitionForApproval) return;
+  const handleApprove = async (requisitionId) => {
     try {
       setLoading(true);
       setAlert(null);
-      await API.post(`procurement/requisitions/${selectedRequisitionForApproval.id}/approve/`);
+      await API.post(`procurement/requisitions/${requisitionId}/approve/`);
       setAlert('✅ Requisition approved successfully!');
       setApproveModalOpen(false);
       fetchRequisitions();
     } catch (err) {
       let errorMsg = '❌ Failed to approve requisition.';
-      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      else errorMsg = err.message || '❌ Network error.';
+      if (err.response?.data?.error) {
+        errorMsg = `❌ ${err.response.data.error}`;
+      } else if (err.response?.data) {
+        errorMsg = JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
       setAlert(errorMsg);
     } finally {
       setLoading(false);
@@ -783,15 +798,22 @@ export default function Requisitions() {
     try {
       setLoading(true);
       setAlert(null);
-      await API.post(`procurement/requisitions/${selectedRequisitionForApproval.id}/reject/`);
+      await API.post(`procurement/requisitions/${selectedRequisitionForApproval.id}/reject/`, {
+        rejection_reason: rejectionReason,
+      });
       setAlert('✅ Requisition rejected successfully!');
       setRejectModalOpen(false);
       setRejectionReason('');
       fetchRequisitions();
     } catch (err) {
       let errorMsg = '❌ Failed to reject requisition.';
-      if (err.response?.data) errorMsg = err.response.data.detail || JSON.stringify(err.response.data);
-      else errorMsg = err.message || '❌ Network error.';
+      if (err.response?.data?.error) {
+        errorMsg = `❌ ${err.response.data.error}`;
+      } else if (err.response?.data) {
+        errorMsg = JSON.stringify(err.response.data);
+      } else {
+        errorMsg = err.message || '❌ Network error.';
+      }
       setAlert(errorMsg);
     } finally {
       setLoading(false);
@@ -813,8 +835,6 @@ export default function Requisitions() {
         currency: formData.currency,
         items: formData.items,
       };
-
-      // ❌ Removed unused 'response' variable
       if (modalMode === 'create') {
         await API.post('procurement/requisitions/', payload);
         setAlert('✅ Requisition created successfully!');
@@ -822,7 +842,6 @@ export default function Requisitions() {
         await API.patch(`procurement/requisitions/${selectedRequisition.id}/`, payload);
         setAlert('✅ Requisition updated successfully!');
       }
-
       setOpenModal(false);
       fetchRequisitions();
     } catch (err) {
@@ -910,17 +929,16 @@ export default function Requisitions() {
           {alert}
         </Alert>
       )}
-
       <Paper elevation={3} sx={{ p: 4, mt: 4 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
           <Typography variant="h5">Requisitions Management</Typography>
           <Box display="flex" gap={2}>
             {permissions.add_approval_board_member && (
               <Button
-                variant="outlined"
+                variant="contained"
                 startIcon={<PeopleIcon />}
                 onClick={handleOpenApprovalBoardModal}
-                disabled={approvalBoardLoading}
+                disabled={loading}
               >
                 Manage Approval Board
               </Button>
@@ -929,13 +947,12 @@ export default function Requisitions() {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={handleOpenCreateModal}
-              disabled={!permissions.create_requisition}
+              disabled={!permissions.create_requisition || loading}
             >
               Create Requisition
             </Button>
           </Box>
         </Box>
-
         {/* Tutorial */}
         <Accordion expanded={showTutorial} onChange={() => setShowTutorial(!showTutorial)} sx={{ mb: 4 }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -957,7 +974,6 @@ export default function Requisitions() {
             </ul>
           </AccordionDetails>
         </Accordion>
-
         {/* Approval Board Summary */}
         {permissions.view_approval_board && (
           <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
@@ -972,7 +988,13 @@ export default function Requisitions() {
             ) : approvalBoard.length > 0 ? (
               <Box display="flex" flexWrap="wrap" gap={1}>
                 {approvalBoard.map((member) => (
-                  <Chip key={member.id} label={member.user_name || member.user_email} size="small" color="primary" variant="outlined" />
+                  <Chip
+                    key={member.id}
+                    label={member.user_name || member.user_email}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
                 ))}
               </Box>
             ) : (
@@ -982,7 +1004,6 @@ export default function Requisitions() {
             )}
           </Paper>
         )}
-
         <Grid container spacing={2} mb={3}>
           <Grid item xs={12} md={6}>
             <Typography variant="body1" color="text.secondary">
@@ -990,11 +1011,12 @@ export default function Requisitions() {
             </Typography>
           </Grid>
           <Grid item xs={12} md={6} display="flex" justifyContent="flex-end">
+            {/* 🔑 FIX: Use handleSearchChange instead of debouncedSetSearch */}
             <TextField
               size="small"
               placeholder="Search requisitions..."
               value={search}
-              onChange={(e) => debouncedSetSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -1005,10 +1027,8 @@ export default function Requisitions() {
             />
           </Grid>
         </Grid>
-
         <Divider sx={{ my: 3 }} />
         <Typography variant="h6" gutterBottom>My Requisitions</Typography>
-
         {requisitions.length > 0 ? (
           <>
             <TableContainer>
@@ -1046,7 +1066,6 @@ export default function Requisitions() {
                 </TableBody>
               </Table>
             </TableContainer>
-
             {totalPages > 1 && (
               <Box mt={3} display="flex" justifyContent="center">
                 <Pagination count={totalPages} page={page} onChange={(_, value) => setPage(value)} color="primary" />
@@ -1071,6 +1090,8 @@ export default function Requisitions() {
         )}
       </Paper>
 
+      {/* Rest of modals remain unchanged — omitted for brevity but included in full file */}
+      
       {/* Requisition Modal */}
       <Dialog open={openModal} onClose={() => setOpenModal(false)} fullWidth maxWidth="md" PaperProps={{ sx: { minHeight: '80vh' } }}>
         <DialogTitle>
@@ -1278,6 +1299,15 @@ export default function Requisitions() {
           </Box>
         </DialogTitle>
         <DialogContent dividers>
+          {alert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={alert.includes('❌') ? 'error' : alert.includes('⚠️') ? 'warning' : 'success'}
+              onClose={() => setAlert(null)}
+            >
+              {alert}
+            </Alert>
+          )}
           <Typography variant="body2" color="text.secondary" paragraph>
             Select users who can approve requisitions.
           </Typography>
@@ -1314,6 +1344,15 @@ export default function Requisitions() {
           </Box>
         </DialogTitle>
         <DialogContent>
+          {alert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={alert.includes('❌') ? 'error' : alert.includes('⚠️') ? 'warning' : 'success'}
+              onClose={() => setAlert(null)}
+            >
+              {alert}
+            </Alert>
+          )}
           <Alert severity="info">
             <AlertTitle>Approve this requisition?</AlertTitle>
             <Typography variant="body2">
@@ -1328,7 +1367,7 @@ export default function Requisitions() {
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setApproveModalOpen(false)} disabled={loading}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={handleApprove} disabled={loading}>
+          <Button variant="contained" color="success" onClick={() => handleApprove(selectedRequisitionForApproval?.id)} disabled={loading}>
             {loading ? 'Approving...' : 'Approve Requisition'}
           </Button>
         </DialogActions>
@@ -1343,6 +1382,15 @@ export default function Requisitions() {
           </Box>
         </DialogTitle>
         <DialogContent>
+          {alert && (
+            <Alert
+              sx={{ mb: 2 }}
+              severity={alert.includes('❌') ? 'error' : alert.includes('⚠️') ? 'warning' : 'success'}
+              onClose={() => setAlert(null)}
+            >
+              {alert}
+            </Alert>
+          )}
           <Alert severity="warning">
             <AlertTitle>Reject this requisition?</AlertTitle>
             <Typography variant="body2" paragraph>
@@ -1350,7 +1398,7 @@ export default function Requisitions() {
             </Typography>
           </Alert>
           <TextField
-            label="Rejection Reason"
+            label="Rejection Reason *"
             multiline
             minRows={3}
             fullWidth
@@ -1358,11 +1406,12 @@ export default function Requisitions() {
             onChange={(e) => setRejectionReason(e.target.value)}
             placeholder="Explain why this requisition is being rejected..."
             sx={{ mt: 2 }}
+            required
           />
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setRejectModalOpen(false)} disabled={loading}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleReject} disabled={loading}>
+          <Button variant="contained" color="error" onClick={handleReject} disabled={loading || !rejectionReason.trim()}>
             {loading ? 'Rejecting...' : 'Reject Requisition'}
           </Button>
         </DialogActions>
