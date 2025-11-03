@@ -60,7 +60,7 @@ export default function AnalyticsDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [selectedItemId, setSelectedItemId] = useState(null);
+  const [selectedItemId, setSelectedItemId] = useState('');
   const [itemOptions, setItemOptions] = useState([]);
 
   // Load items for selector (Inventory only)
@@ -68,16 +68,20 @@ export default function AnalyticsDashboard() {
     if (activeTab === 'inventory') {
       const loadItems = async () => {
         try {
-          const res = await API.get('inventory/items/', {
+          const response = await API.get('inventory/items/', {
             params: { page_size: 1000 },
             headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
           });
-          setItemOptions(res.data.results || []);
+          setItemOptions(response.data.results || []);
         } catch (err) {
           console.error('Failed to load items:', err);
+          setError('Failed to load items for selection');
         }
       };
       loadItems();
+    } else {
+      setSelectedItemId(''); // Reset when not on inventory tab
+      setItemOptions([]);
     }
   }, [activeTab]);
 
@@ -100,11 +104,11 @@ export default function AnalyticsDashboard() {
         params.item_id = selectedItemId;
       }
 
-      const res = await API.get(`analyticsnew/${activeTab}/`, {
+      const response = await API.get(`analyticsnew/${activeTab}/`, {
         params,
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       });
-      setData(res.data);
+      setData(response.data);
     } catch (err) {
       setError(`Failed to load analytics: ${err.response?.data?.error || err.message}`);
       setData(null);
@@ -124,7 +128,11 @@ export default function AnalyticsDashboard() {
     setEndDate(range.end);
   };
 
-  // ✅ FIXED PDF EXPORT
+  const handleItemChange = (e) => {
+    setSelectedItemId(e.target.value);
+  };
+
+  // PDF Export
   const handleExportPDF = async () => {
     setLoading(true);
     try {
@@ -175,15 +183,13 @@ export default function AnalyticsDashboard() {
   const renderTopTable = () => {
     if (!data) return null;
 
-    let topKey = '', title = '', col1 = '', col2 = '';
+    let topKey = '', title = '';
     if (activeTab === 'inventory') {
       topKey = 'top_active_bins';
       title = 'Top 5 Most Active Bins';
-      col1 = 'Bin ID'; col2 = 'Movements';
     } else if (activeTab === 'procurement') {
       topKey = 'top_vendors';
       title = 'Top 5 Vendors by Order Volume';
-      col1 = 'Vendor'; col2 = 'Orders';
     } else {
       return null;
     }
@@ -204,7 +210,7 @@ export default function AnalyticsDashboard() {
             <Bar
               dataKey={activeTab === 'inventory' ? 'movement_count' : 'order_count'}
               fill="#8884d8"
-              name={col2}
+              name={activeTab === 'inventory' ? 'Movements' : 'Orders'}
             />
           </BarChart>
         </ResponsiveContainer>
@@ -355,8 +361,28 @@ export default function AnalyticsDashboard() {
               fullWidth
             />
           </Grid>
-          
-          <Grid item xs={12} md={3} container justifyContent="flex-end">
+          {activeTab === 'inventory' && (
+            <Grid item xs={12} md={3}>
+              <TextField
+                select
+                label="Select Item"
+                value={selectedItemId}
+                onChange={handleItemChange}
+                fullWidth
+                disabled={itemOptions.length === 0}
+              >
+                <MenuItem value="">
+                  <em>All Items</em>
+                </MenuItem>
+                {itemOptions.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>
+                    {item.name} ({item.material_id || '—'})
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+          )}
+          <Grid item xs={12} md={activeTab === 'inventory' ? 12 : 3} container justifyContent="flex-end">
             <Button variant="contained" onClick={handleExportPDF} disabled={loading}>
               Export PDF
             </Button>
@@ -375,7 +401,6 @@ export default function AnalyticsDashboard() {
         <Tab label="Inventory" value="inventory" />
         <Tab label="Procurement" value="procurement" />
         <Tab label="Unified" value="unified" />
-        {/* ✅ Rentals tab REMOVED */}
       </Tabs>
 
       {/* Loading */}
