@@ -1,4 +1,4 @@
-// src/pages/auth/Signin.jsx
+// src/pages/auth/SignIn.jsx
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, TextField, Button, Link, Paper, InputAdornment, IconButton, CircularProgress, Checkbox, FormControlLabel, Alert } from '@mui/material';
 import { Visibility, VisibilityOff, Lock, Email, VpnKey } from '@mui/icons-material';
@@ -6,9 +6,10 @@ import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import API from '../api';
+import { isTokenExpired, getStoredToken } from '../utils/auth'; // Import token validation utilities
 import logo from '../assets/kenyon_logo-removebg-preview.png';
 
-export default function Signin() {
+export default function SignIn() {
   const theme = useTheme();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
@@ -33,12 +34,19 @@ export default function Signin() {
   const [otpError, setOtpError] = useState('');
 
   useEffect(() => {
+    // Check for remembered email
     const remembered = localStorage.getItem('rememberedEmail');
     if (remembered) {
       setFormData(prev => ({ ...prev, email: remembered }));
       setRememberMe(true);
     }
-  }, []);
+
+    // Check for valid token and redirect to dashboard if authenticated
+    const token = getStoredToken();
+    if (token && !isTokenExpired(token)) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -125,11 +133,7 @@ export default function Signin() {
         localStorage.removeItem('rememberedEmail');
       }
 
-      //const userResponse = await API.get('auth/me/', {
-        //headers: { Authorization: `Bearer ${access}` },
-      //});
-
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setLoginError(
         err.response?.data?.detail ||
@@ -190,11 +194,7 @@ export default function Signin() {
         localStorage.removeItem('rememberedEmail');
       }
 
-      //const userResponse = await API.get('auth/me/', {
-        //headers: { Authorization: `Bearer ${access}` },
-      //});
-
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setOtpError(
         err.response?.data?.detail ||

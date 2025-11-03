@@ -1,20 +1,14 @@
 // src/utils/auth.js
-
-export function isTokenValid() {
-  const token = localStorage.getItem("accessToken");
-  if (!token) return false;
-
+export const isTokenExpired = (token) => {
+  if (!token) return true;
   try {
-    const [, payloadBase64] = token.split(".");
-    const payload = JSON.parse(atob(payloadBase64));
-    const expiry = payload.exp;
-
-    if (!expiry) return false;
-
-    const now = Math.floor(Date.now() / 1000);
-    return expiry > now;
-  } catch (error) {
-    console.error("Invalid JWT:", error);
-    return false;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp * 1000 < Date.now();
+  } catch (e) {
+    return true;
   }
-}
+};
+
+export const getStoredToken = () => {
+  return localStorage.getItem('accessToken');
+};
