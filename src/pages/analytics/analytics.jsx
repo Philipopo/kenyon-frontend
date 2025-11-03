@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -17,25 +17,12 @@ import {
   Divider,
 } from '@mui/material';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
 import API from '../../api';
 
-/* ------------------------------------------------------------------ */
-/*  CONSTANTS & HELPERS                                               */
-/* ------------------------------------------------------------------ */
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
-
 const QUICK_RANGES = [
   { label: 'Today', value: 'today' },
   { label: 'Last 7 Days', value: '7d' },
@@ -49,36 +36,22 @@ const formatDate = (date) => date.toISOString().split('T')[0];
 
 const getQuickDateRange = (preset) => {
   const today = new Date();
-  const start = new Date(today);
-
+  const start = new Date();
   switch (preset) {
-    case 'today':
-      return { start: formatDate(today), end: formatDate(today) };
-    case '7d':
-      start.setDate(today.getDate() - 6);
-      return { start: formatDate(start), end: formatDate(today) };
-    case '30d':
-      start.setDate(today.getDate() - 29);
-      return { start: formatDate(start), end: formatDate(today) };
-    case 'month':
-      start.setDate(1);
-      return { start: formatDate(start), end: formatDate(today) };
+    case 'today': return { start: formatDate(today), end: formatDate(today) };
+    case '7d': start.setDate(today.getDate() - 6); return { start: formatDate(start), end: formatDate(today) };
+    case '30d': start.setDate(today.getDate() - 29); return { start: formatDate(start), end: formatDate(today) };
+    case 'month': start.setDate(1); return { start: formatDate(start), end: formatDate(today) };
     case 'quarter': {
       const quarter = Math.floor(today.getMonth() / 3);
       start.setMonth(quarter * 3, 1);
       return { start: formatDate(start), end: formatDate(today) };
     }
-    case 'ytd':
-      start.setMonth(0, 1);
-      return { start: formatDate(start), end: formatDate(today) };
-    default:
-      return { start: '', end: '' };
+    case 'ytd': start.setMonth(0, 1); return { start: formatDate(start), end: formatDate(today) };
+    default: return { start: '', end: '' };
   }
 };
 
-/* ------------------------------------------------------------------ */
-/*  MAIN COMPONENT                                                    */
-/* ------------------------------------------------------------------ */
 export default function AnalyticsDashboard() {
   const [activeTab, setActiveTab] = useState('inventory');
   const [startDate, setStartDate] = useState('');
@@ -90,46 +63,39 @@ export default function AnalyticsDashboard() {
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [itemOptions, setItemOptions] = useState([]);
 
-  /* ----------------------- LOAD ITEMS (Inventory tab) ----------------------- */
+  // Load items for selector (Inventory only)
   useEffect(() => {
-    if (activeTab !== 'inventory') {
-      setItemOptions([]);
-      setSelectedItemId(null);
-      return;
+    if (activeTab === 'inventory') {
+      const loadItems = async () => {
+        try {
+          const res = await API.get('inventory/items/', {
+            params: { page_size: 1000 },
+            headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+          });
+          setItemOptions(res.data.results || []);
+        } catch (err) {
+          console.error('Failed to load items:', err);
+        }
+      };
+      loadItems();
     }
-
-    const loadItems = async () => {
-      try {
-        const res = await API.get('inventory/items/', {
-          params: { page_size: 1000 },
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        });
-        setItemOptions(res.data.results || []);
-      } catch (err) {
-        console.error('Failed to load items:', err);
-      }
-    };
-    loadItems();
   }, [activeTab]);
 
-  /* ----------------------- INITIAL DATE RANGE ----------------------- */
+  // Initialize date range
   useEffect(() => {
-    const { start, end } = getQuickDateRange(quickRange);
-    setStartDate(start);
-    setEndDate(end);
+    const range = getQuickDateRange(quickRange);
+    setStartDate(range.start);
+    setEndDate(range.end);
   }, [quickRange]);
 
-  /* ----------------------- FETCH ANALYTICS ----------------------- */
+  // Fetch analytics data
   const fetchData = useCallback(async () => {
     if (!startDate || !endDate) return;
 
     setLoading(true);
     setError('');
     try {
-      const params = {
-        start_date: startDate,
-        end_date: endDate,
-      };
+      const params = { start_date: startDate, end_date: endDate };
       if (activeTab === 'inventory' && selectedItemId) {
         params.item_id = selectedItemId;
       }
@@ -140,8 +106,7 @@ export default function AnalyticsDashboard() {
       });
       setData(res.data);
     } catch (err) {
-      const msg = err.response?.data?.error || err.message || 'Unknown error';
-      setError(`Failed to load analytics: ${msg}`);
+      setError(`Failed to load analytics: ${err.response?.data?.error || err.message}`);
       setData(null);
     } finally {
       setLoading(false);
@@ -152,89 +117,73 @@ export default function AnalyticsDashboard() {
     fetchData();
   }, [fetchData]);
 
-  /* ----------------------- QUICK RANGE HANDLER ----------------------- */
   const handleQuickRangeChange = (e) => {
-    const value = e.target.value;
-    setQuickRange(value);
-    const { start, end } = getQuickDateRange(value);
-    setStartDate(start);
-    setEndDate(end);
+    setQuickRange(e.target.value);
+    const range = getQuickDateRange(e.target.value);
+    setStartDate(range.start);
+    setEndDate(range.end);
   };
 
-  /* ----------------------- PDF EXPORT ----------------------- */
+  // ✅ FIXED PDF EXPORT
   const handleExportPDF = async () => {
     setLoading(true);
     try {
-      const params = {
-        tab: activeTab,
-        start_date: startDate,
-        end_date: endDate,
-      };
-      if (selectedItemId) params.item_id = selectedItemId;
-
       const response = await API.get('analyticsnew/export-pdf/', {
-        params,
+        params: {
+          tab: activeTab,
+          start_date: startDate,
+          end_date: endDate,
+          ...(selectedItemId && { item_id: selectedItemId })
+        },
         responseType: 'blob',
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
       });
 
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Analytics_${activeTab}_${startDate}_to_${endDate}.pdf`;
+      link.setAttribute('download', `Analytics_${activeTab}_${startDate}_to_${endDate}.pdf`);
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      const msg = err.response?.data?.error || err.message || 'Unknown error';
-      setError(`Failed to export PDF: ${msg}`);
+      setError(`Failed to export PDF: ${err.response?.data?.error || err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  /* ----------------------- KPI CARDS ----------------------- */
-  const kpiCards = useMemo(() => {
+  const renderKPIs = () => {
     if (!data?.metrics) return null;
     return Object.entries(data.metrics).map(([key, value]) => (
       <Grid item xs={12} sm={6} md={4} lg={3} key={key}>
         <Card variant="outlined">
           <CardContent>
             <Typography variant="body2" color="textSecondary">
-              {key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+              {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
             </Typography>
             <Typography variant="h6">
-              {typeof value === 'number' ? value.toLocaleString() : String(value)}
+              {typeof value === 'number' ? value.toLocaleString() : value}
             </Typography>
           </CardContent>
         </Card>
       </Grid>
     ));
-  }, [data?.metrics]);
+  };
 
-  /* ----------------------- TOP TABLE (Bar) ----------------------- */
-  const topTable = useMemo(() => {
+  const renderTopTable = () => {
     if (!data) return null;
 
-    let topKey = '';
-    let title = '';
-    let dataKeyX = '';
-    let dataKeyBar = '';
-    let barName = '';
-
+    let topKey = '', title = '', col1 = '', col2 = '';
     if (activeTab === 'inventory') {
       topKey = 'top_active_bins';
       title = 'Top 5 Most Active Bins';
-      dataKeyX = 'bin_id';
-      dataKeyBar = 'movement_count';
-      barName = 'Movements';
+      col1 = 'Bin ID'; col2 = 'Movements';
     } else if (activeTab === 'procurement') {
       topKey = 'top_vendors';
       title = 'Top 5 Vendors by Order Volume';
-      dataKeyX = 'name';
-      dataKeyBar = 'order_count';
-      barName = 'Orders';
+      col1 = 'Vendor'; col2 = 'Orders';
     } else {
       return null;
     }
@@ -248,19 +197,22 @@ export default function AnalyticsDashboard() {
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={items}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey={dataKeyX} />
+            <XAxis dataKey={activeTab === 'inventory' ? 'bin_id' : 'name'} />
             <YAxis />
             <Tooltip />
             <Legend />
-            <Bar dataKey={dataKeyBar} fill="#8884d8" name={barName} />
+            <Bar
+              dataKey={activeTab === 'inventory' ? 'movement_count' : 'order_count'}
+              fill="#8884d8"
+              name={col2}
+            />
           </BarChart>
         </ResponsiveContainer>
       </Paper>
     );
-  }, [data, activeTab]);
+  };
 
-  /* ----------------------- TIME-SERIES CHART ----------------------- */
-  const timeSeriesChart = useMemo(() => {
+  const renderTimeSeriesChart = () => {
     if (!data?.chart_data) return null;
     return (
       <Paper sx={{ p: 2, mt: 3 }}>
@@ -280,10 +232,9 @@ export default function AnalyticsDashboard() {
         </ResponsiveContainer>
       </Paper>
     );
-  }, [data?.chart_data, selectedItemId]);
+  };
 
-  /* ----------------------- ITEM DISTRIBUTION PIE ----------------------- */
-  const itemDistributionPie = useMemo(() => {
+  const renderItemDistributionPie = () => {
     if (!data?.item_distribution || selectedItemId) return null;
     return (
       <Paper sx={{ p: 2, mt: 3 }}>
@@ -296,10 +247,11 @@ export default function AnalyticsDashboard() {
               cy="50%"
               labelLine={false}
               outerRadius={80}
+              fill="#8884d8"
               dataKey="value"
               label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
             >
-              {data.item_distribution.map((_, index) => (
+              {data.item_distribution.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
               ))}
             </Pie>
@@ -308,18 +260,16 @@ export default function AnalyticsDashboard() {
         </ResponsiveContainer>
       </Paper>
     );
-  }, [data?.item_distribution, selectedItemId]);
+  };
 
-  /* ----------------------- UNIFIED CHARTS ----------------------- */
-  const unifiedCharts = useMemo(() => {
+  const renderUnifiedCharts = () => {
     if (activeTab !== 'unified' || !data) return null;
     const metrics = data.metrics || {};
-
     const pieData = [
       { name: 'Stock Inflow', value: metrics.stock_inflow || 0 },
       { name: 'Procurement Spend', value: metrics.procurement_spend || 0 },
       { name: 'Rental Revenue', value: metrics.rental_revenue || 0 },
-    ].filter((i) => i.value > 0);
+    ].filter(item => item.value > 0);
 
     return (
       <Grid container spacing={3} mt={2}>
@@ -334,10 +284,11 @@ export default function AnalyticsDashboard() {
                   cy="50%"
                   labelLine={false}
                   outerRadius={80}
+                  fill="#8884d8"
                   dataKey="value"
                   label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
                 >
-                  {pieData.map((_, index) => (
+                  {pieData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
@@ -346,40 +297,27 @@ export default function AnalyticsDashboard() {
             </ResponsiveContainer>
           </Paper>
         </Grid>
-
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>Net Operational Flow</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-              <Typography
-                variant="h4"
-                color={(metrics.net_operational_flow || 0) >= 0 ? 'success.main' : 'error.main'}
-              >
-                {(metrics.net_operational_flow || 0).toLocaleString()}
+              <Typography variant="h4" color={metrics.net_operational_flow >= 0 ? 'success.main' : 'error.main'}>
+                {metrics.net_operational_flow?.toLocaleString() || '0'}
               </Typography>
             </Box>
           </Paper>
         </Grid>
       </Grid>
     );
-  }, [activeTab, data]);
+  };
 
-  /* ------------------------------------------------------------------ */
-  /*  RENDER                                                            */
-  /* ------------------------------------------------------------------ */
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-      <Typography variant="h4" gutterBottom>
-        Analytics Dashboard
-      </Typography>
+      <Typography variant="h4" gutterBottom>Analytics Dashboard</Typography>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {/* -------------------- CONTROLS -------------------- */}
+      {/* Controls */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={3}>
@@ -390,14 +328,13 @@ export default function AnalyticsDashboard() {
               onChange={handleQuickRangeChange}
               fullWidth
             >
-              {QUICK_RANGES.map((r) => (
-                <MenuItem key={r.value} value={r.value}>
-                  {r.label}
+              {QUICK_RANGES.map((range) => (
+                <MenuItem key={range.value} value={range.value}>
+                  {range.label}
                 </MenuItem>
               ))}
             </TextField>
           </Grid>
-
           <Grid item xs={12} md={3}>
             <TextField
               label="Start Date"
@@ -408,7 +345,6 @@ export default function AnalyticsDashboard() {
               fullWidth
             />
           </Grid>
-
           <Grid item xs={12} md={3}>
             <TextField
               label="End Date"
@@ -419,75 +355,50 @@ export default function AnalyticsDashboard() {
               fullWidth
             />
           </Grid>
-
-          {activeTab === 'inventory' && (
-            <Grid item xs={12} md={3}>
-              <TextField
-                select
-                label="Item (optional)"
-                value={selectedItemId || ''}
-                onChange={(e) => setSelectedItemId(e.target.value || null)}
-                fullWidth
-              >
-                <MenuItem value="">All Items</MenuItem>
-                {itemOptions.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
-                    {item.name || item.id}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-          )}
-
-          <Grid item xs={12} md={activeTab === 'inventory' ? 12 : 3}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleExportPDF}
-              disabled={loading || !data}
-              fullWidth
-            >
+          
+          <Grid item xs={12} md={3} container justifyContent="flex-end">
+            <Button variant="contained" onClick={handleExportPDF} disabled={loading}>
               Export PDF
             </Button>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* -------------------- TABS -------------------- */}
+      {/* Tabs */}
       <Tabs
         value={activeTab}
-        onChange={(_, v) => setActiveTab(v)}
+        onChange={(e, newValue) => setActiveTab(newValue)}
         sx={{ mb: 3 }}
+        textColor="primary"
+        indicatorColor="primary"
       >
         <Tab label="Inventory" value="inventory" />
         <Tab label="Procurement" value="procurement" />
         <Tab label="Unified" value="unified" />
+        {/* ✅ Rentals tab REMOVED */}
       </Tabs>
 
-      {/* -------------------- LOADING -------------------- */}
+      {/* Loading */}
       {loading && (
         <Box display="flex" justifyContent="center" my={4}>
           <CircularProgress />
         </Box>
       )}
 
-      {/* -------------------- CONTENT -------------------- */}
+      {/* Content */}
       {!loading && data && (
         <Box>
           <Grid container spacing={2}>
-            {kpiCards}
+            {renderKPIs()}
           </Grid>
-
           <Divider sx={{ my: 3 }} />
-
-          {activeTab !== 'unified' && topTable}
-          {timeSeriesChart}
-          {itemDistributionPie}
-          {unifiedCharts}
+          {activeTab !== 'unified' && renderTopTable()}
+          {renderTimeSeriesChart()}
+          {renderItemDistributionPie()}
+          {renderUnifiedCharts()}
         </Box>
       )}
 
-      {/* -------------------- EMPTY STATE -------------------- */}
       {!loading && !data && !error && (
         <Alert severity="info">Select a date range to view analytics.</Alert>
       )}

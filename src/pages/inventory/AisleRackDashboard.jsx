@@ -4,7 +4,7 @@ import {
   TableContainer, Box, Alert, Pagination, TextField, Button,
   Dialog, DialogTitle, DialogContent, DialogActions, Grid, Card, CardContent,
   LinearProgress, Chip, FormControl, InputLabel, Select, MenuItem,
-  Accordion, AccordionSummary, AccordionDetails, Tab, Tabs, IconButton, Divider
+  Accordion, AccordionSummary, AccordionDetails, Tab, Tabs, IconButton, Divider, List, ListItem, ListItemText
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -18,15 +18,14 @@ import {
   Analytics as AnalyticsIcon,
   Info as InfoIcon,
   Close as CloseIcon,
-  Visibility as VisibilityIcon
+  Visibility as VisibilityIcon,
+  ArrowForward as ArrowForwardIcon
 } from '@mui/icons-material';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
-
 // Register ChartJS components
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
-
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 // Tab Panel Component
@@ -53,6 +52,7 @@ export default function AisleRackDashboard() {
   const [tabValue, setTabValue] = useState(0);
   const [openDialog, setOpenDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteMode, setDeleteMode] = useState('confirm'); // 'confirm', 'move', 'delete'
   const [selectedItem, setSelectedItem] = useState(null);
   const [formData, setFormData] = useState({
     name: '', code: '', description: '', address: '', city: '', state: '', country: 'Nigeria', capacity: '', is_active: true
@@ -61,7 +61,6 @@ export default function AisleRackDashboard() {
   const { searchTerm, setSearchTerm } = useSearch();
   const itemsPerPage = 10;
   const prevSearchTermRef = useRef(searchTerm);
-
   // Bin management states
   const [binDialog, setBinDialog] = useState(false);
   const [binFormData, setBinFormData] = useState({
@@ -73,6 +72,7 @@ export default function AisleRackDashboard() {
   const [selectedWarehouseBins, setSelectedWarehouseBins] = useState([]);
   const [modalError, setModalError] = useState('');
   const [modalSuccess, setModalSuccess] = useState('');
+  const [targetWarehouse, setTargetWarehouse] = useState('');
 
   // Search handler
   const handleSearch = useCallback((value) => {
@@ -88,7 +88,6 @@ export default function AisleRackDashboard() {
         setError('⚠️ No authentication token found. Please log in.');
         return;
       }
-
       const [binsRes, warehousesRes, analyticsRes] = await Promise.all([
         API.get('/inventory/bins/', {
           params: { search: searchTerm, page, page_size: itemsPerPage },
@@ -101,7 +100,6 @@ export default function AisleRackDashboard() {
           headers: { Authorization: `Bearer ${token}` },
         })
       ]);
-
       setBins(binsRes.data.results || []);
       setTotalPages(Math.ceil(binsRes.data.count / itemsPerPage));
       setWarehouses(warehousesRes.data.results || warehousesRes.data || []);
@@ -144,19 +142,16 @@ export default function AisleRackDashboard() {
           setCheckingPermissions(false);
           return;
         }
-
         const [pageRes, updateRes, deleteRes, createBinRes] = await Promise.all([
           API.get('/auth/permissions/page/aisle_rack_dashboard/'),
           API.get('/auth/permissions/action/update_warehouse/'),
           API.get('/auth/permissions/action/delete_warehouse/'),
           API.get('/auth/permissions/action/create_storage_bin/')
         ]);
-
         setHasPermission(pageRes.data.allowed || false);
         setHasUpdatePermission(updateRes.data.allowed || false);
         setHasDeletePermission(deleteRes.data.allowed || false);
         setHasCreateBinPermission(createBinRes.data.allowed || false);
-
         if (!pageRes.data.allowed) {
           setError(`⚠️ You do not have permission to view this page: ${pageRes.data.reason || 'No reason provided'}`);
         } else {
@@ -223,22 +218,18 @@ export default function AisleRackDashboard() {
 
   const handleFormSubmit = async () => {
     const { name, code, description, address, city, state, country, capacity, is_active } = formData;
-    
     if (!name || !code || !capacity) {
       setError('⚠️ Please fill in all required fields (Name, Code, Capacity).');
       return;
     }
-
     if (Number(capacity) <= 0) {
       setError('⚠️ Capacity must be a positive number.');
       return;
     }
-
     try {
       const payload = {
         name, code, description, address, city, state, country, capacity: Number(capacity), is_active
       };
-
       if (selectedItem) {
         await API.patch(`/inventory/warehouses/${selectedItem.id}/`, payload);
         setSuccess('✅ Warehouse updated successfully');
@@ -246,16 +237,21 @@ export default function AisleRackDashboard() {
         await API.post('/inventory/warehouses/', payload);
         setSuccess('✅ Warehouse created successfully');
       }
-
       fetchData();
       handleCloseDialog();
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || 
-                      err.response?.data?.name || 
-                      err.response?.data?.code || 
-                      err.response?.data?.capacity || 
-                      err.message || 
-                      'Failed to save warehouse';
+      let errorMsg = 'Failed to save warehouse';
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMsg = err.response.data;
+        } else {
+          errorMsg = Object.entries(err.response.data)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
+        }
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
       setError(`❌ ${selectedItem ? 'Update' : 'Create'} failed: ${errorMsg}`);
     }
   };
@@ -263,22 +259,100 @@ export default function AisleRackDashboard() {
   const handleDeleteOpen = (warehouse) => {
     setSelectedItem(warehouse);
     setDeleteDialog(true);
+    setDeleteMode('confirm');
+    setTargetWarehouse('');
   };
 
   const handleDeleteClose = () => {
     setDeleteDialog(false);
     setSelectedItem(null);
+    setDeleteMode('confirm');
   };
 
-  const handleDelete = async () => {
+  const handleShowMoveOptions = async () => {
+    // Already have bins in selectedItem.bins? If not, fetch
+    if (!selectedItem.bins || selectedItem.bins.length === 0) {
+      try {
+        const token = localStorage.getItem('accessToken');
+        const res = await API.get(`/inventory/warehouses/${selectedItem.id}/bins/`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setSelectedItem(prev => ({ ...prev, bins: res.data }));
+      } catch (err) {
+        setError(`❌ Failed to fetch bins: ${err.response?.data?.detail || err.message}`);
+        return;
+      }
+    }
+    setDeleteMode('move');
+  };
+
+  const handleMoveBins = async () => {
+    if (!targetWarehouse) {
+      setError('⚠️ Please select a target warehouse.');
+      return;
+    }
     try {
-      await API.delete(`/inventory/warehouses/${selectedItem.id}/`);
-      setSuccess('✅ Warehouse deleted successfully');
+      const token = localStorage.getItem('accessToken');
+      // In your backend, you'll need a bulk move endpoint
+      // For now, we simulate by moving one by one (not ideal, but works for demo)
+      for (const bin of selectedItem.bins) {
+        await API.post(`/inventory/bins/${bin.id}/move-to-warehouse/`, 
+          { warehouse_id: targetWarehouse },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+      setSuccess(`✅ Moved ${selectedItem.bins.length} bins to selected warehouse`);
+      // Now delete the warehouse
+      await API.delete(`/inventory/warehouses/${selectedItem.id}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuccess(prev => prev + ' and deleted warehouse');
       handleDeleteClose();
       fetchData();
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to delete warehouse';
-      setError(`❌ Delete failed: ${errorMsg}`);
+      let errorMsg = 'Failed to move bins';
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMsg = err.response.data;
+        } else {
+          errorMsg = Object.entries(err.response.data)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
+        }
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      setError(`❌ ${errorMsg}`);
+    }
+  };
+
+  const handleDeleteWithBins = async () => {
+    // Confirm again
+    if (!window.confirm(`Are you absolutely sure you want to DELETE warehouse "${selectedItem.name}" AND ALL ${selectedItem.bins?.length || 0} bins inside it? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('accessToken');
+      await API.delete(`/inventory/warehouses/${selectedItem.id}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuccess('✅ Warehouse and all bins deleted successfully');
+      handleDeleteClose();
+      fetchData();
+    } catch (err) {
+      let errorMsg = 'Failed to delete warehouse';
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMsg = err.response.data;
+        } else {
+          errorMsg = Object.entries(err.response.data)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
+        }
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      setError(`❌ ${errorMsg}`);
     }
   };
 
@@ -329,12 +403,10 @@ export default function AisleRackDashboard() {
       setModalError('⚠️ Capacity must be a positive number.');
       return;
     }
-
     try {
       const payload = {
         bin_id, row, rack, shelf, type, capacity: Number(capacity)
       };
-
       const token = localStorage.getItem('accessToken');
       if (selectedItem) {
         await API.patch(`/inventory/bins/${selectedItem.id}/`, payload, {
@@ -347,7 +419,6 @@ export default function AisleRackDashboard() {
         });
         setModalSuccess('✅ Bin added to warehouse successfully');
       }
-
       fetchData();
       fetchWarehouseBins(selectedWarehouseId);
       setTimeout(() => {
@@ -357,19 +428,12 @@ export default function AisleRackDashboard() {
     } catch (err) {
       let errorMsg = 'Failed to save bin';
       if (err.response?.data) {
-        const data = err.response.data;
-        if (data.bin_id) {
-          errorMsg = `Bin ID error: ${Array.isArray(data.bin_id) ? data.bin_id[0] : data.bin_id}`;
-        } else if (data.location) {
-          errorMsg = `Location error: ${Array.isArray(data.location) ? data.location[0] : data.location}`;
-        } else if (data.warehouse) {
-          errorMsg = `Warehouse error: ${Array.isArray(data.warehouse) ? data.warehouse[0] : data.warehouse}`;
-        } else if (data.detail) {
-          errorMsg = data.detail;
-        } else if (data.capacity) {
-          errorMsg = `Capacity error: ${Array.isArray(data.capacity) ? data.capacity[0] : data.capacity}`;
+        if (typeof err.response.data === 'string') {
+          errorMsg = err.response.data;
         } else {
-          errorMsg = JSON.stringify(data);
+          errorMsg = Object.entries(err.response.data)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
         }
       } else if (err.message) {
         errorMsg = err.message;
@@ -387,8 +451,19 @@ export default function AisleRackDashboard() {
       setSuccess('✅ Bin removed from warehouse');
       fetchWarehouseBins(selectedWarehouseId);
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to remove bin';
-      setError(`❌ Remove failed: ${errorMsg}`);
+      let errorMsg = 'Failed to remove bin';
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMsg = err.response.data;
+        } else {
+          errorMsg = Object.entries(err.response.data)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
+        }
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      setError(`❌ ${errorMsg}`);
     }
   };
 
@@ -403,7 +478,18 @@ export default function AisleRackDashboard() {
       setSelectedWarehouseId(warehouse.id); // Set for bin actions
       setBinViewModal(true);
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to fetch bins';
+      let errorMsg = 'Failed to fetch bins';
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMsg = err.response.data;
+        } else {
+          errorMsg = Object.entries(err.response.data)
+            .map(([field, msg]) => `${field}: ${Array.isArray(msg) ? msg.join(', ') : msg}`)
+            .join('; ');
+        }
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
       setError(`❌ ${errorMsg}`);
     }
   };
@@ -427,7 +513,6 @@ export default function AisleRackDashboard() {
 
   const getBinDistributionData = () => {
     if (!analyticsData) return null;
-    
     return {
       labels: ['Empty', 'Low Usage (<20%)', 'Medium Usage (20-80%)', 'High Usage (≥80%)'],
       datasets: [{
@@ -452,7 +537,6 @@ export default function AisleRackDashboard() {
   if (checkingPermissions) {
     return <Container><Typography>Loading permissions...</Typography></Container>;
   }
-
   if (!hasPermission) {
     return <Container><Alert severity="error">{error}</Alert></Container>;
   }
@@ -461,7 +545,6 @@ export default function AisleRackDashboard() {
     <Container maxWidth="xl" sx={{ mt: 4 }}>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-
       <Paper elevation={3} sx={{ p: 4 }}>
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
@@ -475,7 +558,6 @@ export default function AisleRackDashboard() {
             </Typography>
           </Box>
         </Box>
-
         {/* Tutorial Accordion */}
         <Accordion sx={{ mb: 3 }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -489,7 +571,6 @@ export default function AisleRackDashboard() {
               <strong>Welcome to the Warehouse Management Dashboard! 🏭</strong> This powerful tool helps you manage 
               multiple warehouses, track storage utilization, and optimize your inventory space.
             </Typography>
-
             <Typography variant="h6" gutterBottom>Key Features:</Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
@@ -509,16 +590,14 @@ export default function AisleRackDashboard() {
                 </ul>
               </Grid>
             </Grid>
-
             <Alert severity="info" sx={{ mt: 2 }}>
               <strong>Pro Tip:</strong> Use the analytics tab to identify underutilized space and optimize 
               your warehouse layout for maximum efficiency.
             </Alert>
           </AccordionDetails>
         </Accordion>
-
         {/* Tabs */}
-        <Paper sx={{ width: '100%', mb: 3 }}>
+        <Paper sx={{ width: '100', mb: 3 }}>
           <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
             <Tab label="Dashboard Overview" icon={<AnalyticsIcon />} />
             <Tab label="Warehouse Management" icon={<WarehouseIcon />} />
@@ -526,7 +605,6 @@ export default function AisleRackDashboard() {
             <Tab label="Analytics" icon={<BarChartIcon />} />
           </Tabs>
         </Paper>
-
         {/* Tab 1: Dashboard Overview */}
         <TabPanel value={tabValue} index={0}>
           <Grid container spacing={3}>
@@ -568,7 +646,6 @@ export default function AisleRackDashboard() {
                 </CardContent>
               </Card>
             </Grid>
-
             {/* Quick Actions */}
             <Grid item xs={12}>
               <Card>
@@ -590,7 +667,6 @@ export default function AisleRackDashboard() {
             </Grid>
           </Grid>
         </TabPanel>
-
         {/* Tab 2: Warehouse Management */}
         <TabPanel value={tabValue} index={1}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, alignItems: 'center' }}>
@@ -611,7 +687,6 @@ export default function AisleRackDashboard() {
               </Button>
             </Box>
           </Box>
-
           <Grid container spacing={3}>
             {filteredWarehouses.map(warehouse => (
               <Grid item xs={12} key={warehouse.id}>
@@ -625,7 +700,9 @@ export default function AisleRackDashboard() {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
                       <Box>
                         <Typography variant="h6" fontWeight="bold">{warehouse.name}</Typography>
-                        <Typography color="textSecondary" sx={{ fontSize: '0.9rem' }}>{warehouse.code}</Typography>
+                        <Typography color="textSecondary" sx={{ fontSize: '0.9rem' }}>
+                          {warehouse.code} • UID: {warehouse.warehouse_uid || '—'}
+                        </Typography>
                       </Box>
                       <Chip 
                         label={warehouse.is_active ? 'Active' : 'Inactive'} 
@@ -634,11 +711,9 @@ export default function AisleRackDashboard() {
                         sx={{ fontWeight: 'bold' }}
                       />
                     </Box>
-
                     <Typography variant="body2" paragraph sx={{ color: 'text.secondary' }}>
                       {warehouse.description || 'No description provided'}
                     </Typography>
-
                     <Box sx={{ mb: 2 }}>
                       <Typography variant="body2" gutterBottom sx={{ fontWeight: 'medium' }}>
                         Capacity Usage: {warehouse.used_capacity || 0} / {warehouse.capacity} 
@@ -651,7 +726,6 @@ export default function AisleRackDashboard() {
                         sx={{ height: 8, borderRadius: 4 }}
                       />
                     </Box>
-
                     <Grid container spacing={1} sx={{ mb: 2 }}>
                       <Grid item xs={12}>
                         <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center' }}>
@@ -669,9 +743,7 @@ export default function AisleRackDashboard() {
                         </Typography>
                       </Grid>
                     </Grid>
-
                     <Divider sx={{ my: 2 }} />
-
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                       <Button 
                         size="small" 
@@ -687,7 +759,7 @@ export default function AisleRackDashboard() {
                         color="error" 
                         startIcon={<DeleteIcon />}
                         onClick={() => handleDeleteOpen(warehouse)}
-                        disabled={!hasDeletePermission || (warehouse.total_bins || 0) > 0}
+                        disabled={!hasDeletePermission}
                         variant="outlined"
                       >
                         Delete
@@ -719,7 +791,6 @@ export default function AisleRackDashboard() {
             ))}
           </Grid>
         </TabPanel>
-
         {/* Tab 3: Bin Locations */}
         <TabPanel value={tabValue} index={2}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
@@ -734,7 +805,6 @@ export default function AisleRackDashboard() {
               }}
             />
           </Box>
-
           <TableContainer>
             <Table>
               <TableHead>
@@ -752,7 +822,7 @@ export default function AisleRackDashboard() {
                 {bins.map(bin => (
                   <TableRow key={bin.id}>
                     <TableCell>{bin.bin_id}</TableCell>
-                    <TableCell>{bin.warehouse_name || '—'}</TableCell>
+                    <TableCell>{bin.warehouse_name || '—'} (UID: {bin.warehouse?.warehouse_uid || '—'})</TableCell>
                     <TableCell>Row {bin.row}, Rack {bin.rack}{bin.shelf && `, Shelf ${bin.shelf}`}</TableCell>
                     <TableCell>{bin.type}</TableCell>
                     <TableCell>{bin.current_load || 0}/{bin.capacity}</TableCell>
@@ -784,7 +854,6 @@ export default function AisleRackDashboard() {
               </TableBody>
             </Table>
           </TableContainer>
-
           <Pagination
             count={totalPages}
             page={page}
@@ -792,11 +861,9 @@ export default function AisleRackDashboard() {
             sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}
           />
         </TabPanel>
-
         {/* Tab 4: Analytics */}
         <TabPanel value={tabValue} index={3}>
           <Typography variant="h5" gutterBottom>Warehouse Analytics</Typography>
-          
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
               <Card>
@@ -810,7 +877,6 @@ export default function AisleRackDashboard() {
                 </CardContent>
               </Card>
             </Grid>
-
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
@@ -955,7 +1021,6 @@ export default function AisleRackDashboard() {
         <DialogContent>
           {modalError && <Alert severity="error" sx={{ mb: 2 }}>{modalError}</Alert>}
           {modalSuccess && <Alert severity="success" sx={{ mb: 2 }}>{modalSuccess}</Alert>}
-          
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <TextField
@@ -1119,29 +1184,141 @@ export default function AisleRackDashboard() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialog} onClose={handleDeleteClose}>
-        <DialogTitle>Confirm Delete</DialogTitle>
+      <Dialog open={deleteDialog} onClose={handleDeleteClose} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          {deleteMode === 'confirm' 
+            ? `Delete Warehouse: ${selectedItem?.name}`
+            : deleteMode === 'move'
+            ? 'Move Bins to Another Warehouse'
+            : 'Confirm Deletion with Bins'}
+        </DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to delete the warehouse "{selectedItem?.name}"? 
-            This action cannot be undone.
-          </Typography>
-          {selectedItem?.total_bins > 0 && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              Cannot delete warehouse that contains bins. Please reassign or delete the bins first.
+          {deleteMode === 'confirm' && (
+            <>
+              <Typography gutterBottom>
+                Are you sure you want to delete warehouse <strong>"{selectedItem?.name}"</strong>?
+              </Typography>
+              {selectedItem?.total_bins > 0 ? (
+                <>
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    This warehouse contains <strong>{selectedItem.total_bins}</strong> bin(s). 
+                    You must either move them or delete them along with the warehouse.
+                  </Alert>
+                  <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                    <Button 
+                      variant="outlined" 
+                      color="primary"
+                      startIcon={<ArrowForwardIcon />}
+                      onClick={handleShowMoveOptions}
+                    >
+                      Move Bins
+                    </Button>
+                    <Button 
+                      variant="outlined" 
+                      color="error"
+                      onClick={() => setDeleteMode('delete')}
+                    >
+                      Delete Warehouse & Bins
+                    </Button>
+                  </Box>
+                </>
+              ) : (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  This warehouse is empty. You can safely delete it.
+                </Alert>
+              )}
+            </>
+          )}
+
+          {deleteMode === 'move' && (
+            <>
+              <Typography gutterBottom>
+                Select a target warehouse to move <strong>{selectedItem?.bins?.length || 0}</strong> bin(s).
+              </Typography>
+              {selectedItem?.bins?.length > 0 && (
+                <Box sx={{ mt: 2, maxHeight: 200, overflow: 'auto' }}>
+                  <Typography variant="subtitle2" gutterBottom>Bins to Move:</Typography>
+                  <List dense>
+                    {selectedItem.bins.map(bin => (
+                      <ListItem key={bin.id}>
+                        <ListItemText 
+                          primary={bin.bin_id} 
+                          secondary={`Row ${bin.row}, Rack ${bin.rack}`} 
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              )}
+              <FormControl fullWidth sx={{ mt: 2 }}>
+                <InputLabel>Target Warehouse *</InputLabel>
+                <Select
+                  value={targetWarehouse}
+                  onChange={(e) => setTargetWarehouse(e.target.value)}
+                  label="Target Warehouse *"
+                >
+                  {warehouses
+                    .filter(w => w.id !== selectedItem?.id)
+                    .map(w => (
+                      <MenuItem key={w.id} value={w.id}>
+                        {w.name} (UID: {w.warehouse_uid})
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+            </>
+          )}
+
+          {deleteMode === 'delete' && (
+            <Alert severity="error">
+              <Typography>
+                <strong>WARNING:</strong> This will <strong>permanently delete</strong> the warehouse 
+                and all <strong>{selectedItem?.bins?.length || 0}</strong> bins inside it,
+                including all stock records. This action cannot be undone.
+              </Typography>
             </Alert>
           )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleDeleteClose}>Cancel</Button>
-          <Button 
-            onClick={handleDelete} 
-            color="error" 
-            variant="contained"
-            disabled={selectedItem?.total_bins > 0}
-          >
-            Delete
-          </Button>
+          {deleteMode === 'confirm' && (
+            <Button 
+              onClick={() => {
+                // Safe delete (no bins)
+                handleDeleteWithBins();
+              }}
+              color="error"
+              variant="contained"
+              disabled={selectedItem?.total_bins > 0}
+            >
+              Delete Warehouse
+            </Button>
+          )}
+          {deleteMode === 'move' && (
+            <>
+              <Button onClick={() => setDeleteMode('confirm')}>Back</Button>
+              <Button 
+                onClick={handleMoveBins}
+                variant="contained"
+                color="primary"
+                disabled={!targetWarehouse}
+              >
+                Move Bins & Delete Warehouse
+              </Button>
+            </>
+          )}
+          {deleteMode === 'delete' && (
+            <>
+              <Button onClick={() => setDeleteMode('confirm')}>Back</Button>
+              <Button 
+                onClick={handleDeleteWithBins}
+                color="error"
+                variant="contained"
+              >
+                Confirm Deletion
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </Container>

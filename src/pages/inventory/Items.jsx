@@ -14,14 +14,23 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import API from '../../api';
 import { useSearch } from '../../context/SearchContext';
+import { saveAs } from 'file-saver'; // Import saveAs
+
 
 // Expandable row component for Items
-function ItemRow({ item, onEdit, onDelete }) {
+function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
       <TableRow sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <TableCell padding="checkbox">
+          <input
+            type="checkbox"
+            checked={selectedItems.has(item.id)}
+            onChange={() => handleSelectItem(item.id)}
+          />
+        </TableCell>
         <TableCell>
           <IconButton
             aria-label="expand row"
@@ -36,9 +45,9 @@ function ItemRow({ item, onEdit, onDelete }) {
         </TableCell>
         <TableCell>{item.material_id}</TableCell>
         <TableCell>{item.name}</TableCell>
-        
         <TableCell>{item.part_number}</TableCell>
         <TableCell>{item.manufacturer}</TableCell>
+        <TableCell>{item.po_number || '—'}</TableCell>
         <TableCell>{item.batch || '—'}</TableCell>
         <TableCell>{item.total_quantity}</TableCell>
         <TableCell>{item.available_quantity}</TableCell>
@@ -66,7 +75,7 @@ function ItemRow({ item, onEdit, onDelete }) {
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={10}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={11}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ margin: 2 }}>
               <Typography variant="h6" gutterBottom component="div">
@@ -84,6 +93,9 @@ function ItemRow({ item, onEdit, onDelete }) {
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Contact:</strong> {item.contact || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>PO Number:</strong> {item.po_number || '—'}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Expiry Date:</strong> {item.expiry_date || '—'}</Typography>
@@ -147,14 +159,18 @@ export default function ItemMaster() {
     expiry_date: '',
     min_stock_level: '0',
     reserved_quantity: '0',
+    po_number: '',
     custom_fields: { Material: '', Grade: '' }
   });
   const [editId, setEditId] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [selectedItems, setSelectedItems] = useState(new Set());
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
   const [hasCreatePermission, setHasCreatePermission] = useState(false);
@@ -249,6 +265,7 @@ export default function ItemMaster() {
         expiry_date: item.expiry_date || '',
         min_stock_level: item.min_stock_level?.toString() || '0',
         reserved_quantity: item.reserved_quantity?.toString() || '0',
+        po_number: item.po_number || '',
         custom_fields: item.custom_fields || { Material: '', Grade: '' }
       } : {
         material_id: '',
@@ -261,6 +278,7 @@ export default function ItemMaster() {
         expiry_date: '',
         min_stock_level: '0',
         reserved_quantity: '0',
+        po_number: '',
         custom_fields: { Material: '', Grade: '' }
       });
       setEditId(item ? item.id : null);
@@ -283,6 +301,7 @@ export default function ItemMaster() {
       expiry_date: '',
       min_stock_level: '0',
       reserved_quantity: '0',
+      po_number: '',
       custom_fields: { Material: '', Grade: '' }
     });
     setEditId(null);
@@ -306,6 +325,112 @@ export default function ItemMaster() {
     setSuccess('');
   };
 
+  const handleSelectItem = (id) => {
+    setSelectedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      const allIds = new Set(items.map(item => item.id));
+      setSelectedItems(allIds);
+    } else {
+      setSelectedItems(new Set());
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const itemIds = Array.from(selectedItems);
+    const primaryUrl = 'inventory/items/bulk-delete/';
+    const altUrl = 'inventory/items/bulk-delete-alt/';
+    console.log('Bulk delete: Sending item_ids:', itemIds, 'to URL:', primaryUrl);
+    try {
+      const response = await API.post(primaryUrl, 
+        { item_ids: itemIds },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+      );
+      console.log('Bulk delete response:', response.data, 'URL:', primaryUrl);
+      const deletedCount = response.data.message ? parseInt(response.data.message.match(/\d+/)[0], 10) : 0;
+      if (deletedCount === 0) {
+        setError('No items were deleted. They may have stock records preventing deletion.');
+      } else {
+        setSuccess(`${deletedCount} items deleted successfully`);
+      }
+      setSelectedItems(new Set());
+      setBulkDeleteDialogOpen(false);
+      fetchItems();
+    } catch (err) {
+      console.error('Bulk delete error:', err.response?.data || err.message, 'URL:', primaryUrl);
+      let errorMsg = 'Failed to delete items';
+      if (err.response?.status === 405 || err.response?.status === 500) {
+        console.log('Retrying bulk delete with alternative endpoint:', altUrl);
+        try {
+          const retryResponse = await API.post(altUrl, 
+            { item_ids: itemIds },
+            { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+          );
+          console.log('Bulk delete retry response:', retryResponse.data, 'URL:', altUrl);
+          const deletedCount = retryResponse.data.message ? parseInt(retryResponse.data.message.match(/\d+/)[0], 10) : 0;
+          if (deletedCount === 0) {
+            setError('No items were deleted. They may have stock records preventing deletion.');
+          } else {
+            setSuccess(`${deletedCount} items deleted successfully`);
+          }
+          setSelectedItems(new Set());
+          setBulkDeleteDialogOpen(false);
+          fetchItems();
+          return;
+        } catch (retryErr) {
+          console.error('Bulk delete retry error:', retryErr.response?.data || retryErr.message, 'URL:', altUrl);
+          errorMsg = 'Bulk delete endpoint not found. Please contact the administrator to verify the server configuration.';
+        }
+      } else if (err.response?.status === 400) {
+        if (err.response.data.error?.includes('not found')) {
+          errorMsg = `Some items could not be deleted: ${err.response.data.error}`;
+        } else if (err.response.data.items_with_stock) {
+          errorMsg = `Cannot delete items with stock records: IDs ${err.response.data.items_with_stock.join(', ')}`;
+        } else {
+          errorMsg = err.response.data.error || 'Invalid request';
+        }
+      } else if (err.response?.status === 403) {
+        errorMsg = `Permission denied: ${err.response.data.detail || 'You lack permission.'}`;
+      } else {
+        errorMsg = `Operation failed: ${err.response?.data?.error || err.message}`;
+      }
+      setError(errorMsg);
+      // Keep dialog open to show error
+    }
+  };
+
+
+
+  const handleExportPDF = async () => {
+    try {
+      setLoading(true);
+      const response = await API.get('inventory/items/export-pdf/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        responseType: 'blob', // Important for binary PDF data
+      });
+      console.log('PDF export response:', response);
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      saveAs(blob, 'inventory_items_report.pdf');
+      setSuccess('PDF exported successfully');
+    } catch (err) {
+      console.error('PDF export error:', err.response?.data || err.message);
+      setError('Failed to export PDF');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name.startsWith('custom.')) {
@@ -320,7 +445,7 @@ export default function ItemMaster() {
   };
 
   const handleSave = async () => {
-    const { name, description, part_number, manufacturer, contact, min_stock_level, reserved_quantity, custom_fields } = formData;
+    const { name, description, part_number, manufacturer, contact, min_stock_level, reserved_quantity, po_number, custom_fields } = formData;
     if (!name || !description || !part_number || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
       setError('Please fill in all required fields.');
       return;
@@ -351,6 +476,7 @@ export default function ItemMaster() {
         expiry_date: formData.expiry_date || null,
         min_stock_level: Number(min_stock_level),
         reserved_quantity: Number(reserved_quantity),
+        po_number: po_number || null,
         custom_fields
       };
 
@@ -458,9 +584,9 @@ export default function ItemMaster() {
   };
 
   const downloadCSVTemplate = () => {
-    const template = `name,description,part_number,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity
-Sample Item,Sample Description,PN001,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0
-Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0`;
+    const template = `name,description,part_number,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number
+Sample Item,Sample Description,PN001,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0,PO12345
+Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0,PO67890`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -483,12 +609,12 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
-      {error && !openDialog && !openDeleteDialog && !importDialogOpen && (
+      {error && !openDialog && !openDeleteDialog && !importDialogOpen && !bulkDeleteDialogOpen && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
-      {success && !openDialog && !openDeleteDialog && !importDialogOpen && (
+      {success && !openDialog && !openDeleteDialog && !importDialogOpen && !bulkDeleteDialogOpen && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
           {success}
         </Alert>
@@ -524,6 +650,17 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()} disabled={!hasCreatePermission}>
             Add Item
           </Button>
+          {selectedItems.size > 0 && (
+            <Button
+              variant="outlined"
+              color="error"
+              onClick={() => setBulkDeleteDialogOpen(true)}
+              sx={{ ml: 2 }}
+              disabled={!hasDeletePermission}
+            >
+              Delete Selected ({selectedItems.size})
+            </Button>
+          )}
           <Button 
             variant="outlined" 
             startIcon={<UploadFileIcon />} 
@@ -534,9 +671,21 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
             Import CSV
           </Button>
         </Box>
+        <Box>
+        <Button
+        variant="contained"
+        color="primary"
+        onClick={handleExportPDF}
+        disabled={loading}
+        style={{ margin: '10px' }}
+      >
+        Export Items as PDF
+      </Button>
         <Button onClick={() => window.location.href = '/inventory/stock-in-out'} variant="outlined">
           Manage Stock
         </Button>
+        </Box>
+
       </Box>
 
       <Paper sx={{ p: 3 }}>
@@ -547,12 +696,20 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell padding="checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectedItems.size > 0 && selectedItems.size === items.length}
+                  onChange={handleSelectAll}
+                  disabled={items.length === 0}
+                />
+              </TableCell>
               <TableCell></TableCell>
               <TableCell><strong>Material ID</strong></TableCell>
               <TableCell><strong>Name</strong></TableCell>
-
               <TableCell><strong>Part Number</strong></TableCell>
               <TableCell><strong>Manufacturer</strong></TableCell>
+              <TableCell><strong>PO Number</strong></TableCell>
               <TableCell><strong>Batch</strong></TableCell>
               <TableCell><strong>Total Qty</strong></TableCell>
               <TableCell><strong>Available Qty</strong></TableCell>
@@ -566,10 +723,12 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
                 item={item} 
                 onEdit={handleOpenDialog}
                 onDelete={handleDeleteOpen}
+                selectedItems={selectedItems}
+                handleSelectItem={handleSelectItem}
               />
             )) : (
               <TableRow>
-                <TableCell colSpan={10} align="center">
+                <TableCell colSpan={11} align="center">
                   <Typography variant="body2" color="textSecondary">
                     No items found.
                   </Typography>
@@ -664,6 +823,16 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
                 onChange={handleChange}
                 fullWidth
                 required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="PO Number"
+                name="po_number"
+                value={formData.po_number}
+                onChange={handleChange}
+                fullWidth
+                placeholder="Purchase Order Number (optional)"
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -770,6 +939,27 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
         </DialogActions>
       </Dialog>
 
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={bulkDeleteDialogOpen} onClose={() => setBulkDeleteDialogOpen(false)}>
+        <DialogTitle>Confirm Bulk Delete</DialogTitle>
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          <Typography>
+            Are you sure you want to delete these {selectedItems.size} items? This will also delete all related stock-in and stock-out data.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleBulkDelete}>
+            Delete Selected
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* CSV Import Dialog */}
       <Dialog open={importDialogOpen} onClose={() => setImportDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
@@ -785,7 +975,7 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
             </Typography>
             <ul>
               <li>Required columns: <code>name</code>, <code>description</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
-              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code></li>
+              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code></li>
               <li>Note: <code>material_id</code> is auto-generated and should not be included in the CSV</li>
               <li>File must be UTF-8 encoded CSV</li>
               <li>Date format for expiry_date: YYYY-MM-DD</li>

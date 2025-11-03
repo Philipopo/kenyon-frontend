@@ -10,6 +10,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SyncIcon from '@mui/icons-material/Sync';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
 import StorageIcon from '@mui/icons-material/Storage';
 import InventoryIcon from '@mui/icons-material/Inventory';
@@ -37,7 +38,7 @@ const getUsageColor = (percentage) => {
 };
 
 // Expandable row component for bin details
-function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermission }) {
+function BinRow({ bin, onEdit, onDelete, onSync, onMoveBin, hasUpdatePermission, hasDeletePermission }) {
   const [open, setOpen] = useState(false);
   const usagePercentage = calculateUsagePercentage(bin.current_load || 0, bin.capacity);
   
@@ -106,6 +107,16 @@ function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermissio
           <IconButton 
             onClick={(e) => {
               e.stopPropagation();
+              onSync(bin.id);
+            }} 
+            color="primary"
+            disabled={!hasUpdatePermission}
+          >
+            <SyncIcon />
+          </IconButton>
+          <IconButton 
+            onClick={(e) => {
+              e.stopPropagation();
               onEdit(bin);
             }} 
             disabled={!hasUpdatePermission}
@@ -113,6 +124,17 @@ function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermissio
           >
             <EditIcon />
           </IconButton>
+          {hasUpdatePermission && (
+            <IconButton 
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveBin(bin);
+              }} 
+              color="info"
+            >
+              <WarehouseIcon />
+            </IconButton>
+          )}
           <IconButton 
             onClick={(e) => {
               e.stopPropagation();
@@ -135,6 +157,9 @@ function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermissio
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>ID:</strong> {bin.id}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Warehouse:</strong> {bin.warehouse_name} ({bin.warehouse?.warehouse_uid || '—'})</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Description:</strong> {bin.description || '—'}</Typography>
@@ -217,11 +242,15 @@ function BinRow({ bin, onEdit, onDelete, hasUpdatePermission, hasDeletePermissio
 
 export default function BinLocations() {
   const [bins, setBins] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [formData, setFormData] = useState({
+    warehouse: '', // ← NEW
     row: '', rack: '', shelf: '', type: '', capacity: '', description: '',
   });
+  const [moveBinData, setMoveBinData] = useState({ binId: null, warehouse: '' });
   const [openDialog, setOpenDialog] = useState(false);
+  const [openMoveDialog, setOpenMoveDialog] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
   const [editId, setEditId] = useState(null);
@@ -253,6 +282,20 @@ export default function BinLocations() {
     debouncedSetLocalSearch(value);
   }, [debouncedSetLocalSearch]);
 
+  // Fetch warehouses for dropdown
+  const fetchWarehouses = useCallback(async () => {
+    try {
+ 
+      const res = await API.get('inventory/warehouses/', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        params: { page_size: 1000 } // get all
+      });
+      setWarehouses(res.data.results || res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch warehouses:', err);
+    }
+  }, []);
+
   // Calculate warehouse statistics
   const warehouseStats = bins.reduce((stats, bin) => {
     stats.totalCapacity += bin.capacity || 0;
@@ -273,6 +316,7 @@ export default function BinLocations() {
     try {
       setLoading(true);
       const search = localSearch || searchTerm;
+      
       const res = await API.get('inventory/bins/', {
         params: { 
           search, 
@@ -323,6 +367,7 @@ export default function BinLocations() {
           setError(`⚠️ You do not have permission to view this page: ${pageRes.data.reason || 'No reason provided'}`);
         } else {
           fetchBins();
+          fetchWarehouses();
         }
       } catch (err) {
         console.error('Error checking permissions:', err.response?.data || err.message);
@@ -333,7 +378,7 @@ export default function BinLocations() {
       }
     };
     checkPermissions();
-  }, [fetchBins]);
+  }, [fetchBins, fetchWarehouses]);
 
   useEffect(() => {
     if (hasPermission) {
@@ -362,6 +407,7 @@ export default function BinLocations() {
     if (hasActionPermission) {
       if (bin) {
         setFormData({
+          warehouse: bin.warehouse?.id?.toString() || '',
           row: bin.row || '',
           rack: bin.rack || '',
           shelf: bin.shelf || '',
@@ -372,6 +418,7 @@ export default function BinLocations() {
         setEditId(bin.id);
       } else {
         setFormData({ 
+          warehouse: warehouses.length > 0 ? warehouses[0].id.toString() : '',
           row: '', 
           rack: '', 
           shelf: '', 
@@ -385,9 +432,53 @@ export default function BinLocations() {
     }
   };
 
+  const handleSyncBin = async (binId) => {
+    try {
+      
+      const res = await API.post(`inventory/bins/${binId}/sync/`, {}, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+      });
+      // Update bin in state
+      setBins(prev => prev.map(bin => 
+        bin.id === binId ? { ...bin, current_load: res.data.new_load } : bin
+      ));
+      setSuccess(`✅ Bin ${res.data.new_load === res.data.old_load ? 'already in sync' : 'synced successfully'}`);
+    } catch (err) {
+      setError(`❌ Sync failed: ${err.response?.data?.detail || err.message}`);
+    }
+  };
+
+  const handleMoveBinOpen = (bin) => {
+    if (!hasUpdatePermission) {
+      setError('⚠️ You do not have permission to move bins.');
+      return;
+    }
+    setMoveBinData({ binId: bin.id, warehouse: bin.warehouse?.id?.toString() || '' });
+    setOpenMoveDialog(true);
+  };
+
+  const handleMoveBinSubmit = async () => {
+    try {
+      // eslint-disable-next-line no-unused-vars
+      const res = await API.post(`inventory/bins/${moveBinData.binId}/move-to-warehouse/`, 
+        { warehouse_id: moveBinData.warehouse },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+      );
+      // Refresh bin list
+      fetchBins();
+      setOpenMoveDialog(false);
+      setSuccess('✅ Bin moved successfully');
+    } catch (err) {
+      setError(`❌ Move failed: ${err.response?.data?.error || err.message}`);
+    }
+  };
+
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setFormData({ row: '', rack: '', shelf: '', type: '', capacity: '', description: '' });
+    setFormData({ 
+      warehouse: warehouses.length > 0 ? warehouses[0].id.toString() : '',
+      row: '', rack: '', shelf: '', type: '', capacity: '', description: '' 
+    });
     setEditId(null);
     setError('');
     setSuccess('');
@@ -419,11 +510,15 @@ export default function BinLocations() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleMoveBinChange = (e) => {
+    setMoveBinData(prev => ({ ...prev, warehouse: e.target.value }));
+  };
+
   const handleFormSubmit = async () => {
-    const { row, rack, shelf, type, capacity, description } = formData;
+    const { warehouse, row, rack, shelf, type, capacity, description } = formData;
     
-    if (!row || !rack || !type || !capacity) {
-      setError('⚠️ Please fill in all required fields (Row, Rack, Type, Capacity).');
+    if (!warehouse || !row || !rack || !type || !capacity) {
+      setError('⚠️ Please fill in all required fields.');
       return;
     }
     
@@ -436,13 +531,14 @@ export default function BinLocations() {
     if (editId) {
       const existingBin = bins.find(b => b.id === editId);
       if (existingBin && numCapacity < (existingBin.current_load || 0)) {
-        setError(`⚠️ New capacity (${numCapacity}) cannot be less than current load (${existingBin.current_load || 0}).`);
+        setError(`⚠️ New capacity cannot be less than current load.`);
         return;
       }
     }
 
     const bin_id = editId ? bins.find(b => b.id === editId)?.bin_id : generateBinId(row, rack, shelf);
     const payload = {
+      warehouse: parseInt(warehouse),
       bin_id, 
       row, 
       rack, 
@@ -517,21 +613,21 @@ export default function BinLocations() {
   if (!hasPermission) {
     return (
       <Container>
-        <Alert severity="error" sx={{ mt: 4 }} onClose={() => setError('')}>
-          {error || '⚠️ You do not have permission to view this page.'}
-        </Alert>
-      </Container>
+      <Alert severity="error" sx={{ mt: 4 }} onClose={() => setError('')}>
+        {error || '⚠️ You do not have permission to view this page.'}
+      </Alert>
+    </Container>
     );
   }
 
   return (
     <Container sx={{ mt: 4 }}>
-      {error && !openDialog && !deleteOpen && (
+      {error && !openDialog && !deleteOpen && !openMoveDialog && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
-      {success && !openDialog && !deleteOpen && (
+      {success && !openDialog && !deleteOpen && !openMoveDialog && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
           {success}
         </Alert>
@@ -567,7 +663,8 @@ export default function BinLocations() {
           <ul>
             <li><strong>Create Bins:</strong> Add new storage locations with unique IDs</li>
             <li><strong>Track Capacity:</strong> Monitor usage with visual progress bars</li>
-            <li><strong>Organize by Location:</strong> Use Row-Rack-Shelf system for easy navigation</li>
+            <li><strong>Sync Bins:</strong> Reconcile bin quantity against actual stock</li>
+            <li><strong>Move Bins:</strong> Reassign bins to different warehouses</li>
             <li><strong>Smart Validations:</strong> Prevent errors with capacity and load checks</li>
           </ul>
 
@@ -575,7 +672,7 @@ export default function BinLocations() {
           <ul>
             <li>💡 Use consistent naming for rows and racks (e.g., A, B, C for rows; 1, 2, 3 for racks)</li>
             <li>💡 Set realistic capacity based on your storage needs</li>
-            <li>💡 Regularly review bin usage to optimize space</li>
+            <li>💡 Use <strong>Sync</strong> after manual DB changes</li>
             <li>💡 Empty bins before deleting them</li>
           </ul>
 
@@ -740,6 +837,8 @@ export default function BinLocations() {
                     bin={bin} 
                     onEdit={handleOpenDialog}
                     onDelete={handleDeleteOpen}
+                    onSync={handleSyncBin}
+                    onMoveBin={handleMoveBinOpen}
                     hasUpdatePermission={hasUpdatePermission}
                     hasDeletePermission={hasDeletePermission}
                   />
@@ -783,6 +882,23 @@ export default function BinLocations() {
           )}
           
           <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required>
+                <InputLabel>Warehouse *</InputLabel>
+                <Select
+                  name="warehouse"
+                  value={formData.warehouse}
+                  onChange={handleFormChange}
+                  label="Warehouse *"
+                >
+                  {warehouses.map((wh) => (
+                    <MenuItem key={wh.id} value={wh.id.toString()}>
+                      {wh.name} ({wh.warehouse_uid})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
             <Grid item xs={12} sm={4}>
               <TextField
                 fullWidth
@@ -890,6 +1006,38 @@ export default function BinLocations() {
           <Button onClick={handleCloseDialog}>Cancel</Button>
           <Button variant="contained" onClick={handleFormSubmit}>
             {editId ? 'Update Bin' : 'Create Bin'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Move Bin Dialog */}
+      <Dialog open={openMoveDialog} onClose={() => setOpenMoveDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Move Bin to Another Warehouse</DialogTitle>
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          <FormControl fullWidth required>
+            <InputLabel>Select New Warehouse</InputLabel>
+            <Select
+              value={moveBinData.warehouse}
+              onChange={handleMoveBinChange}
+              label="Select New Warehouse"
+            >
+              {warehouses.map((wh) => (
+                <MenuItem key={wh.id} value={wh.id.toString()}>
+                  {wh.name} ({wh.warehouse_uid})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenMoveDialog(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleMoveBinSubmit}>
+            Move Bin
           </Button>
         </DialogActions>
       </Dialog>
