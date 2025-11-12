@@ -46,6 +46,7 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
         <TableCell>{item.material_id}</TableCell>
         <TableCell>{item.name}</TableCell>
         <TableCell>{item.part_number}</TableCell>
+        <TableCell>{item.material_class}</TableCell>
         <TableCell>{item.manufacturer}</TableCell>
         <TableCell>{item.po_number || '—'}</TableCell>
         <TableCell>{item.batch || '—'}</TableCell>
@@ -153,6 +154,7 @@ export default function ItemMaster() {
     name: '',
     description: '',
     part_number: '',
+    material_class: '',
     manufacturer: '',
     contact: '',
     batch: '',
@@ -259,6 +261,7 @@ export default function ItemMaster() {
         name: item.name || '',
         description: item.description || '',
         part_number: item.part_number || '',
+        material_class: item.material_class || '',
         manufacturer: item.manufacturer || '',
         contact: item.contact || '',
         batch: item.batch || '',
@@ -272,6 +275,7 @@ export default function ItemMaster() {
         name: '',
         description: '',
         part_number: '',
+        material_class: '',
         manufacturer: '',
         contact: '',
         batch: '',
@@ -295,6 +299,7 @@ export default function ItemMaster() {
       name: '',
       description: '',
       part_number: '',
+      material_class: '',
       manufacturer: '',
       contact: '',
       batch: '',
@@ -445,8 +450,8 @@ export default function ItemMaster() {
   };
 
   const handleSave = async () => {
-    const { name, description, part_number, manufacturer, contact, min_stock_level, reserved_quantity, po_number, custom_fields } = formData;
-    if (!name || !description || !part_number || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
+    const { name, description, part_number, material_class, manufacturer, contact, min_stock_level, reserved_quantity, po_number, custom_fields } = formData;
+    if (!name || !description || !part_number || !material_class || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -470,6 +475,7 @@ export default function ItemMaster() {
         name,
         description,
         part_number,
+        material_class,
         manufacturer,
         contact,
         batch: formData.batch || null,
@@ -584,9 +590,9 @@ export default function ItemMaster() {
   };
 
   const downloadCSVTemplate = () => {
-    const template = `name,description,part_number,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number
-Sample Item,Sample Description,PN001,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0,PO12345
-Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0,PO67890`;
+    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number
+Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0,PO12345
+Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0,PO67890`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -708,6 +714,7 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
               <TableCell><strong>Material ID</strong></TableCell>
               <TableCell><strong>Name</strong></TableCell>
               <TableCell><strong>Part Number</strong></TableCell>
+              <TableCell><strong>Material Class</strong></TableCell>
               <TableCell><strong>Manufacturer</strong></TableCell>
               <TableCell><strong>PO Number</strong></TableCell>
               <TableCell><strong>Batch</strong></TableCell>
@@ -797,6 +804,16 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
+                label="Material Class *"
+                name="material_class"
+                value={formData.material_class}
+                onChange={handleChange}
+                fullWidth
+             
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
                 label="Part Number *"
                 name="part_number"
                 value={formData.part_number}
@@ -805,6 +822,7 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
                 required
               />
             </Grid>
+           
             <Grid item xs={12} sm={6}>
               <TextField
                 label="Manufacturer *"
@@ -894,7 +912,7 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
                 value={formData.custom_fields.Material}
                 onChange={handleChange}
                 fullWidth
-                required
+                
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -975,7 +993,7 @@ Another Item,Another Description,PN002,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard
             </Typography>
             <ul>
               <li>Required columns: <code>name</code>, <code>description</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
-              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code></li>
+              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code>, <code>material_class</code></li>
               <li>Note: <code>material_id</code> is auto-generated and should not be included in the CSV</li>
               <li>File must be UTF-8 encoded CSV</li>
               <li>Date format for expiry_date: YYYY-MM-DD</li>
