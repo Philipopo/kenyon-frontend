@@ -43,6 +43,7 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
             {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
           </IconButton>
         </TableCell>
+        <TableCell>{item.serial_number || '—'}</TableCell>
         <TableCell>{item.material_id}</TableCell>
         <TableCell>{item.name}</TableCell>
         <TableCell>{item.part_number}</TableCell>
@@ -76,7 +77,7 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={11}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={13}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ margin: 2 }}>
               <Typography variant="h6" gutterBottom component="div">
@@ -88,6 +89,9 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>ID:</strong> {item.id}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Serial Number:</strong> {item.serial_number || '—'}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Description:</strong> {item.description || '—'}</Typography>
@@ -162,6 +166,7 @@ export default function ItemMaster() {
     min_stock_level: '0',
     reserved_quantity: '0',
     po_number: '',
+    serial_number: '',
     custom_fields: { Material: '', Grade: '' }
   });
   const [editId, setEditId] = useState(null);
@@ -269,6 +274,7 @@ export default function ItemMaster() {
         min_stock_level: item.min_stock_level?.toString() || '0',
         reserved_quantity: item.reserved_quantity?.toString() || '0',
         po_number: item.po_number || '',
+        serial_number: item.serial_number || '',
         custom_fields: item.custom_fields || { Material: '', Grade: '' }
       } : {
         material_id: '',
@@ -283,6 +289,7 @@ export default function ItemMaster() {
         min_stock_level: '0',
         reserved_quantity: '0',
         po_number: '',
+        serial_number: '',
         custom_fields: { Material: '', Grade: '' }
       });
       setEditId(item ? item.id : null);
@@ -307,6 +314,7 @@ export default function ItemMaster() {
       min_stock_level: '0',
       reserved_quantity: '0',
       po_number: '',
+      serial_number: '',
       custom_fields: { Material: '', Grade: '' }
     });
     setEditId(null);
@@ -450,7 +458,7 @@ export default function ItemMaster() {
   };
 
   const handleSave = async () => {
-    const { name, description, part_number, material_class, manufacturer, contact, min_stock_level, reserved_quantity, po_number, custom_fields } = formData;
+    const { name, description, part_number, material_class, manufacturer, contact, min_stock_level, reserved_quantity, po_number, serial_number, custom_fields } = formData;
     if (!name || !description || !part_number || !material_class || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
       setError('Please fill in all required fields.');
       return;
@@ -483,6 +491,7 @@ export default function ItemMaster() {
         min_stock_level: Number(min_stock_level),
         reserved_quantity: Number(reserved_quantity),
         po_number: po_number || null,
+        serial_number: serial_number || null,
         custom_fields
       };
 
@@ -590,9 +599,9 @@ export default function ItemMaster() {
   };
 
   const downloadCSVTemplate = () => {
-    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number
-Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0,PO12345
-Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0,PO67890`;
+    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number,serial_number
+Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0,PO12345,SN12345
+Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0,PO67890,SN67890`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -711,6 +720,7 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
                 />
               </TableCell>
               <TableCell></TableCell>
+              <TableCell><strong>Serial Number</strong></TableCell>
               <TableCell><strong>Material ID</strong></TableCell>
               <TableCell><strong>Name</strong></TableCell>
               <TableCell><strong>Part Number</strong></TableCell>
@@ -735,7 +745,7 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
               />
             )) : (
               <TableRow>
-                <TableCell colSpan={11} align="center">
+                <TableCell colSpan={13} align="center">
                   <Typography variant="body2" color="textSecondary">
                     No items found.
                   </Typography>
@@ -851,6 +861,16 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
                 onChange={handleChange}
                 fullWidth
                 placeholder="Purchase Order Number (optional)"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Serial Number"
+                name="serial_number"
+                value={formData.serial_number}
+                onChange={handleChange}
+                fullWidth
+                placeholder="Optional serial number"
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -993,7 +1013,7 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
             </Typography>
             <ul>
               <li>Required columns: <code>name</code>, <code>description</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
-              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code>, <code>material_class</code></li>
+              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code>, <code>serial_number</code>, <code>material_class</code></li>
               <li>Note: <code>material_id</code> is auto-generated and should not be included in the CSV</li>
               <li>File must be UTF-8 encoded CSV</li>
               <li>Date format for expiry_date: YYYY-MM-DD</li>
