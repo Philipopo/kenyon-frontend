@@ -43,9 +43,9 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
             {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
           </IconButton>
         </TableCell>
+        <TableCell>{item.name}</TableCell>
         <TableCell>{item.serial_number || '—'}</TableCell>
         <TableCell>{item.material_id}</TableCell>
-        <TableCell>{item.name}</TableCell>
         <TableCell>{item.part_number}</TableCell>
         <TableCell>{item.material_class}</TableCell>
         <TableCell>{item.manufacturer}</TableCell>
@@ -112,6 +112,15 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
                   <Typography><strong>Reserved Quantity:</strong> {item.reserved_quantity}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
+                  <Typography><strong>Naira Cost:</strong> {item.naira_cost || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Dollar Cost:</strong> {item.dollar_cost || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Manufacturing Date:</strong> {item.manufacturing_date || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <Typography><strong>Material:</strong> {item.custom_fields?.Material || '—'}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -167,6 +176,9 @@ export default function ItemMaster() {
     reserved_quantity: '0',
     po_number: '',
     serial_number: '',
+    naira_cost: '',
+    dollar_cost: '',
+    manufacturing_date: '',
     custom_fields: { Material: '', Grade: '' }
   });
   const [editId, setEditId] = useState(null);
@@ -196,7 +208,9 @@ export default function ItemMaster() {
         params: { search: searchTerm, page, page_size: itemsPerPage },
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
       });
-      setItems(res.data.results || []);
+      // Sort alphabetically by name on frontend
+      const sortedItems = res.data.results.sort((a, b) => a.name.localeCompare(b.name));
+      setItems(sortedItems || []);
       setTotalPages(Math.ceil(res.data.count / itemsPerPage));
       setError('');
     } catch (err) {
@@ -275,6 +289,9 @@ export default function ItemMaster() {
         reserved_quantity: item.reserved_quantity?.toString() || '0',
         po_number: item.po_number || '',
         serial_number: item.serial_number || '',
+        naira_cost: item.naira_cost?.toString() || '',
+        dollar_cost: item.dollar_cost?.toString() || '',
+        manufacturing_date: item.manufacturing_date || '',
         custom_fields: item.custom_fields || { Material: '', Grade: '' }
       } : {
         material_id: '',
@@ -290,6 +307,9 @@ export default function ItemMaster() {
         reserved_quantity: '0',
         po_number: '',
         serial_number: '',
+        naira_cost: '',
+        dollar_cost: '',
+        manufacturing_date: '',
         custom_fields: { Material: '', Grade: '' }
       });
       setEditId(item ? item.id : null);
@@ -315,6 +335,9 @@ export default function ItemMaster() {
       reserved_quantity: '0',
       po_number: '',
       serial_number: '',
+      naira_cost: '',
+      dollar_cost: '',
+      manufacturing_date: '',
       custom_fields: { Material: '', Grade: '' }
     });
     setEditId(null);
@@ -458,7 +481,7 @@ export default function ItemMaster() {
   };
 
   const handleSave = async () => {
-    const { name, description, part_number, material_class, manufacturer, contact, min_stock_level, reserved_quantity, po_number, serial_number, custom_fields } = formData;
+    const { name, description, part_number, material_class, manufacturer, contact, min_stock_level, reserved_quantity, po_number, serial_number, naira_cost, dollar_cost, manufacturing_date, custom_fields } = formData;
     if (!name || !description || !part_number || !material_class || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
       setError('Please fill in all required fields.');
       return;
@@ -492,6 +515,9 @@ export default function ItemMaster() {
         reserved_quantity: Number(reserved_quantity),
         po_number: po_number || null,
         serial_number: serial_number || null,
+        naira_cost: naira_cost ? Number(naira_cost) : null,
+        dollar_cost: dollar_cost ? Number(dollar_cost) : null,
+        manufacturing_date: manufacturing_date || null,
         custom_fields
       };
 
@@ -599,9 +625,9 @@ export default function ItemMaster() {
   };
 
   const downloadCSVTemplate = () => {
-    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number,serial_number
-Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,2025-12-31,10,0,PO12345,SN12345
-Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,2026-06-30,5,0,PO67890,SN67890`;
+    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number,serial_number,naira_cost,dollar_cost,manufacturing_date
+Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,31/12/2025,10,0,PO12345,SN12345,5000.00,100.00,01/01/2024
+Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,30/06/2026,5,0,PO67890,SN67890,3000.00,60.00,15/03/2023`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -720,9 +746,9 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
                 />
               </TableCell>
               <TableCell></TableCell>
+              <TableCell><strong>Name</strong></TableCell>
               <TableCell><strong>Serial Number</strong></TableCell>
               <TableCell><strong>Material ID</strong></TableCell>
-              <TableCell><strong>Name</strong></TableCell>
               <TableCell><strong>Part Number</strong></TableCell>
               <TableCell><strong>Material Class</strong></TableCell>
               <TableCell><strong>Manufacturer</strong></TableCell>
@@ -875,6 +901,39 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
+                label="Naira Cost"
+                name="naira_cost"
+                value={formData.naira_cost}
+                onChange={handleChange}
+                fullWidth
+                placeholder="Optional naira cost"
+                type="number"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Dollar Cost"
+                name="dollar_cost"
+                value={formData.dollar_cost}
+                onChange={handleChange}
+                fullWidth
+                placeholder="Optional dollar cost"
+                type="number"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Manufacturing Date"
+                name="manufacturing_date"
+                type="date"
+                value={formData.manufacturing_date}
+                onChange={handleChange}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
                 label="Batch"
                 name="batch"
                 value={formData.batch}
@@ -1013,10 +1072,10 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
             </Typography>
             <ul>
               <li>Required columns: <code>name</code>, <code>description</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
-              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code>, <code>serial_number</code>, <code>material_class</code></li>
+              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code>, <code>serial_number</code>, <code>naira_cost</code>, <code>dollar_cost</code>, <code>manufacturing_date</code>, <code>material_class</code></li>
               <li>Note: <code>material_id</code> is auto-generated and should not be included in the CSV</li>
               <li>File must be UTF-8 encoded CSV</li>
-              <li>Date format for expiry_date: YYYY-MM-DD</li>
+              <li>Date format for expiry_date and manufacturing_date: DD/MM/YYYY or YYYY-MM-DD</li>
             </ul>
           </Alert>
           <Button 
