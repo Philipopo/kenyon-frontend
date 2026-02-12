@@ -52,7 +52,6 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
         <TableCell>{item.po_number || '—'}</TableCell>
         <TableCell>{item.batch || '—'}</TableCell>
         <TableCell>{item.total_quantity}</TableCell>
-        <TableCell>{item.available_quantity}</TableCell>
         <TableCell>
           <IconButton 
             onClick={(e) => {
@@ -112,10 +111,13 @@ function ItemRow({ item, onEdit, onDelete, selectedItems, handleSelectItem }) {
                   <Typography><strong>Reserved Quantity:</strong> {item.reserved_quantity}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Typography><strong>Naira Cost:</strong> {item.naira_cost || '—'}</Typography>
+                  <Typography><strong>Naira Cost:</strong> ₦{item.naira_cost || '—'}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Typography><strong>Dollar Cost:</strong> {item.dollar_cost || '—'}</Typography>
+                  <Typography><strong>Dollar Cost:</strong> ${item.dollar_cost || '—'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography><strong>Weight:</strong> {item.weight || '—'}kg</Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography><strong>Manufacturing Date:</strong> {item.manufacturing_date || '—'}</Typography>
@@ -177,6 +179,7 @@ export default function ItemMaster() {
     po_number: '',
     serial_number: '',
     naira_cost: '',
+    weight: '',
     dollar_cost: '',
     manufacturing_date: '',
     custom_fields: { Material: '', Grade: '' }
@@ -290,6 +293,7 @@ export default function ItemMaster() {
         po_number: item.po_number || '',
         serial_number: item.serial_number || '',
         naira_cost: item.naira_cost?.toString() || '',
+        weight: item.weight?.toString() || '',
         dollar_cost: item.dollar_cost?.toString() || '',
         manufacturing_date: item.manufacturing_date || '',
         custom_fields: item.custom_fields || { Material: '', Grade: '' }
@@ -308,6 +312,7 @@ export default function ItemMaster() {
         po_number: '',
         serial_number: '',
         naira_cost: '',
+        weight: '',
         dollar_cost: '',
         manufacturing_date: '',
         custom_fields: { Material: '', Grade: '' }
@@ -336,6 +341,7 @@ export default function ItemMaster() {
       po_number: '',
       serial_number: '',
       naira_cost: '',
+      weight: '',
       dollar_cost: '',
       manufacturing_date: '',
       custom_fields: { Material: '', Grade: '' }
@@ -481,7 +487,7 @@ export default function ItemMaster() {
   };
 
   const handleSave = async () => {
-    const { name, description, part_number, material_class, manufacturer, contact, min_stock_level, reserved_quantity, po_number, serial_number, naira_cost, dollar_cost, manufacturing_date, custom_fields } = formData;
+    const { name, description, part_number, material_class, manufacturer, contact, min_stock_level, reserved_quantity, po_number, serial_number, naira_cost, weight, dollar_cost, manufacturing_date, custom_fields } = formData;
     if (!name || !description || !part_number || !material_class || !manufacturer || !contact || !custom_fields.Material || !custom_fields.Grade) {
       setError('Please fill in all required fields.');
       return;
@@ -516,6 +522,7 @@ export default function ItemMaster() {
         po_number: po_number || null,
         serial_number: serial_number || null,
         naira_cost: naira_cost ? Number(naira_cost) : null,
+        weight: weight ? Number(weight) : null,
         dollar_cost: dollar_cost ? Number(dollar_cost) : null,
         manufacturing_date: manufacturing_date || null,
         custom_fields
@@ -625,9 +632,9 @@ export default function ItemMaster() {
   };
 
   const downloadCSVTemplate = () => {
-    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,po_number,serial_number,naira_cost,dollar_cost,manufacturing_date,initial_quantity
-Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,31/12/2025,10,PO12345,SN12345,5000.00,100.00,01/01/2024,50
-Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,30/06/2026,5,PO67890,SN67890,3000.00,60.00,15/03/2023,20`;
+    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,po_number,serial_number,naira_cost,weight,dollar_cost,manufacturing_date,initial_quantity
+Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,31/12/2025,10,PO12345,SN12345,5000.00,50,100.00,01/01/2024,50
+Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,30/06/2026,5,PO67890,SN67890,3000.00,30,60.00,15/03/2023,20`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -755,7 +762,7 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
               <TableCell><strong>PO Number</strong></TableCell>
               <TableCell><strong>Batch</strong></TableCell>
               <TableCell><strong>Total Qty</strong></TableCell>
-              <TableCell><strong>Available Qty</strong></TableCell>
+ 
               <TableCell><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
@@ -923,6 +930,17 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
+                label="weight"
+                name="weight"
+                value={formData.weight}
+                onChange={handleChange}
+                fullWidth
+                placeholder="Weight in KG"
+                type="number"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
                 label="Manufacturing Date"
                 name="manufacturing_date"
                 type="date"
@@ -1072,7 +1090,7 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
             </Typography>
             <ul>
               <li>Required columns: <code>name</code>, <code>description</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
-              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>po_number</code>, <code>serial_number</code>, <code>naira_cost</code>, <code>dollar_cost</code>, <code>manufacturing_date</code>, <code>material_class</code>, <code>initial_quantity</code></li>
+              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>po_number</code>, <code>serial_number</code>, <code>naira_cost</code>, <code>weight</code>, <code>dollar_cost</code>, <code>manufacturing_date</code>, <code>material_class</code>, <code>initial_quantity</code></li>
               <li>Note: <code>material_id</code> is auto-generated and should not be included in the CSV</li>
               <li>File must be UTF-8 encoded CSV</li>
               <li>Date format for expiry_date and manufacturing_date: DD/MM/YYYY or YYYY-MM-DD</li>
