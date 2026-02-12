@@ -625,9 +625,9 @@ export default function ItemMaster() {
   };
 
   const downloadCSVTemplate = () => {
-    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,reserved_quantity,po_number,serial_number,naira_cost,dollar_cost,manufacturing_date
-Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,31/12/2025,10,0,PO12345,SN12345,5000.00,100.00,01/01/2024
-Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,30/06/2026,5,0,PO67890,SN67890,3000.00,60.00,15/03/2023`;
+    const template = `name,description,part_number,material_class,manufacturer,contact,material,grade,batch,expiry_date,min_stock_level,po_number,serial_number,naira_cost,dollar_cost,manufacturing_date,initial_quantity
+Sample Item,Sample Description,PN001,Gold pack,ABC Corp,john@abccorp.com,Steel,Prime,BATCH001,31/12/2025,10,PO12345,SN12345,5000.00,100.00,01/01/2024,50
+Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Aluminum,Standard,BATCH002,30/06/2026,5,PO67890,SN67890,3000.00,60.00,15/03/2023,20`;
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1072,7 +1072,7 @@ Another Item,Another Description,PN002,Silver pack,XYZ Ltd,jane@xyzltd.com,Alumi
             </Typography>
             <ul>
               <li>Required columns: <code>name</code>, <code>description</code>, <code>part_number</code>, <code>manufacturer</code>, <code>contact</code>, <code>material</code>, <code>grade</code></li>
-              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>reserved_quantity</code>, <code>po_number</code>, <code>serial_number</code>, <code>naira_cost</code>, <code>dollar_cost</code>, <code>manufacturing_date</code>, <code>material_class</code></li>
+              <li>Optional columns: <code>batch</code>, <code>expiry_date</code>, <code>min_stock_level</code>, <code>po_number</code>, <code>serial_number</code>, <code>naira_cost</code>, <code>dollar_cost</code>, <code>manufacturing_date</code>, <code>material_class</code>, <code>initial_quantity</code></li>
               <li>Note: <code>material_id</code> is auto-generated and should not be included in the CSV</li>
               <li>File must be UTF-8 encoded CSV</li>
               <li>Date format for expiry_date and manufacturing_date: DD/MM/YYYY or YYYY-MM-DD</li>
